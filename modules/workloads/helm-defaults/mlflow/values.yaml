@@ -1,0 +1,35 @@
+# Values for the community-charts/mlflow chart: external Postgres backend store,
+# S3 artifact root, and an IRSA-annotated service account for bucket access.
+
+serviceAccount:
+  create: true
+  name: ${service_account_name}
+  annotations:
+    eks.amazonaws.com/role-arn: ${irsa_role_arn}
+
+backendStore:
+  postgres:
+    enabled: true
+    host: "${db_host}"
+    port: 5432
+    database: "${db_name}"
+    user: ""
+    password: ""
+  # Credentials come from the module-managed secret.
+  existingSecret: ${db_secret_name}
+  existingSecretKeys:
+    username: username
+    password: password
+
+artifactRoot:
+  proxiedArtifactStorage: true
+  s3:
+    enabled: true
+    bucket: "${artifact_bucket}"
+
+service:
+  type: ClusterIP
+  port: 80
+
+extraEnvVars:
+  MLFLOW_S3_IGNORE_TLS: "false"

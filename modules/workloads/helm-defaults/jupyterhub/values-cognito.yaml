@@ -1,0 +1,29 @@
+# JupyterHub with a generic OIDC authenticator (Amazon Cognito shown as one
+# example). Supply the issuer/client details via a caller override values file
+# or by extending this template; the placeholders below document the shape.
+hub:
+  config:
+    JupyterHub:
+      authenticator_class: generic-oauth
+    GenericOAuthenticator:
+      # Fill these in via a caller override (do not commit real secrets):
+      #   client_id, client_secret, oauth_callback_url,
+      #   authorize_url, token_url, userdata_url, scope
+      login_service: "OIDC"
+
+singleuser:
+  serviceAccountName: ${jupyter_single_user_sa_name}
+%{ if singleuser_image != "" ~}
+  image:
+    name: "${split(":", singleuser_image)[0]}"
+    tag: "${try(split(":", singleuser_image)[1], "latest")}"
+%{ endif ~}
+  storage:
+    type: none
+
+proxy:
+  service:
+    type: ClusterIP
+
+# NOTE: ${password} is intentionally unused for OIDC auth (kept so both auth
+# templates accept the same variable set).

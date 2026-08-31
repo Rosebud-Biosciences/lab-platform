@@ -1,0 +1,22 @@
+# JupyterHub with dummy (shared-password) auth. For real deployments switch to
+# jupyterhub_auth_mechanism = "cognito" (or add your own OAuth values file).
+hub:
+  config:
+    JupyterHub:
+      authenticator_class: dummy
+    DummyAuthenticator:
+      password: "${password}"
+
+singleuser:
+  serviceAccountName: ${jupyter_single_user_sa_name}
+%{ if singleuser_image != "" ~}
+  image:
+    name: "${split(":", singleuser_image)[0]}"
+    tag: "${try(split(":", singleuser_image)[1], "latest")}"
+%{ endif ~}
+  storage:
+    type: none
+
+proxy:
+  service:
+    type: ClusterIP

@@ -1,0 +1,49 @@
+# Values for the official dagster/dagster chart, wired to an external Postgres
+# and the IRSA-backed service account created by the module.
+
+global:
+  serviceAccountName: ${service_account_name}
+
+serviceAccount:
+  create: false
+  name: ${service_account_name}
+
+# External Postgres (the module/caller owns the database).
+postgresql:
+  enabled: false
+  postgresqlHost: "${db_host}"
+  postgresqlUsername: "${db_user}"
+  postgresqlDatabase: "${db_name}"
+  postgresqlPassword: ""
+  postgresqlParams: {}
+  # Password comes from the module-managed secret.
+  postgresqlSecretName: ${db_password_secret_name}
+
+generatePostgresqlPasswordSecret: false
+
+runLauncher:
+  type: K8sRunLauncher
+  config:
+    k8sRunLauncher:
+      serviceAccountName: ${service_account_name}
+
+%{ if user_code_image != "" ~}
+dagster-user-deployments:
+  enabled: true
+  deployments:
+    - name: user-code
+      image:
+        repository: "${split(":", user_code_image)[0]}"
+        tag: "${try(split(":", user_code_image)[1], "latest")}"
+        pullPolicy: IfNotPresent
+      dagsterApiGrpcArgs:
+        - "--python-file"
+        - "/opt/dagster/app/repo.py"
+      port: 3030
+      serviceAccountName: ${service_account_name}
+%{ else ~}
+# No user-code image supplied: the chart's built-in example user deployment is
+# used. Set var.dagster_user_code_image to run your own code location.
+dagster-user-deployments:
+  enabled: true
+%{ endif ~}

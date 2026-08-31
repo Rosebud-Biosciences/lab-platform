@@ -1,0 +1,33 @@
+# Values for the kuberay ray-cluster chart. A single-group CPU cluster with the
+# workload service account; add GPU groups as needed for your pipelines.
+image:
+  repository: ${image_repo}
+  tag: ${image_tag}
+
+head:
+  serviceAccountName: ${ray_single_user_sa_name}
+  rayVersion: ${ray_version}
+  resources:
+    requests:
+      cpu: "1"
+      memory: "2Gi"
+    limits:
+      cpu: "2"
+      memory: "4Gi"
+
+worker:
+  groupName: cpu-workers
+  replicas: 0
+  minReplicas: 0
+  maxReplicas: 10
+  serviceAccountName: ${ray_single_user_sa_name}
+  resources:
+    requests:
+      cpu: "1"
+      memory: "2Gi"
+    limits:
+      cpu: "2"
+      memory: "4Gi"
+
+# GPU worker group image is available via ${gpu_image_repo}:${gpu_image_tag} for
+# callers that add an additionalWorkerGroups entry.
