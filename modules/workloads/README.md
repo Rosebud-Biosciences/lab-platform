@@ -57,6 +57,7 @@ limits. Providers point at the target cluster and are configured by the caller.
 | Name | Type |
 |------|------|
 | [aws_efs_file_system.jupyterhub](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/efs_file_system) | resource |
+| [aws_efs_file_system.jupyterhub_ephemeral](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/efs_file_system) | resource |
 | [aws_efs_mount_target.jupyterhub](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/efs_mount_target) | resource |
 | [aws_iam_policy.ecr_read](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/iam_policy) | resource |
 | [aws_iam_policy.mlflow_s3](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/iam_policy) | resource |
@@ -133,9 +134,12 @@ limits. Providers point at the target cluster and are configured by the caller.
 | <a name="input_enable_webapp_public_ingress"></a> [enable\_webapp\_public\_ingress](#input\_enable\_webapp\_public\_ingress) | Create an internet-facing ALB Ingress for the webapp (plus HPA, PodDisruptionBudget, and optional Route53 alias). Requires the AWS Load Balancer Controller. | `bool` | `false` | no |
 | <a name="input_enable_webapp_waf"></a> [enable\_webapp\_waf](#input\_enable\_webapp\_waf) | Attach a WAFv2 web ACL (AWS managed common rules + a per-IP rate limit) to the public ALB | `bool` | `false` | no |
 | <a name="input_environment"></a> [environment](#input\_environment) | Environment name (prod / dev / preview) | `string` | `"dev"` | no |
-| <a name="input_jupyterhub_auth_mechanism"></a> [jupyterhub\_auth\_mechanism](#input\_jupyterhub\_auth\_mechanism) | JupyterHub authentication mechanism ('dummy' or 'cognito') | `string` | `"dummy"` | no |
+| <a name="input_jupyterhub_admin_users"></a> [jupyterhub\_admin\_users](#input\_jupyterhub\_admin\_users) | JupyterHub usernames granted admin rights | `list(string)` | `[]` | no |
+| <a name="input_jupyterhub_allowed_users"></a> [jupyterhub\_allowed\_users](#input\_jupyterhub\_allowed\_users) | JupyterHub usernames allowed to log in. Empty allows any authenticated username (allow\_all). | `list(string)` | `[]` | no |
+| <a name="input_jupyterhub_auth_mechanism"></a> [jupyterhub\_auth\_mechanism](#input\_jupyterhub\_auth\_mechanism) | JupyterHub authentication: 'dummy' (shared password), 'firstuse' (each user sets their own password at first login), or 'cognito' (generic OIDC) | `string` | `"dummy"` | no |
 | <a name="input_jupyterhub_chart_version"></a> [jupyterhub\_chart\_version](#input\_jupyterhub\_chart\_version) | JupyterHub Helm chart version | `string` | `"3.3.8"` | no |
-| <a name="input_jupyterhub_efs_prevent_destroy"></a> [jupyterhub\_efs\_prevent\_destroy](#input\_jupyterhub\_efs\_prevent\_destroy) | Reserved for callers that want to protect the JupyterHub EFS filesystem (documentation only; lifecycle.prevent\_destroy must be literal) | `bool` | `true` | no |
+| <a name="input_jupyterhub_efs_prevent_destroy"></a> [jupyterhub\_efs\_prevent\_destroy](#input\_jupyterhub\_efs\_prevent\_destroy) | Protect the JupyterHub EFS filesystem (user home directories) from<br/>`terraform destroy` via lifecycle.prevent\_destroy. Because prevent\_destroy<br/>must be a literal, the module keeps two mutually exclusive filesystem<br/>resources and this flag selects which exists — CHANGING IT ON A LIVE<br/>DEPLOYMENT REPLACES THE FILESYSTEM AND LOSES ITS DATA. Leave true for<br/>durable environments; set false only for previews/ephemeral stamps. | `bool` | `true` | no |
+| <a name="input_jupyterhub_extra_values"></a> [jupyterhub\_extra\_values](#input\_jupyterhub\_extra\_values) | Additional YAML documents merged into the JupyterHub Helm values after the built-in template (highest precedence). Use for profiles, lifecycle hooks, resource limits, etc. | `list(string)` | `[]` | no |
 | <a name="input_jupyterhub_ingress_scheme"></a> [jupyterhub\_ingress\_scheme](#input\_jupyterhub\_ingress\_scheme) | ALB scheme for the JupyterHub ingress ('internal' or 'internet-facing') | `string` | `"internal"` | no |
 | <a name="input_jupyterhub_public_host"></a> [jupyterhub\_public\_host](#input\_jupyterhub\_public\_host) | Hostname for the JupyterHub ALB ingress. Empty skips the ingress/DNS. | `string` | `""` | no |
 | <a name="input_jupyterhub_route53_zone_id"></a> [jupyterhub\_route53\_zone\_id](#input\_jupyterhub\_route53\_zone\_id) | Route53 hosted zone id for jupyterhub\_public\_host. Empty skips the alias record. | `string` | `""` | no |
@@ -197,6 +201,7 @@ limits. Providers point at the target cluster and are configured by the caller.
 |------|-------------|
 | <a name="output_dagster_namespace"></a> [dagster\_namespace](#output\_dagster\_namespace) | Dagster namespace (if enabled) |
 | <a name="output_dagster_private_url"></a> [dagster\_private\_url](#output\_dagster\_private\_url) | Private URL for Dagit (if the private ingress + DNS suffix are set) |
+| <a name="output_jupyterhub_efs_id"></a> [jupyterhub\_efs\_id](#output\_jupyterhub\_efs\_id) | EFS filesystem id holding JupyterHub per-user home and shared directories (if enabled) — the module's only persistent user data; point AWS Backup here |
 | <a name="output_jupyterhub_namespace"></a> [jupyterhub\_namespace](#output\_jupyterhub\_namespace) | JupyterHub namespace (if enabled) |
 | <a name="output_mlflow_namespace"></a> [mlflow\_namespace](#output\_mlflow\_namespace) | MLflow namespace (if enabled) |
 | <a name="output_mlflow_private_url"></a> [mlflow\_private\_url](#output\_mlflow\_private\_url) | Private URL for the MLflow UI |

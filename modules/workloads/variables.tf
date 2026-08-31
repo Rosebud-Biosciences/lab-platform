@@ -350,13 +350,13 @@ variable "jupyterhub_chart_version" {
 }
 
 variable "jupyterhub_auth_mechanism" {
-  description = "JupyterHub authentication mechanism ('dummy' or 'cognito')"
+  description = "JupyterHub authentication: 'dummy' (shared password), 'firstuse' (each user sets their own password at first login), or 'cognito' (generic OIDC)"
   type        = string
   default     = "dummy"
 
   validation {
-    condition     = contains(["dummy", "cognito"], var.jupyterhub_auth_mechanism)
-    error_message = "jupyterhub_auth_mechanism must be 'dummy' or 'cognito'."
+    condition     = contains(["dummy", "firstuse", "cognito"], var.jupyterhub_auth_mechanism)
+    error_message = "jupyterhub_auth_mechanism must be 'dummy', 'firstuse', or 'cognito'."
   }
 }
 
@@ -365,6 +365,24 @@ variable "jupyterhub_user_password" {
   type        = string
   default     = ""
   sensitive   = true
+}
+
+variable "jupyterhub_admin_users" {
+  description = "JupyterHub usernames granted admin rights"
+  type        = list(string)
+  default     = []
+}
+
+variable "jupyterhub_allowed_users" {
+  description = "JupyterHub usernames allowed to log in. Empty allows any authenticated username (allow_all)."
+  type        = list(string)
+  default     = []
+}
+
+variable "jupyterhub_extra_values" {
+  description = "Additional YAML documents merged into the JupyterHub Helm values after the built-in template (highest precedence). Use for profiles, lifecycle hooks, resource limits, etc."
+  type        = list(string)
+  default     = []
 }
 
 variable "jupyterhub_singleuser_image" {
@@ -392,7 +410,14 @@ variable "jupyterhub_route53_zone_id" {
 }
 
 variable "jupyterhub_efs_prevent_destroy" {
-  description = "Reserved for callers that want to protect the JupyterHub EFS filesystem (documentation only; lifecycle.prevent_destroy must be literal)"
+  description = <<-EOT
+    Protect the JupyterHub EFS filesystem (user home directories) from
+    `terraform destroy` via lifecycle.prevent_destroy. Because prevent_destroy
+    must be a literal, the module keeps two mutually exclusive filesystem
+    resources and this flag selects which exists — CHANGING IT ON A LIVE
+    DEPLOYMENT REPLACES THE FILESYSTEM AND LOSES ITS DATA. Leave true for
+    durable environments; set false only for previews/ephemeral stamps.
+  EOT
   type        = bool
   default     = true
 }

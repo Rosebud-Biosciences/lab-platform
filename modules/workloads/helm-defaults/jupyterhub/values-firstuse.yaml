@@ -1,18 +1,18 @@
-# JupyterHub with a generic OIDC authenticator (Amazon Cognito shown as one
-# example). Supply the issuer/client details via jupyterhub_extra_values or a
-# caller override values file; the placeholders below document the shape.
+# JupyterHub with per-user logins and no external identity provider: each user
+# sets their own password the first time they log in (FirstUseAuthenticator,
+# bundled in the z2jh hub image; passwords persist on the hub's PVC). Pair with
+# allowed_users so only known usernames can claim an account.
 hub:
   config:
     JupyterHub:
-      authenticator_class: generic-oauth
-    GenericOAuthenticator:
-      # Fill these in via a caller override (do not commit real secrets):
-      #   client_id, client_secret, oauth_callback_url,
-      #   authorize_url, token_url, userdata_url, scope
-      login_service: "OIDC"
+      authenticator_class: firstuseauthenticator.FirstUseAuthenticator
+    FirstUseAuthenticator:
+      min_password_length: 8
     Authenticator:
       admin_users: ${admin_users}
 %{ if allow_all ~}
+      # No allow list supplied: any username may claim itself on first login.
+      # Set jupyterhub_allowed_users for anything beyond a demo.
       allow_all: true
 %{ else ~}
       allowed_users: ${allowed_users}
@@ -57,5 +57,5 @@ proxy:
   service:
     type: ClusterIP
 
-# NOTE: ${password} is intentionally unused for OIDC auth (kept so all auth
+# NOTE: ${password} is intentionally unused for firstuse auth (kept so all auth
 # templates accept the same variable set).

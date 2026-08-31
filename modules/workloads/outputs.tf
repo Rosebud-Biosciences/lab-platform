@@ -27,6 +27,11 @@ output "jupyterhub_namespace" {
   value       = var.enable_jupyterhub ? kubernetes_namespace_v1.jupyterhub[0].metadata[0].name : null
 }
 
+output "jupyterhub_efs_id" {
+  description = "EFS filesystem id holding JupyterHub per-user home and shared directories (if enabled) — the module's only persistent user data; point AWS Backup here"
+  value       = var.enable_jupyterhub ? local.jupyterhub_efs.id : null
+}
+
 output "dagster_private_url" {
   description = "Private URL for Dagit (if the private ingress + DNS suffix are set)"
   value       = var.enable_private_ingress && local.enable_dagster ? "https://${local.private_dagster_host}.${local.private_dns_suffix}" : null

@@ -1,11 +1,20 @@
-# JupyterHub with dummy (shared-password) auth. For real deployments switch to
-# jupyterhub_auth_mechanism = "cognito" (or add your own OAuth values file).
+# JupyterHub with dummy (shared-password) auth: anyone with the shared password
+# can log in as any allowed username. Each username still gets its own home
+# directory (per-user EFS sub-path). Fine for demos and internal labs; use
+# "firstuse" for per-user passwords or "cognito"/OIDC for real identity.
 hub:
   config:
     JupyterHub:
       authenticator_class: dummy
     DummyAuthenticator:
       password: "${password}"
+    Authenticator:
+      admin_users: ${admin_users}
+%{ if allow_all ~}
+      allow_all: true
+%{ else ~}
+      allowed_users: ${allowed_users}
+%{ endif ~}
 
 singleuser:
   serviceAccountName: ${jupyter_single_user_sa_name}
@@ -14,8 +23,33 @@ singleuser:
     name: "${split(":", singleuser_image)[0]}"
     tag: "${try(split(":", singleuser_image)[1], "latest")}"
 %{ endif ~}
+  # Run the docker-stacks startup script (not bare jupyterhub-singleuser) so the
+  # CHOWN_* env below is honoured before privileges drop to the notebook user.
+  cmd: start-singleuser.sh
   storage:
-    type: none
+    # Per-user home: one sub-directory per username on the shared EFS volume.
+    type: static
+    static:
+      pvcName: efs-persist
+      subPath: "home/{username}"
+    # Shared directory visible (read-write) to every user.
+    extraVolumes:
+      - name: jupyterhub-shared
+        persistentVolumeClaim:
+          claimName: efs-persist-shared
+    extraVolumeMounts:
+      - name: jupyterhub-shared
+        mountPath: /home/shared
+        readOnly: false
+  # EFS/NFS ignores fsGroup for ownership, so the container must start as root
+  # and chown the (freshly created) home sub-path and shared dir to the notebook
+  # user before dropping privileges -- handled by the docker-stacks start script.
+  uid: 0
+  fsGid: 0
+  extraEnv:
+    CHOWN_HOME: "yes"
+    CHOWN_HOME_OPTS: "-R"
+    CHOWN_EXTRA: "/home/shared"
 
 proxy:
   service:

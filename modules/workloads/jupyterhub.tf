@@ -18,6 +18,12 @@ locals {
   ]) : []
 
   jupyterhub_ingress_enabled = var.enable_jupyterhub && var.jupyterhub_public_host != ""
+
+  # Whichever of the two guard-variant filesystems exists (see below).
+  jupyterhub_efs = one(concat(
+    aws_efs_file_system.jupyterhub[*],
+    aws_efs_file_system.jupyterhub_ephemeral[*],
+  ))
 }
 
 resource "kubernetes_namespace_v1" "jupyterhub" {
@@ -30,10 +36,40 @@ resource "kubernetes_namespace_v1" "jupyterhub" {
 
 # ------------------------------------------------------------------------------
 # Shared EFS volume
+#
+# This filesystem holds every user's home directory and the shared directory --
+# the only persistent user data in the module. lifecycle.prevent_destroy must be
+# a literal, so the guard is expressed as two mutually exclusive resources and
+# var.jupyterhub_efs_prevent_destroy selects which one exists. Flipping the flag
+# on a live deployment REPLACES the filesystem (data loss); it exists so durable
+# environments are protected by default while previews can still tear down.
+# With protection on, disabling JupyterHub (or `terraform destroy`) fails until
+# the caller first disarms the flag -- an intentional two-step.
 # ------------------------------------------------------------------------------
 
 resource "aws_efs_file_system" "jupyterhub" {
-  count     = var.enable_jupyterhub ? 1 : 0
+  count     = var.enable_jupyterhub && var.jupyterhub_efs_prevent_destroy ? 1 : 0
+  encrypted = true
+
+  lifecycle_policy {
+    transition_to_ia = "AFTER_30_DAYS"
+  }
+  lifecycle_policy {
+    transition_to_primary_storage_class = "AFTER_1_ACCESS"
+  }
+
+  tags = merge(var.tags, {
+    Name = local.efs_name
+  })
+
+  lifecycle {
+    prevent_destroy = true
+  }
+}
+
+# Identical filesystem minus the guard, for ephemeral stamps (previews).
+resource "aws_efs_file_system" "jupyterhub_ephemeral" {
+  count     = var.enable_jupyterhub && !var.jupyterhub_efs_prevent_destroy ? 1 : 0
   encrypted = true
 
   lifecycle_policy {
@@ -68,7 +104,7 @@ resource "aws_security_group" "efs" {
 resource "aws_efs_mount_target" "jupyterhub" {
   count = var.enable_jupyterhub ? length(local.efs_subnet_ids) : 0
 
-  file_system_id  = aws_efs_file_system.jupyterhub[0].id
+  file_system_id  = local.jupyterhub_efs.id
   subnet_id       = local.efs_subnet_ids[count.index]
   security_groups = [aws_security_group.efs[0].id]
 }
@@ -85,7 +121,7 @@ resource "helm_release" "efs_persist" {
   values = [yamlencode({
     pv = {
       name    = each.key
-      dnsName = aws_efs_file_system.jupyterhub[0].dns_name
+      dnsName = local.jupyterhub_efs.dns_name
     }
     pvc = {
       name = each.key
@@ -144,11 +180,20 @@ resource "helm_release" "jupyterhub" {
   namespace        = kubernetes_namespace_v1.jupyterhub[0].metadata[0].name
   create_namespace = false
 
-  values = [templatefile("${local.helm_defaults}/jupyterhub/values-${var.jupyterhub_auth_mechanism}.yaml", {
-    password                    = var.jupyterhub_user_password
-    singleuser_image            = var.jupyterhub_singleuser_image
-    jupyter_single_user_sa_name = kubernetes_service_account_v1.jupyterhub_single_user[0].metadata[0].name
-  })]
+  values = concat(
+    [templatefile("${local.helm_defaults}/jupyterhub/values-${var.jupyterhub_auth_mechanism}.yaml", {
+      password                    = var.jupyterhub_user_password
+      singleuser_image            = var.jupyterhub_singleuser_image
+      jupyter_single_user_sa_name = kubernetes_service_account_v1.jupyterhub_single_user[0].metadata[0].name
+      admin_users                 = jsonencode(var.jupyterhub_admin_users)
+      allowed_users               = jsonencode(var.jupyterhub_allowed_users)
+      allow_all                   = length(var.jupyterhub_allowed_users) == 0
+    })],
+    # Caller overrides win (later documents take precedence in Helm).
+    var.jupyterhub_extra_values,
+  )
+
+  depends_on = [helm_release.efs_persist]
 }
 
 # ------------------------------------------------------------------------------

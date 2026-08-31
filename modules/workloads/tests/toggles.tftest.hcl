@@ -99,6 +99,51 @@ run "mlflow_only" {
   }
 }
 
+# JupyterHub renders the auth values template and creates the EFS filesystem.
+# Two runs cover both guard variants of the filesystem (prevent_destroy
+# true/false are separate resources) and two auth templates.
+run "jupyterhub_protected_efs" {
+  command = plan
+
+  variables {
+    enable_jupyterhub           = true
+    vpc_id                      = "vpc-12345678"
+    private_subnets             = ["subnet-aaa", "subnet-bbb"]
+    private_subnets_cidr_blocks = ["100.64.0.0/18", "100.64.64.0/18"]
+    vpc_secondary_cidr_blocks   = ["100.64.0.0/16"]
+    jupyterhub_user_password    = "test-password"
+    # jupyterhub_efs_prevent_destroy defaults to true (the guarded variant).
+  }
+
+  assert {
+    condition     = output.jupyterhub_namespace != null
+    error_message = "jupyterhub namespace should exist when enable_jupyterhub = true"
+  }
+}
+
+run "jupyterhub_ephemeral_efs_firstuse_auth" {
+  command = plan
+
+  variables {
+    enable_jupyterhub           = true
+    vpc_id                      = "vpc-12345678"
+    private_subnets             = ["subnet-aaa", "subnet-bbb"]
+    private_subnets_cidr_blocks = ["100.64.0.0/18", "100.64.64.0/18"]
+    vpc_secondary_cidr_blocks   = ["100.64.0.0/16"]
+
+    jupyterhub_efs_prevent_destroy = false
+    jupyterhub_auth_mechanism      = "firstuse"
+    jupyterhub_admin_users         = ["ada"]
+    jupyterhub_allowed_users       = ["ada", "grace"]
+    jupyterhub_extra_values        = ["singleuser:\n  startTimeout: 300\n"]
+  }
+
+  assert {
+    condition     = output.jupyterhub_namespace != null
+    error_message = "jupyterhub namespace should exist when enable_jupyterhub = true"
+  }
+}
+
 # Dagster requires Ray (an explicit precondition, not a silent coupling): with
 # both on, both namespaces come up.
 run "dagster_requires_ray" {
