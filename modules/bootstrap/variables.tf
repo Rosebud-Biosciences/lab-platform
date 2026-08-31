@@ -19,6 +19,18 @@ variable "state_noncurrent_expiration_days" {
   default     = 180
 }
 
+variable "state_bucket_prevent_destroy" {
+  description = "Attach a Deny s3:DeleteBucket policy to the state bucket so no principal can delete it without first removing the policy"
+  type        = bool
+  default     = true
+}
+
+variable "lock_table_deletion_protection" {
+  description = "Enable DynamoDB deletion protection on the lock table"
+  type        = bool
+  default     = true
+}
+
 variable "tags" {
   description = "Tags applied to created resources"
   type        = map(string)
@@ -112,9 +124,9 @@ variable "preview_managed_role_pattern" {
 }
 
 variable "preview_managed_policy_patterns" {
-  description = "IAM policy name patterns the preview stack creates and the role may manage (e.g. eks-* and bucket-preview-processeddata-*)"
+  description = "IAM policy name patterns the preview stack creates and the role may manage (e.g. eks-*, bucket-preview-processeddata-*, iceberg-*)"
   type        = list(string)
-  default     = ["eks-*", "bucket-preview-processeddata-*"]
+  default     = ["eks-*", "bucket-preview-processeddata-*", "iceberg-*"]
 }
 
 variable "preview_ephemeral_bucket_pattern" {
@@ -127,6 +139,18 @@ variable "preview_ecr_repositories" {
   description = "ECR repository names whose preview-tagged images the preview role may prune on teardown"
   type        = list(string)
   default     = []
+}
+
+variable "preview_table_bucket_arns" {
+  description = "S3 Tables table-bucket ARNs in which the preview role may create/destroy per-preview Iceberg namespaces (modules/iceberg-branches). Empty skips the s3tables statements."
+  type        = list(string)
+  default     = []
+}
+
+variable "preview_iceberg_namespace_pattern" {
+  description = "Namespace pattern (s3tables:namespace condition) scoping which tables the preview role may drop during teardown — must match your preview names (e.g. pr*) and never prod namespaces"
+  type        = string
+  default     = "pr*"
 }
 
 variable "preview_resource_tag_key" {

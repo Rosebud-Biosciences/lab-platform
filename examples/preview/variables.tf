@@ -84,6 +84,22 @@ variable "neon_branch_sources" {
   default = {}
 }
 
+# ------------------------------------------------------------------------------
+# ICEBERG (ephemeral lakehouse namespace, optional)
+# ------------------------------------------------------------------------------
+
+variable "iceberg_table_bucket_arn" {
+  description = "ARN of the shared S3 Tables (Iceberg) table bucket. Non-empty toggles an ephemeral per-preview Iceberg namespace with namespace-scoped IAM. Empty skips Iceberg entirely."
+  type        = string
+  default     = ""
+}
+
+variable "iceberg_read_namespaces" {
+  description = "Prod Iceberg namespaces (in the same table bucket) this preview may READ, e.g. [\"analytics\"]. Writes stay confined to the preview's own namespace either way."
+  type        = list(string)
+  default     = []
+}
+
 variable "tags" {
   description = "Extra tags (merged with the preview identity tags)"
   type        = map(string)

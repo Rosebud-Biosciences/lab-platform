@@ -14,6 +14,7 @@ disappears on teardown. Prod is never touched.
 | IAM / NodePools| base names                    | `pr123-`-stamped                                   |
 | Database       | Neon `main`                   | copy-on-write branch off `main` (seconds to cut)   |
 | Object storage | prod bucket                   | ephemeral `preview-processeddata-pr123` bucket     |
+| Iceberg (opt.) | prod namespaces               | own `pr123` namespace in the shared table bucket   |
 | State          | `prod/…`                      | Terraform workspace `pr123` → `preview/pr123/…`    |
 
 Because the cluster and its operators (Karpenter, LB controller, Tailscale) are
@@ -48,6 +49,13 @@ least-privilege preview role from `modules/bootstrap`.
 - **No Neon?** — leave `neon_branch_sources` empty and pass your own DB
   connection details instead; the copy-on-write branching is the happy path, not
   a hard requirement. The fallback is an empty branched DB plus a migration step.
+- **Iceberg** — set `iceberg_table_bucket_arn` to give the preview its own
+  ephemeral namespace in the shared S3 Tables bucket, with IAM confining its
+  writes to that namespace (and optional read-only access to prod namespaces via
+  `iceberg_read_namespaces`). Teardown caveat: tables inside the namespace must
+  be dropped before `destroy` — see
+  [`modules/iceberg-branches`](../../modules/iceberg-branches) for the CI
+  snippet and for cutting true copy-on-write Iceberg branch refs engine-side.
 
 See [`docs/preview-environments.md`](../../docs/preview-environments.md) for the
 full design writeup.

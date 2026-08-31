@@ -33,3 +33,7 @@ neon_branch_sources = {
     db_name          = "mlflow"
   }
 }
+
+# --- Iceberg (optional): ephemeral namespace in the shared S3 Tables bucket ---
+# iceberg_table_bucket_arn = "arn:aws:s3tables:us-west-2:123456789012:bucket/lakehouse"
+# iceberg_read_namespaces  = ["analytics"]

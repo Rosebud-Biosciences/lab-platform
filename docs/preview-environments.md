@@ -101,6 +101,17 @@ both their processed-data writes **and MLflow artifacts** to it, so nothing a
 preview produces is written into a prod bucket — a subtle but important
 improvement over sharing the prod artifact store.
 
+## Lakehouse strategy: ephemeral Iceberg namespace (optional)
+
+If the platform keeps Iceberg tables in an S3 Tables bucket,
+[`iceberg-branches`](../modules/iceberg-branches) gives each preview its own
+**namespace** in that shared bucket, with IAM that confines the preview's
+writes to its namespace and optionally allows read-only access to prod
+namespaces. Toggle it in `examples/preview` via `iceberg_table_bucket_arn`.
+True copy-on-write *branch refs* on prod tables are an engine-side operation
+(pyiceberg one-liner in the module README), mirroring how Neon handles the
+relational side in one API call.
+
 ## GPU isolation
 
 Ray GPU workers select their nodes by NodePool. The preview stamps a

@@ -22,7 +22,8 @@ locals {
     Terraform   = "true"
   })
 
-  neon_enabled = length(var.neon_branch_sources) > 0
+  neon_enabled    = length(var.neon_branch_sources) > 0
+  iceberg_enabled = var.iceberg_table_bucket_arn != ""
 }
 
 # In real use, resolve the shared cluster from the platform stack's state:
@@ -57,6 +58,22 @@ module "neon" {
 
   name_prefix    = var.preview_name
   branch_sources = var.neon_branch_sources
+}
+
+# Ephemeral Iceberg namespace in the shared S3 Tables bucket (the lakehouse
+# analogue of the Neon branches): the preview's jobs write tables only inside
+# their own namespace and may read the listed prod namespaces, so no preview
+# write can ever land in a prod table. Destroyed with the rest of the stamp;
+# see modules/iceberg-branches for the teardown caveat (tables must be dropped
+# before the namespace).
+module "iceberg" {
+  count  = local.iceberg_enabled ? 1 : 0
+  source = "../../modules/iceberg-branches"
+
+  name_prefix      = var.preview_name
+  table_bucket_arn = var.iceberg_table_bucket_arn
+  read_namespaces  = var.iceberg_read_namespaces
+  tags             = local.preview_tags
 }
 
 module "workloads" {
@@ -112,10 +129,17 @@ module "workloads" {
 
   # Storage: MLflow artifacts and the webapp's readable data both point at the
   # ephemeral bucket, so nothing a preview produces lands in a prod bucket.
-  mlflow_artifact_bucket      = module.storage.bucket_name
-  mlflow_artifact_bucket_arn  = module.storage.bucket_arn
-  webapp_bucket_policies      = { processeddata = module.storage.get_policy_arn }
-  ray_storage_bucket_policies = { processeddata = module.storage.putget_policy_arn }
+  # Ray/Dagster additionally get the Iceberg policies when Iceberg is on:
+  # read/write confined to the preview's namespace, read-only on prod's.
+  mlflow_artifact_bucket     = module.storage.bucket_name
+  mlflow_artifact_bucket_arn = module.storage.bucket_arn
+  webapp_bucket_policies     = { processeddata = module.storage.get_policy_arn }
+  ray_storage_bucket_policies = merge(
+    { processeddata = module.storage.putget_policy_arn },
+    local.iceberg_enabled ? { iceberg_rw = module.iceberg[0].readwrite_policy_arn } : {},
+    local.iceberg_enabled && length(var.iceberg_read_namespaces) > 0
+    ? { iceberg_read = module.iceberg[0].read_policy_arn } : {},
+  )
 
   # Preview-scoped Karpenter NodePools (name-prefixed; scale to zero when idle,
   # torn down on destroy). Modest caps so a preview can't balloon cost.

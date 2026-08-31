@@ -13,6 +13,11 @@ output "neon_branches" {
   value       = module.neon.branch_names
 }
 
+output "iceberg_namespace" {
+  description = "Ephemeral Iceberg namespace in the shared table bucket (null when Iceberg is off)"
+  value       = var.iceberg_table_bucket_arn != "" ? module.iceberg[0].namespace : null
+}
+
 output "webapp_private_url" {
   description = "Private (tailnet) URL for the preview webapp"
   value       = module.workloads.webapp_private_url

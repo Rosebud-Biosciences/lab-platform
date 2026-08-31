@@ -352,6 +352,45 @@ data "aws_iam_policy_document" "preview_deployer" {
       resources = local.preview_ecr_repo_arns
     }
   }
+
+  # --- Ephemeral Iceberg namespaces in shared S3 Tables buckets (optional) ---
+  dynamic "statement" {
+    for_each = length(var.preview_table_bucket_arns) > 0 ? [1] : []
+    content {
+      sid    = "IcebergNamespaceManage"
+      effect = "Allow"
+      actions = [
+        "s3tables:CreateNamespace",
+        "s3tables:DeleteNamespace",
+        "s3tables:GetNamespace",
+        "s3tables:ListNamespaces",
+        "s3tables:GetTableBucket",
+        "s3tables:ListTables",
+      ]
+      resources = var.preview_table_bucket_arns
+    }
+  }
+  # Teardown must be able to drop tables the preview's migrations created inside
+  # its own namespace (DeleteNamespace requires an empty namespace). Scoped by
+  # the namespace pattern so prod namespaces stay untouchable.
+  dynamic "statement" {
+    for_each = length(var.preview_table_bucket_arns) > 0 ? [1] : []
+    content {
+      sid    = "IcebergPreviewTableCleanup"
+      effect = "Allow"
+      actions = [
+        "s3tables:GetTable",
+        "s3tables:DeleteTable",
+      ]
+      resources = [for arn in var.preview_table_bucket_arns : "${arn}/table/*"]
+
+      condition {
+        test     = "StringLike"
+        variable = "s3tables:namespace"
+        values   = [var.preview_iceberg_namespace_pattern]
+      }
+    }
+  }
 }
 
 resource "aws_iam_role_policy" "preview_deployer" {
