@@ -1,0 +1,3 @@
+region       = "us-west-2"
+environment  = "dev"
+webapp_image = "public.ecr.aws/nginx/nginx:latest"

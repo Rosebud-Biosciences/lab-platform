@@ -1,0 +1,34 @@
+region      = "us-west-2"
+environment = "prod"
+
+# --- Private access via Tailscale (leave the OAuth fields empty to fall back to
+#     a public cluster endpoint with no private ingress) ---
+tailscale_tailnet             = "example.com"
+tailscale_dns_suffix          = "tailXXXX.ts.net"
+tailscale_oauth_client_id     = "tskey-client-xxxxxxxx"
+tailscale_oauth_client_secret = "tskey-client-secret-xxxxxxxx"
+
+# --- Public webapp ---
+webapp_image               = "123456789012.dkr.ecr.us-west-2.amazonaws.com/webapp:latest"
+webapp_public_host         = "app.example.com"
+webapp_acm_certificate_arn = "arn:aws:acm:us-west-2:123456789012:certificate/xxxxxxxx"
+webapp_route53_zone_id     = "Z0123456789ABCDEFGHIJ"
+
+# --- Secrets: prefer sourcing these from SSM/Secrets Manager in real use.
+#     See docs/preview-environments.md for the SSM Parameter Store pattern. ---
+app_database_url         = "postgresql://app:password@db.example.com:5432/app"
+jupyterhub_user_password = "change-me"
+
+dagster_db = {
+  host     = "db.example.com"
+  name     = "dagster"
+  user     = "dagster"
+  password = "change-me"
+}
+
+mlflow_db = {
+  host     = "db.example.com"
+  name     = "mlflow"
+  user     = "mlflow"
+  password = "change-me"
+}

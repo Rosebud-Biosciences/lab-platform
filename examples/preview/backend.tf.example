@@ -1,0 +1,15 @@
+# Rename to backend.tf. Previews use ONE Terraform workspace per PR, so the
+# workspace name is folded into the state key -- each PR keeps isolated state
+# under preview/<workspace>/ (matches the least-privilege preview role in
+# modules/bootstrap, whose state writes are scoped to preview/*).
+#
+# terraform {
+#   backend "s3" {
+#     bucket               = "my-org-terraform-state"
+#     key                  = "preview/terraform.tfstate"
+#     workspace_key_prefix = "preview"
+#     region               = "us-west-2"
+#     dynamodb_table       = "terraform-locks"
+#     encrypt              = true
+#   }
+# }

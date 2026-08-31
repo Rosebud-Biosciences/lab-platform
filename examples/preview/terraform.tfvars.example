@@ -1,0 +1,35 @@
+region       = "us-west-2"
+preview_name = "pr123"
+
+# --- Shared cluster (from your prod platform stack / examples/complete) ---
+cluster_name                 = "eks-prod"
+oidc_provider_arn            = "arn:aws:iam::123456789012:oidc-provider/oidc.eks.us-west-2.amazonaws.com/id/XXXXXXXX"
+vpc_name                     = "vpc-prod"
+karpenter_node_iam_role_name = "eks-prod-karpenter-node"
+private_ingress_dns_suffix   = "tailXXXX.ts.net"
+
+# --- Image under test (CI passes the PR's built tag) ---
+webapp_image = "123456789012.dkr.ecr.us-west-2.amazonaws.com/webapp:pr123-abc1234"
+
+# --- Neon copy-on-write branches (from the prod data-storage stack) ---
+neon_api_key = "neon_api_key_xxxxxxxx"
+neon_branch_sources = {
+  app = {
+    project_id       = "prod-app-project"
+    parent_branch_id = "br-prod-main-0000"
+    role_name        = "app"
+    db_name          = "app"
+  }
+  dagster = {
+    project_id       = "prod-dagster-project"
+    parent_branch_id = "br-prod-main-1111"
+    role_name        = "dagster"
+    db_name          = "dagster"
+  }
+  mlflow = {
+    project_id       = "prod-mlflow-project"
+    parent_branch_id = "br-prod-main-2222"
+    role_name        = "mlflow"
+    db_name          = "mlflow"
+  }
+}
