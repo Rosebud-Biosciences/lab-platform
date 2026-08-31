@@ -1,0 +1,23 @@
+autoDiscovery:
+  clusterName: ${eks_cluster_id}
+
+awsRegion: ${aws_region}
+
+cloudProvider: aws
+
+extraArgs:
+  aws-use-static-instance-list: true
+
+resources:
+  limits:
+    cpu: 1000m
+    memory: 1G
+  requests:
+    cpu: 200m
+    memory: 512Mi
+
+updateStrategy:
+  type: RollingUpdate
+  rollingUpdate:
+    maxSurge: 0
+    maxUnavailable: 1

@@ -1,0 +1,125 @@
+# Default values for gpu-operator.
+
+daemonsets:
+  labels: {}
+  annotations: {}
+  priorityClassName: system-node-critical
+  tolerations:
+    - key: nvidia.com/gpu
+      operator: Exists
+      effect: NoSchedule
+    - operator: "Exists" # tolerate any custom taints on the GPU nodes
+
+validator:
+  repository: nvcr.io/nvidia/cloud-native
+  image: gpu-operator-validator
+
+operator:
+  repository: nvcr.io/nvidia
+  priorityClassName: system-node-critical
+  defaultRuntime: containerd
+  image: gpu-operator
+  cleanupCRD: false
+  upgradeCRD: false
+  resources:
+    limits:
+      cpu: 500m
+      memory: 350Mi
+    requests:
+      cpu: 200m
+      memory: 100Mi
+
+# Use "mixed" when MIG mode is not enabled on all GPUs on a node.
+mig:
+  strategy: mixed
+
+driver:
+  enabled: true
+  repository: nvcr.io/nvidia
+  image: driver
+  manager:
+    image: k8s-driver-manager
+    repository: nvcr.io/nvidia/cloud-native
+
+toolkit:
+  enabled: true
+
+devicePlugin:
+  enabled: true
+  config:
+    name: time-slicing-config-fine
+    default: nvidia-a10g
+    create: true
+    data:
+      nvidia-a10g: |-
+        version: v1
+        flags:
+          migStrategy: none
+        sharing:
+          timeSlicing:
+            resources:
+            - name: nvidia.com/gpu
+              replicas: 4
+      nvidia-a100g: |-
+        version: v1
+        flags:
+          migStrategy: mixed
+        sharing:
+          timeSlicing:
+            resources:
+            - name: nvidia.com/gpu
+              replicas: 8
+            - name: nvidia.com/mig-1g.5gb
+              replicas: 2
+            - name: nvidia.com/mig-2g.10gb
+              replicas: 2
+            - name: nvidia.com/mig-3g.20gb
+              replicas: 3
+            - name: nvidia.com/mig-7g.40gb
+              replicas: 7
+
+dcgm:
+  enabled: true
+
+dcgmExporter:
+  enabled: true
+
+gfd:
+  enabled: true
+
+migManager:
+  enabled: true
+  env:
+    - name: WITH_REBOOT
+      value: "true"
+
+nodeStatusExporter:
+  enabled: false
+
+gds:
+  enabled: false
+
+vgpuManager:
+  enabled: false
+
+vgpuDeviceManager:
+  enabled: true
+
+vfioManager:
+  enabled: true
+
+sandboxDevicePlugin:
+  enabled: true
+
+node-feature-discovery:
+  enableNodeFeatureApi: true
+  worker:
+    tolerations:
+      - key: "node-role.kubernetes.io/master"
+        operator: "Equal"
+        value: ""
+        effect: "NoSchedule"
+      - key: nvidia.com/gpu
+        operator: Exists
+        effect: NoSchedule
+      - operator: "Exists"

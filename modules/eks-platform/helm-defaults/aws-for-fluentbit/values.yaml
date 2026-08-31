@@ -1,0 +1,74 @@
+global:
+
+# hostNetwork and dnsPolicy are critical for large clusters to avoid extra API server calls.
+# https://docs.fluentbit.io/manual/pipeline/filters/kubernetes#optional-feature-using-kubelet-to-get-metadata
+hostNetwork: true
+dnsPolicy: ClusterFirstWithHostNet
+
+service:
+  parsersFiles:
+    - /fluent-bit/parsers/parsers.conf
+  extraParsers: |
+    [PARSER]
+        Name    kubernetes
+        Format  regex
+        Regex   ^(?<namespace_name>[^_]+)\.(?<container_name>.+)\.(?<pod_name>[a-z0-9](?:[-a-z0-9]*[a-z0-9])?(?:\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*)\.(?<docker_id>[a-z0-9]{64})-$
+
+input:
+  name: "tail"
+  enabled: true
+  tag: "systempods.<namespace_name>.<container_name>.<pod_name>.<docker_id>-"
+  path: "/var/log/containers/*.log"
+  db: "/var/log/flb_kube.db"
+  memBufLimit: 5MB
+  skipLongLines: "On"
+  refreshInterval: 10
+  extraInputs: |
+    multiline.parser  docker, cri
+    Tag_Regex         (?<pod_name>[a-z0-9](?:[-a-z0-9]*[a-z0-9])?(?:\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*)_(?<namespace_name>[^_]+)_(?<container_name>.+)-(?<docker_id>[a-z0-9]{64})\.log$
+
+# Use Kubelet to fetch metadata instead of the API server for large clusters.
+filter:
+  name: "kubernetes"
+  match: "systempods.*"
+  kubeURL: "https://kubernetes.default.svc.cluster.local:443"
+  mergeLog: "On"
+  mergeLogKey: "log_processed"
+  keepLog: "On"
+  k8sLoggingParser: "On"
+  k8sLoggingExclude: "Off"
+  bufferSize: "0"
+  extraFilters: |
+    Kube_Tag_Prefix     systempods.
+    Regex_Parser        kubernetes
+    Labels              On
+    Annotations         Off
+    Use_Kubelet         true
+    Kubelet_Port        10250
+    Kube_CA_File        /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+    Kube_Token_File     /var/run/secrets/kubernetes.io/serviceaccount/token
+
+# High-performance C plugin for CloudWatch Logs.
+# https://docs.fluentbit.io/manual/pipeline/outputs/cloudwatch
+cloudWatchLogs:
+  enabled: true
+  match: "systempods.*"
+  region: ${region}
+  logGroupName: ${cloudwatch_log_group}
+  autoCreateGroup: false
+  extraOutputs: |
+    log_key               log
+
+resources:
+  limits:
+    cpu: 1000m
+    memory: 1500Mi
+  requests:
+    cpu: 100m
+    memory: 200Mi
+
+priorityClassName: system-node-critical
+
+# Allow the DaemonSet pod to schedule on any node regardless of taints.
+tolerations:
+  - operator: Exists

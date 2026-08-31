@@ -1,0 +1,307 @@
+# ------------------------------------------------------------------------------
+# EKS BLUEPRINTS ADDONS
+#
+# Addons deploy in two phases to handle webhook dependencies:
+#   Phase 1 (core): AWS LB Controller, EKS managed addons, storage, metrics
+#   Phase 2:        Karpenter, autoscalers, monitoring, Argo (depends on Phase 1)
+# ------------------------------------------------------------------------------
+
+module "ebs_csi_driver_irsa" {
+  source                = "terraform-aws-modules/iam/aws//modules/iam-role-for-service-accounts-eks"
+  version               = "~> 5.20"
+  role_name_prefix      = format("%s-%s", local.cluster_name, "ebs-csi-driver-")
+  attach_ebs_csi_policy = true
+
+  oidc_providers = {
+    main = {
+      provider_arn               = module.eks.oidc_provider_arn
+      namespace_service_accounts = ["kube-system:ebs-csi-controller-sa"]
+    }
+  }
+
+  tags = local.tags
+}
+
+# ------------------------------------------------------------------------------
+# PHASE 1: CORE ADDONS
+# ------------------------------------------------------------------------------
+# Every chart_version / addon_version is pinned explicitly. Left unset, the
+# module resolves "most recent", so an upstream release becomes an unreviewed
+# upgrade on the next plan. Bump deliberately.
+module "eks_blueprints_addons_core" {
+  source  = "aws-ia/eks-blueprints-addons/aws"
+  version = "~> 1.24.3"
+
+  cluster_name      = module.eks.cluster_name
+  cluster_endpoint  = module.eks.cluster_endpoint
+  cluster_version   = module.eks.cluster_version
+  oidc_provider_arn = module.eks.oidc_provider_arn
+
+  eks_addons = {
+    aws-ebs-csi-driver = {
+      addon_version            = "v1.63.1-eksbuild.1"
+      service_account_role_arn = module.ebs_csi_driver_irsa.iam_role_arn
+    }
+    coredns = {
+      addon_version = "v1.14.3-eksbuild.3"
+      preserve      = true
+    }
+    vpc-cni = {
+      addon_version = "v1.23.0-eksbuild.1"
+      preserve      = true
+    }
+    kube-proxy = {
+      addon_version = "v1.35.3-eksbuild.18"
+      preserve      = true
+    }
+  }
+
+  enable_aws_load_balancer_controller = var.enable_aws_load_balancer_controller
+  aws_load_balancer_controller = {
+    chart_version = "1.7.1"
+  }
+
+  enable_cluster_proportional_autoscaler = true
+  cluster_proportional_autoscaler = {
+    chart_version = "1.1.0"
+    timeout       = "300"
+    values = [templatefile("${path.module}/helm-defaults/coredns-autoscaler/values.yaml", {
+      target = "deployment/coredns"
+    })]
+    description = "Cluster Proportional Autoscaler for CoreDNS Service"
+  }
+
+  enable_metrics_server = var.enable_metrics_server
+  metrics_server = {
+    chart_version = "3.12.0"
+    timeout       = "300"
+    values        = [templatefile("${path.module}/helm-defaults/metrics-server/values.yaml", {})]
+  }
+
+  helm_releases = {
+    storageclass = {
+      name        = "storageclass"
+      description = "A Helm chart for storage configurations"
+      chart       = "${path.module}/helm-defaults/storageclass"
+    }
+  }
+
+  # Opt out of the module's usage telemetry (an empty CloudFormation stack).
+  observability_tag = null
+
+  tags = local.tags
+}
+
+# ------------------------------------------------------------------------------
+# PHASE 2: WORKLOAD ADDONS (Karpenter, autoscalers, monitoring, Argo)
+# ------------------------------------------------------------------------------
+module "eks_blueprints_addons" {
+  source  = "aws-ia/eks-blueprints-addons/aws"
+  version = "~> 1.24.3"
+
+  cluster_name      = module.eks.cluster_name
+  cluster_endpoint  = module.eks.cluster_endpoint
+  cluster_version   = module.eks.cluster_version
+  oidc_provider_arn = module.eks.oidc_provider_arn
+
+  eks_addons = {}
+
+  enable_cluster_autoscaler = var.enable_cluster_autoscaler
+  cluster_autoscaler = {
+    timeout     = "300"
+    create_role = true
+    values = [templatefile("${path.module}/helm-defaults/cluster-autoscaler/values.yaml", {
+      aws_region     = var.region,
+      eks_cluster_id = module.eks.cluster_name
+    })]
+  }
+
+  # Karpenter (requires the LB Controller webhook to be ready). CRDs are managed
+  # separately via helm_release.karpenter_crd.
+  enable_karpenter                  = var.enable_karpenter
+  karpenter_enable_spot_termination = var.enable_karpenter
+  karpenter = {
+    chart_version = var.karpenter_version
+    timeout       = "300"
+  }
+
+  enable_argo_workflows = var.enable_argo_workflows
+  argo_workflows = {
+    name          = "argo-workflows"
+    namespace     = "argo-workflows"
+    repository    = "https://argoproj.github.io/argo-helm"
+    chart_version = "0.40.14"
+    values        = [templatefile("${path.module}/helm-defaults/argo/argo-workflows-values.yaml", {})]
+  }
+
+  enable_argo_events = var.enable_argo_events
+  argo_events = {
+    name          = "argo-events"
+    namespace     = "argo-events"
+    repository    = "https://argoproj.github.io/argo-helm"
+    chart_version = "2.4.3"
+    values        = [templatefile("${path.module}/helm-defaults/argo/argo-events-values.yaml", {})]
+  }
+
+  enable_kube_prometheus_stack = var.enable_kube_prometheus
+  kube_prometheus_stack = {
+    values = concat(
+      [templatefile("${path.module}/helm-defaults/kube-prometheus-stack/values.yaml", {})],
+      var.kube_prometheus_helm_values_override != "" ? [var.kube_prometheus_helm_values_override] : []
+    )
+    chart_version = "86.2.1"
+    set_sensitive = var.enable_kube_prometheus ? [
+      {
+        name  = "grafana.adminPassword"
+        value = data.aws_secretsmanager_secret_version.admin_password_version[0].secret_string
+      }
+    ] : []
+  }
+
+  enable_aws_for_fluentbit = var.enable_aws_fluentbit
+  aws_for_fluentbit_cw_log_group = {
+    use_name_prefix   = false
+    name              = "/${local.cluster_name}/aws-fluentbit-logs"
+    retention_in_days = 30
+  }
+  aws_for_fluentbit = {
+    chart_version = "0.1.32"
+    values = [templatefile("${path.module}/helm-defaults/aws-for-fluentbit/values.yaml", {
+      region               = var.region,
+      cloudwatch_log_group = "/${local.cluster_name}/aws-fluentbit-logs"
+      cluster_name         = module.eks.cluster_name
+    })]
+  }
+
+  observability_tag = null
+
+  tags = local.tags
+
+  depends_on = [
+    module.eks_blueprints_addons_core,
+    helm_release.karpenter_crd,
+  ]
+}
+
+# ------------------------------------------------------------------------------
+# KARPENTER CRDS (managed separately; the main chart's bundled CRDs are
+# install-only and never upgraded by Helm). Kept at the controller version.
+# ------------------------------------------------------------------------------
+resource "helm_release" "karpenter_crd" {
+  count = var.enable_karpenter ? 1 : 0
+
+  namespace        = "karpenter"
+  create_namespace = true
+  name             = "karpenter-crd"
+  repository       = "oci://public.ecr.aws/karpenter"
+  chart            = "karpenter-crd"
+  version          = var.karpenter_version
+}
+
+# Access entry so Karpenter-launched nodes can join the cluster.
+resource "aws_eks_access_entry" "karpenter_node" {
+  count = var.enable_karpenter ? 1 : 0
+
+  cluster_name  = module.eks.cluster_name
+  principal_arn = module.eks_blueprints_addons.karpenter.node_iam_role_arn
+  type          = "EC2_LINUX"
+
+  tags = local.tags
+}
+
+# NOTE: Karpenter NodePools/EC2NodeClasses are owned by the `workloads` module
+# (per workload environment, name-prefixed) against this platform's Karpenter
+# controller + node IAM role (exposed via the karpenter_node_iam_role_* outputs).
+
+# ------------------------------------------------------------------------------
+# GRAFANA ADMIN CREDENTIALS (only when monitoring is enabled)
+# ------------------------------------------------------------------------------
+data "aws_secretsmanager_secret_version" "admin_password_version" {
+  count      = var.enable_kube_prometheus ? 1 : 0
+  secret_id  = aws_secretsmanager_secret.grafana[0].id
+  depends_on = [aws_secretsmanager_secret_version.grafana]
+}
+
+resource "random_password" "grafana" {
+  count            = var.enable_kube_prometheus ? 1 : 0
+  length           = 16
+  special          = true
+  override_special = "@_"
+}
+
+#tfsec:ignore:aws-ssm-secret-use-customer-key
+resource "aws_secretsmanager_secret" "grafana" {
+  count                   = var.enable_kube_prometheus ? 1 : 0
+  name_prefix             = "${local.cluster_name}-grafana-"
+  recovery_window_in_days = 0 # ephemeral: force delete on destroy
+}
+
+resource "aws_secretsmanager_secret_version" "grafana" {
+  count         = var.enable_kube_prometheus ? 1 : 0
+  secret_id     = aws_secretsmanager_secret.grafana[0].id
+  secret_string = random_password.grafana[0].result
+}
+
+# ------------------------------------------------------------------------------
+# DEVICE PLUGINS / OPERATORS (only need the Phase-1 core stack ready)
+# ------------------------------------------------------------------------------
+
+# Neuron Device Plugin (Inferentia/Trainium). OCI chart, so `repository` is unset.
+resource "helm_release" "aws_neuron_device_plugin" {
+  count = var.enable_neuron_support ? 1 : 0
+
+  name             = "neuron-helm-chart"
+  chart            = "oci://public.ecr.aws/neuron/neuron-helm-chart"
+  version          = "1.1.1"
+  namespace        = "kube-system"
+  create_namespace = false
+  timeout          = 300
+
+  depends_on = [module.eks_blueprints_addons_core]
+}
+
+resource "helm_release" "nvidia_gpu_operator" {
+  count = var.enable_gpu_support ? 1 : 0
+
+  name             = "nvidia-gpu-operator"
+  repository       = "https://helm.ngc.nvidia.com/nvidia"
+  chart            = "gpu-operator"
+  version          = "v25.3.0"
+  namespace        = "gpu-operator"
+  create_namespace = true
+  timeout          = 300
+
+  values = [templatefile("${path.module}/helm-defaults/nvidia-gpu-operator/values.yaml", {})]
+
+  depends_on = [module.eks_blueprints_addons_core]
+}
+
+resource "helm_release" "kubecost" {
+  count = var.enable_kubecost ? 1 : 0
+
+  name             = "kubecost"
+  repository       = "oci://public.ecr.aws/kubecost"
+  chart            = "cost-analyzer"
+  version          = "1.103.2"
+  namespace        = "kubecost"
+  create_namespace = true
+  timeout          = 300
+
+  values = [templatefile("${path.module}/helm-defaults/kubecost/values.yaml", {})]
+
+  depends_on = [module.eks_blueprints_addons_core]
+}
+
+resource "helm_release" "kuberay_operator" {
+  count = var.enable_ray ? 1 : 0
+
+  name             = "kuberay-operator"
+  repository       = "https://ray-project.github.io/kuberay-helm/"
+  chart            = "kuberay-operator"
+  version          = var.kuberay_operator_version
+  namespace        = "kuberay-operator"
+  create_namespace = true
+  timeout          = 300
+
+  depends_on = [module.eks_blueprints_addons_core]
+}

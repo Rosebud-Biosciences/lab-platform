@@ -1,0 +1,46 @@
+# KubeCost WebUI -> kubectl port-forward --namespace kubecost deployment/kubecost-cost-analyzer 9090
+
+global:
+  # Reuse the existing kube-prometheus-stack Prometheus instead of shipping one.
+  # https://guide.kubecost.com/hc/en-us/articles/4407595941015
+  prometheus:
+    fqdn: http://kube-prometheus-stack-prometheus.kube-prometheus-stack.svc:9090
+    enabled: false
+
+prometheus:
+  nodeExporter:
+    enabled: false
+  serviceAccounts:
+    nodeExporter:
+      create: false
+  kubeStateMetrics:
+    enabled: false
+
+# Right-sized for a small baseline: the frontend is a light UI proxy and the
+# model does periodic cost computation, so modest CPU requests are plenty.
+kubecostFrontend:
+  image: public.ecr.aws/kubecost/frontend
+  resources:
+    requests:
+      cpu: "20m"
+      memory: "256Mi"
+
+kubecostMetrics:
+  emitPodAnnotations: true
+  emitNamespaceAnnotations: true
+
+kubecostModel:
+  image: public.ecr.aws/kubecost/cost-model
+  resources:
+    requests:
+      cpu: "100m"
+      memory: "512Mi"
+
+persistentVolume:
+  size: 32Gi
+  dbSize: 32.0Gi
+  enabled: true
+  storageClass: gp3
+
+grafana:
+  enabled: false
