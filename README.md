@@ -20,6 +20,7 @@ for testing, off prod.
 | [`modules/s3-bucket`](modules/s3-bucket) | Hardened, KMS-encrypted bucket + ready-made IAM policies |
 | [`modules/preview-storage`](modules/preview-storage) | Ephemeral per-preview bucket |
 | [`modules/neon-branches`](modules/neon-branches) | Copy-on-write Neon Postgres branches per preview |
+| [`modules/iceberg-branches`](modules/iceberg-branches) | Ephemeral per-preview Iceberg (S3 Tables) namespace with namespace-scoped IAM |
 
 ## Architecture
 
@@ -34,10 +35,12 @@ flowchart LR
     workloads[workloads<br/>enable_* toggles]
     prevs3[preview-storage<br/>ephemeral bucket]
     neon[neon-branches<br/>branched DBs]
+    iceberg[iceberg-branches<br/>ephemeral lakehouse ns]
   end
   network --> platform --> workloads
   prevs3 --> workloads
   neon --> workloads
+  iceberg --> workloads
 ```
 
 `bootstrap`, `network`, and `eks-platform` are applied once to stand up the
@@ -62,6 +65,8 @@ See the runnable examples:
 - [`examples/minimal`](examples/minimal) — VPC + cluster + one webapp, cheapest path.
 - [`examples/complete`](examples/complete) — the full surface (monitoring, GPU,
   Ray, all workloads, Tailscale, public + private ingress).
+- [`examples/jupyterhub`](examples/jupyterhub) — multi-user lab: per-user logins,
+  per-user + shared EFS directories, marimo in the launcher.
 - [`examples/preview`](examples/preview) — the flagship: workspace-per-PR preview
   environments on a shared cluster.
 - [`examples/ephemeral-ray`](examples/ephemeral-ray) — Argo/Dagster spinning up
@@ -91,6 +96,27 @@ Read the design writeup: [`docs/preview-environments.md`](docs/preview-environme
   silent `&&`.
 - **Secrets stay module inputs** (sensitive vars); the SSM Parameter Store
   pattern is shown in examples, never baked into modules.
+
+## Persistent data & deletion guards
+
+Almost everything in this family is intentionally disposable (that's what makes
+previews cheap). The few places real data persists are each guarded against an
+accidental `destroy`:
+
+| Data | Where | Guard |
+| --- | --- | --- |
+| Terraform state | `modules/bootstrap` S3 bucket | Versioning + a Deny `s3:DeleteBucket` bucket policy (`state_bucket_prevent_destroy`, default on) |
+| State locks | `modules/bootstrap` DynamoDB table | Native deletion protection (`lock_table_deletion_protection`, default on) |
+| JupyterHub user homes + shared dir | `modules/workloads` EFS filesystem | `lifecycle.prevent_destroy` (`jupyterhub_efs_prevent_destroy`, default on); back up via the `jupyterhub_efs_id` output |
+| Durable object data | `modules/s3-bucket` | Deny `s3:DeleteBucket` policy + a KMS key policy denying `kms:ScheduleKeyDeletion` (`prevent_destroy`), `force_destroy = false`, versioning |
+| Databases | External (Neon/RDS — never module-managed) | Provider-side (e.g. Neon retains parents; previews only ever touch child branches) |
+
+Everything else — preview buckets, Neon branches, namespaces, Helm releases,
+NodePools, ephemeral Ray clusters — is meant to be destroyed freely. The
+guarded resources make teardown a deliberate two-step: disarm the guard in one
+apply, destroy in the next. Prometheus/MLflow/hub-db PVCs ride on EBS with the
+cluster's default reclaim policy and are treated as rebuildable caches; if you
+care about them, switch their StorageClass to `reclaimPolicy: Retain`.
 
 ## Cost
 

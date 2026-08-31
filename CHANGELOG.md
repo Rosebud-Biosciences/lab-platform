@@ -36,6 +36,23 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   ephemeral AWS account, **disabled by default** (gated on the
   `ENABLE_INTEGRATION_APPLY` repo variable and a protected environment) so it
   never spends money until explicitly funded and turned on.
+- `examples/jupyterhub` — multi-user lab: per-user logins via the new
+  `firstuse` auth mechanism (each user sets their own password at first login),
+  per-user EFS home directories (`home/{username}` sub-paths) plus a shared
+  `/home/shared` directory, and marimo in the JupyterLab launcher (postStart
+  install of `marimo` + `jupyter-marimo-proxy`). The workloads module gained
+  `jupyterhub_admin_users`, `jupyterhub_allowed_users`, and
+  `jupyterhub_extra_values` for arbitrary caller overrides.
+- `modules/iceberg-branches` — ephemeral per-preview Iceberg (S3 Tables)
+  namespace with namespace-scoped IAM policies, wired into `examples/preview`
+  behind `iceberg_table_bucket_arn`; the bootstrap preview role gained optional
+  s3tables statements (`preview_table_bucket_arns`).
+- Deletion guards on all persistent data (see "Persistent data & deletion
+  guards" in the README): the JupyterHub EFS filesystem is now genuinely
+  protected by `lifecycle.prevent_destroy` (two-variant resource pattern —
+  previously the flag was documentation-only), the state bucket gets a Deny
+  `s3:DeleteBucket` policy, and the lock table gets native DynamoDB deletion
+  protection.
 
 ### Changed vs. the original private repo
 
