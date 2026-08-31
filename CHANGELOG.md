@@ -29,6 +29,13 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   resources of that family).
 - terraform-docs-generated tables in every module README, plus a root README and
   `docs/preview-environments.md` design writeup.
+- `docs/ephemeral-ray.md` + `examples/ephemeral-ray` — the ephemeral-Ray pattern
+  (a `RayJob` with `shutdownAfterJobFinishes`) submitted by either Argo Workflows
+  or Dagster, with runnable manifests and a standalone `kubectl apply` primitive.
+- `integration-apply` GitHub workflow — real apply/smoke/destroy against an
+  ephemeral AWS account, **disabled by default** (gated on the
+  `ENABLE_INTEGRATION_APPLY` repo variable and a protected environment) so it
+  never spends money until explicitly funded and turned on.
 
 ### Changed vs. the original private repo
 
@@ -53,3 +60,6 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Fixed the `network` secondary (pod) CIDR split, which was hardcoded to two
   AZs (`cidrsubnet(secondary, 1, k)`) yet defaulted to three; newbits now scale
   with the AZ count.
+- The Argo and Dagster ClusterRoles now grant `rayjobs` in addition to
+  `rayclusters`, enabling the ephemeral `RayJob` pattern without hand-managing a
+  cluster's lifecycle.

@@ -64,6 +64,8 @@ See the runnable examples:
   Ray, all workloads, Tailscale, public + private ingress).
 - [`examples/preview`](examples/preview) — the flagship: workspace-per-PR preview
   environments on a shared cluster.
+- [`examples/ephemeral-ray`](examples/ephemeral-ray) — Argo/Dagster spinning up
+  throwaway Ray clusters per job ([design](docs/ephemeral-ray.md)).
 
 ## Preview environments (the flagship feature)
 

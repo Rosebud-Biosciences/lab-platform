@@ -1,0 +1,81 @@
+# Argo Workflows spinning up an ephemeral Ray cluster.
+#
+# The workflow's single step is an Argo `resource` template that CREATES a
+# RayJob and blocks until KubeRay reports it SUCCEEDED (or FAILED). Because the
+# RayJob sets shutdownAfterJobFinishes, the Ray cluster is created and destroyed
+# entirely within the lifetime of this workflow step — the orchestrator never
+# has to reason about cluster teardown itself.
+#
+# Prereqs (workloads module): enable_ray = true AND enable_argo_workflows = true.
+# That provisions:
+#   - namespace       "<name_prefix>ray"
+#   - serviceAccount  "argo-workflow"  (bound to a ClusterRole with rayjobs perms)
+#
+# Submit:
+#   argo submit -n ray argo/workflow.yaml --watch
+# or, without the Argo CLI:
+#   kubectl create -n ray -f argo/workflow.yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Workflow
+metadata:
+  generateName: ephemeral-ray-
+  namespace: ray
+spec:
+  serviceAccountName: argo-workflow
+  entrypoint: run-ray-job
+  # Reclaim the workflow object itself after it finishes; the RayJob/RayCluster
+  # are already gone thanks to shutdownAfterJobFinishes + ttlSecondsAfterFinished.
+  ttlStrategy:
+    secondsAfterCompletion: 300
+  templates:
+    - name: run-ray-job
+      resource:
+        action: create
+        # Wait on the RayJob's own status rather than polling ourselves.
+        successCondition: status.jobStatus == SUCCEEDED
+        failureCondition: status.jobStatus == FAILED
+        manifest: |
+          apiVersion: ray.io/v1
+          kind: RayJob
+          metadata:
+            generateName: ephemeral-argo-
+          spec:
+            shutdownAfterJobFinishes: true
+            ttlSecondsAfterFinished: 120
+            entrypoint: >-
+              python -c "import ray; ray.init();
+              print('ray sees', ray.cluster_resources())"
+            rayClusterSpec:
+              rayVersion: "2.55.1"
+              headGroupSpec:
+                rayStartParams: {}
+                template:
+                  spec:
+                    serviceAccountName: ray-s3-sa
+                    containers:
+                      - name: ray-head
+                        image: rayproject/ray:2.55.1
+                        resources:
+                          requests:
+                            cpu: "1"
+                            memory: 2Gi
+                          limits:
+                            memory: 3Gi
+              workerGroupSpecs:
+                - groupName: workers
+                  replicas: 2
+                  minReplicas: 0
+                  maxReplicas: 4
+                  rayStartParams: {}
+                  template:
+                    spec:
+                      serviceAccountName: ray-s3-sa
+                      containers:
+                        - name: ray-worker
+                          image: rayproject/ray:2.55.1
+                          resources:
+                            requests:
+                              cpu: "1"
+                              memory: 2Gi
+                            limits:
+                              memory: 3Gi

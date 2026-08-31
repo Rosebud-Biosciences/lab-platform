@@ -1,0 +1,73 @@
+# A RayJob is the canonical "ephemeral Ray cluster" primitive: KubeRay stands up
+# a dedicated cluster, runs `entrypoint` on it, and — because
+# shutdownAfterJobFinishes is true — tears the whole cluster back down when the
+# job finishes. Nothing lingers between runs.
+#
+# This is the SHARED substrate referenced by both orchestrator examples
+# (argo/, dagster/). Apply it directly to see the pattern with no orchestrator:
+#
+#   kubectl apply -n ray -f rayjob.yaml
+#   kubectl get rayjob -n ray -w          # watch it go RUNNING -> SUCCEEDED
+#   kubectl get raycluster -n ray -w      # the cluster appears, then disappears
+#
+# Namespace/service account come from the workloads module (enable_ray = true):
+#   namespace       -> "<name_prefix>ray"   (e.g. "ray" for prod, "pr123-ray")
+#   serviceAccount  -> "ray-s3-sa"          (IRSA: S3 access for the pods)
+apiVersion: ray.io/v1
+kind: RayJob
+metadata:
+  generateName: ephemeral-demo-
+  namespace: ray
+spec:
+  shutdownAfterJobFinishes: true
+  ttlSecondsAfterFinished: 120
+
+  # A tiny distributed job so the demo is self-contained (Monte-Carlo pi across
+  # the workers). Replace with `python /path/to/your_job.py`.
+  entrypoint: >-
+    python -c "import ray, random;
+    ray.init();
+    hits = sum(ray.get([ray.remote(lambda n: sum(random.random()**2 + random.random()**2 <= 1 for _ in range(n))).remote(250000) for _ in range(8)]));
+    print('pi ~=', 4 * hits / (8 * 250000))"
+
+  rayClusterSpec:
+    rayVersion: "2.55.1"
+
+    headGroupSpec:
+      rayStartParams: {}
+      template:
+        spec:
+          serviceAccountName: ray-s3-sa
+          containers:
+            - name: ray-head
+              image: rayproject/ray:2.55.1
+              resources:
+                requests:
+                  cpu: "1"
+                  memory: 2Gi
+                limits:
+                  memory: 3Gi
+
+    workerGroupSpecs:
+      - groupName: workers
+        replicas: 2
+        minReplicas: 0
+        maxReplicas: 4
+        rayStartParams: {}
+        template:
+          spec:
+            serviceAccountName: ray-s3-sa
+            # Pin workers onto a Karpenter NodePool from the workloads module.
+            # In a stamped environment the pool name is prefixed, e.g.
+            # "pr123-default" — match whatever you named it.
+            # nodeSelector:
+            #   karpenter.sh/nodepool: default
+            containers:
+              - name: ray-worker
+                image: rayproject/ray:2.55.1
+                resources:
+                  requests:
+                    cpu: "1"
+                    memory: 2Gi
+                  limits:
+                    memory: 3Gi

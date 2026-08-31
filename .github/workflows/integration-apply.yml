@@ -1,0 +1,90 @@
+# Real apply/destroy against an EPHEMERAL AWS account.
+#
+# DISABLED BY DEFAULT. This workflow costs real money (it stands up an EKS
+# cluster, applies an example end to end, smoke-tests it, then destroys it), so
+# every job is gated on a repository variable that is unset until someone funds
+# it:
+#
+#   Settings -> Secrets and variables -> Actions -> Variables
+#     ENABLE_INTEGRATION_APPLY = true
+#
+# Until that variable is "true", manual runs are a no-op (the job is skipped) and
+# nothing is applied. The nightly schedule is intentionally left commented out so
+# the workflow does not even queue on a cadence while disabled — uncomment it
+# once funded.
+#
+# Required repo/org configuration when you enable it:
+#   secrets.INTEGRATION_AWS_ROLE_ARN  - IAM role to assume via GitHub OIDC
+#                                        (the `ci` role from modules/bootstrap,
+#                                        or a dedicated integration role).
+#   vars.INTEGRATION_AWS_REGION       - region to deploy into (e.g. us-west-2).
+name: integration-apply
+
+on:
+  workflow_dispatch:
+    inputs:
+      example:
+        description: Example to apply end to end
+        type: choice
+        default: minimal
+        options:
+          - minimal
+          - complete
+      confirm:
+        description: Type "apply" to confirm this will spend money
+        type: string
+        required: true
+  # Nightly cadence — leave commented until this is funded and enabled.
+  # schedule:
+  #   - cron: "0 7 * * *"
+
+permissions:
+  contents: read
+  id-token: write # for aws-actions/configure-aws-credentials OIDC
+
+env:
+  TOFU_VERSION: "1.9.0"
+
+jobs:
+  apply:
+    name: apply + destroy (${{ github.event.inputs.example || 'minimal' }})
+    runs-on: ubuntu-latest
+    # The kill switch: unset variable -> job is skipped -> nothing runs.
+    if: vars.ENABLE_INTEGRATION_APPLY == 'true' && github.event.inputs.confirm == 'apply'
+    # Route through a protected environment so a human approval is also required.
+    environment: integration
+    concurrency:
+      group: integration-apply
+      cancel-in-progress: false
+    defaults:
+      run:
+        working-directory: examples/${{ github.event.inputs.example || 'minimal' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: opentofu/setup-opentofu@v1
+        with:
+          tofu_version: ${{ env.TOFU_VERSION }}
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.INTEGRATION_AWS_ROLE_ARN }}
+          aws-region: ${{ vars.INTEGRATION_AWS_REGION }}
+
+      - name: tofu init
+        run: tofu init -backend=false
+
+      - name: tofu apply
+        run: tofu apply -auto-approve
+
+      - name: Smoke test
+        run: |
+          echo "Add reachability/health assertions here, e.g. kubectl get nodes"
+          echo "against the freshly-applied cluster."
+
+      # Always destroy, even if apply or the smoke test failed part-way, so a
+      # failed run never leaves a live cluster billing overnight.
+      - name: tofu destroy
+        if: always()
+        run: tofu destroy -auto-approve
