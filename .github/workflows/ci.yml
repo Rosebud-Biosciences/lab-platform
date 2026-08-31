@@ -10,14 +10,14 @@ permissions:
 
 env:
   # Pin the toolchain so local `tofu fmt`/`validate` and CI agree.
-  TOFU_VERSION: "1.9.0"
+  TOFU_VERSION: "1.12.6"
 
 jobs:
   fmt:
     name: fmt
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: opentofu/setup-opentofu@v1
         with:
           tofu_version: ${{ env.TOFU_VERSION }}
@@ -44,7 +44,7 @@ jobs:
           - examples/preview
           - examples/jupyterhub
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: opentofu/setup-opentofu@v1
         with:
           tofu_version: ${{ env.TOFU_VERSION }}
@@ -57,7 +57,7 @@ jobs:
     name: tflint
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: terraform-linters/setup-tflint@v4
       - run: tflint --init
       - name: tflint (recursive)
@@ -67,7 +67,7 @@ jobs:
     name: checkov
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: bridgecrewio/checkov-action@v12
         with:
           directory: modules
@@ -79,7 +79,7 @@ jobs:
     name: terraform-docs
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Verify generated module docs are up to date
         uses: terraform-docs/gh-actions@v1
         with:
@@ -100,7 +100,7 @@ jobs:
           - modules/workloads
           - modules/iceberg-branches
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: opentofu/setup-opentofu@v1
         with:
           tofu_version: ${{ env.TOFU_VERSION }}

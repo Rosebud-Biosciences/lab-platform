@@ -43,7 +43,7 @@ permissions:
   id-token: write # for aws-actions/configure-aws-credentials OIDC
 
 env:
-  TOFU_VERSION: "1.9.0"
+  TOFU_VERSION: "1.12.6"
 
 jobs:
   apply:
@@ -60,14 +60,14 @@ jobs:
       run:
         working-directory: examples/${{ github.event.inputs.example || 'minimal' }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - uses: opentofu/setup-opentofu@v1
         with:
           tofu_version: ${{ env.TOFU_VERSION }}
 
       - name: Configure AWS credentials (OIDC)
-        uses: aws-actions/configure-aws-credentials@v4
+        uses: aws-actions/configure-aws-credentials@v6
         with:
           role-to-assume: ${{ secrets.INTEGRATION_AWS_ROLE_ARN }}
           aws-region: ${{ vars.INTEGRATION_AWS_REGION }}

@@ -51,7 +51,7 @@ on:
       tofu_version:
         description: "OpenTofu version"
         type: string
-        default: 1.9.0
+        default: 1.12.6
       tailscale:
         description: "Connect to Tailscale before apply (needed when the cluster API / private ingress is tailnet-only)"
         type: boolean

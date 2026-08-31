@@ -1,0 +1,22 @@
+# Version updates for the two dependency surfaces of an IaC repo: the GitHub
+# Actions used by CI/reusable workflows, and the Terraform providers/modules
+# pinned in every module and example. Helm chart versions inside *.tf are not
+# a Dependabot ecosystem; bump those by hand (or with Renovate's helm regex
+# managers).
+version: 2
+
+updates:
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+
+  - package-ecosystem: "terraform"
+    directories:
+      - "/modules/*"
+      - "/examples/*"
+    schedule:
+      interval: "weekly"
+    groups:
+      terraform-providers:
+        patterns: ["*"]

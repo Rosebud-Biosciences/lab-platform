@@ -53,6 +53,18 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   previously the flag was documentation-only), the state bucket gets a Deny
   `s3:DeleteBucket` policy, and the lock table gets native DynamoDB deletion
   protection.
+- `nightly-sweep` accepts `extra_destroy_args` (parity with `preview-down`) so
+  stacks whose variables lack defaults can still be swept.
+- `examples/preview` now documents the stack's own S3 backend, including the
+  non-obvious `workspace_key_prefix` requirement: workspace state lands at
+  `<prefix>/<workspace>/<key>`, so the backend default (`env:`) would fall
+  outside the `preview/*` prefix the bootstrap preview role may write.
+- Dependabot config covering GitHub Actions and Terraform providers/modules
+  across `modules/*` and `examples/*` (Helm chart pins inside `*.tf` are not an
+  ecosystem Dependabot understands — bump those by hand or with Renovate).
+- CI and the reusable workflows default to OpenTofu 1.12.6 (1.9 left security
+  support in May 2026); action pins unified (`checkout@v5`,
+  `configure-aws-credentials@v6`).
 
 ### Changed vs. the original private repo
 

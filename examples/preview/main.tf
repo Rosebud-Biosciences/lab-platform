@@ -26,7 +26,24 @@ locals {
   iceberg_enabled = var.iceberg_table_bucket_arn != ""
 }
 
-# In real use, resolve the shared cluster from the platform stack's state:
+# In real use this stack needs its own remote backend: every preview job
+# (up, migrate, teardown, sweep) runs `tofu init` on a fresh runner, so the
+# pr<N> workspaces must live in shared state. Align workspace_key_prefix with
+# the bootstrap module's preview_state_key_prefix (default preview/*) — with
+# the backend default ("env:"), the preview role's state writes are denied:
+#
+# terraform {
+#   backend "s3" {
+#     bucket               = "<bootstrap: state_bucket_name>"
+#     key                  = "app/terraform.tfstate"
+#     region               = "us-west-2"
+#     dynamodb_table       = "<bootstrap: lock_table_name>"
+#     encrypt              = true
+#     workspace_key_prefix = "preview" # pr<N> -> preview/pr<N>/app/terraform.tfstate
+#   }
+# }
+#
+# And resolve the shared cluster from the platform stack's state:
 #
 # data "terraform_remote_state" "platform" {
 #   backend = "s3"
