@@ -1,0 +1,116 @@
+name: Preview Down
+
+# Reusable workflow (workflow_call) that tears down a single preview: `tofu
+# destroy` its per-PR workspace (removing the name-prefixed workloads AND the
+# copy-on-write Neon branches AND the ephemeral bucket), then deletes the
+# workspace. Prod is untouched.
+#
+# Caller example:
+#
+#   jobs:
+#     down:
+#       uses: your-org/terraform-aws-lab-platform/.github/workflows/preview-down.yml@main
+#       with:
+#         preview_name: pr${{ github.event.pull_request.number }}
+#         role_to_assume: arn:aws:iam::123456789012:role/github-actions-preview-deployer
+#         cluster_name: eks-prod
+#         tailscale: true
+#       secrets:
+#         neon_api_key: ${{ secrets.NEON_API_KEY }}
+#         ts_oauth_client_id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+#         ts_oauth_secret: ${{ secrets.TS_OAUTH_SECRET }}
+
+on:
+  workflow_call:
+    inputs:
+      preview_name:
+        description: "Preview name to destroy (e.g. pr123)"
+        type: string
+        required: true
+      working_directory:
+        description: "Directory of the preview Terraform stack"
+        type: string
+        default: examples/preview
+      role_to_assume:
+        description: "IAM role ARN for GitHub OIDC (the preview deployer role)"
+        type: string
+        required: true
+      cluster_name:
+        description: "Name of the shared EKS cluster"
+        type: string
+        default: ""
+      aws_region:
+        description: "AWS region"
+        type: string
+        default: us-west-2
+      tofu_version:
+        description: "OpenTofu version"
+        type: string
+        default: 1.9.0
+      tailscale:
+        description: "Connect to Tailscale before destroy"
+        type: boolean
+        default: false
+      extra_destroy_args:
+        description: "Additional args appended to `tofu destroy`"
+        type: string
+        default: ""
+    secrets:
+      neon_api_key:
+        required: false
+      ts_oauth_client_id:
+        required: false
+      ts_oauth_secret:
+        required: false
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  destroy:
+    runs-on: ubuntu-latest
+    env:
+      NEON_API_KEY: ${{ secrets.neon_api_key }}
+      TF_VAR_neon_api_key: ${{ secrets.neon_api_key }}
+      PREVIEW_NAME: ${{ inputs.preview_name }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ inputs.role_to_assume }}
+          aws-region: ${{ inputs.aws_region }}
+
+      - name: Connect to Tailscale
+        if: ${{ inputs.tailscale }}
+        uses: tailscale/github-action@306e68a486fd2350f2bfc3b19fcd143891a4a2d8 # v4
+        with:
+          oauth-client-id: ${{ secrets.ts_oauth_client_id }}
+          oauth-secret: ${{ secrets.ts_oauth_secret }}
+          tags: tag:ci
+          version: latest
+
+      - uses: opentofu/setup-opentofu@v1
+        with:
+          tofu_version: ${{ inputs.tofu_version }}
+          tofu_wrapper: false
+
+      - name: Destroy preview stack
+        working-directory: ${{ inputs.working_directory }}
+        run: |
+          set -euo pipefail
+          tofu init -input=false
+          if tofu workspace select "$PREVIEW_NAME" 2>/dev/null; then
+            # shellcheck disable=SC2086
+            tofu destroy -auto-approve \
+              -var "preview_name=$PREVIEW_NAME" \
+              -var "cluster_name=${{ inputs.cluster_name }}" \
+              -var "region=${{ inputs.aws_region }}" \
+              ${{ inputs.extra_destroy_args }}
+            tofu workspace select default
+            tofu workspace delete "$PREVIEW_NAME"
+            echo "Destroyed preview $PREVIEW_NAME"
+          else
+            echo "No workspace $PREVIEW_NAME; nothing to destroy."
+          fi

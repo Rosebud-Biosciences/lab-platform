@@ -1,0 +1,132 @@
+name: Preview Up
+
+# Reusable workflow (workflow_call) that stands up a preview environment: a
+# per-PR Terraform workspace of the examples/preview stack (or your own copy of
+# it), stamped with `name_prefix`, on the SHARED cluster. It branches the Neon
+# DBs, provisions the ephemeral bucket, and applies the name-prefixed workloads.
+#
+# It deliberately does NOT build images -- that is application-specific. Build
+# your images in the CALLING workflow and pass their tags through
+# `extra_apply_args` (e.g. -var "webapp_image=...:pr123-sha").
+#
+# Caller example:
+#
+#   jobs:
+#     up:
+#       uses: your-org/terraform-aws-lab-platform/.github/workflows/preview-up.yml@main
+#       with:
+#         preview_name: pr${{ github.event.pull_request.number }}
+#         role_to_assume: arn:aws:iam::123456789012:role/github-actions-preview-deployer
+#         cluster_name: eks-prod
+#         tailscale: true
+#         extra_apply_args: -var "webapp_image=123.dkr.ecr.us-west-2.amazonaws.com/webapp:pr123-${{ github.sha }}"
+#       secrets:
+#         neon_api_key: ${{ secrets.NEON_API_KEY }}
+#         ts_oauth_client_id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+#         ts_oauth_secret: ${{ secrets.TS_OAUTH_SECRET }}
+
+on:
+  workflow_call:
+    inputs:
+      preview_name:
+        description: "Unique preview name (lowercase, <= 20 chars, e.g. pr123)"
+        type: string
+        required: true
+      working_directory:
+        description: "Directory of the preview Terraform stack"
+        type: string
+        default: examples/preview
+      role_to_assume:
+        description: "IAM role ARN for GitHub OIDC (the preview deployer role from modules/bootstrap)"
+        type: string
+        required: true
+      cluster_name:
+        description: "Name of the shared EKS cluster (for the update-kubeconfig helper)"
+        type: string
+        default: ""
+      aws_region:
+        description: "AWS region"
+        type: string
+        default: us-west-2
+      tofu_version:
+        description: "OpenTofu version"
+        type: string
+        default: 1.9.0
+      tailscale:
+        description: "Connect to Tailscale before apply (needed when the cluster API / private ingress is tailnet-only)"
+        type: boolean
+        default: false
+      extra_apply_args:
+        description: "Additional args appended to `tofu apply` (e.g. image -var flags)"
+        type: string
+        default: ""
+    secrets:
+      neon_api_key:
+        description: "Neon API key for copy-on-write branch creation"
+        required: false
+      ts_oauth_client_id:
+        description: "Tailscale OAuth client id (tag:ci) when tailscale is true"
+        required: false
+      ts_oauth_secret:
+        description: "Tailscale OAuth secret when tailscale is true"
+        required: false
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    env:
+      NEON_API_KEY: ${{ secrets.neon_api_key }}
+      TF_VAR_neon_api_key: ${{ secrets.neon_api_key }}
+      PREVIEW_NAME: ${{ inputs.preview_name }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ inputs.role_to_assume }}
+          aws-region: ${{ inputs.aws_region }}
+
+      - name: Connect to Tailscale
+        if: ${{ inputs.tailscale }}
+        uses: tailscale/github-action@306e68a486fd2350f2bfc3b19fcd143891a4a2d8 # v4
+        with:
+          oauth-client-id: ${{ secrets.ts_oauth_client_id }}
+          oauth-secret: ${{ secrets.ts_oauth_secret }}
+          tags: tag:ci
+          version: latest
+
+      - uses: opentofu/setup-opentofu@v1
+        with:
+          tofu_version: ${{ inputs.tofu_version }}
+          tofu_wrapper: false
+
+      - name: Apply preview stack
+        working-directory: ${{ inputs.working_directory }}
+        run: |
+          set -euo pipefail
+          tofu init -input=false
+          tofu workspace select -or-create "$PREVIEW_NAME"
+          # shellcheck disable=SC2086
+          tofu apply -auto-approve \
+            -var "preview_name=$PREVIEW_NAME" \
+            -var "cluster_name=${{ inputs.cluster_name }}" \
+            -var "region=${{ inputs.aws_region }}" \
+            ${{ inputs.extra_apply_args }}
+
+      - name: Summarize preview URLs
+        working-directory: ${{ inputs.working_directory }}
+        run: |
+          set -euo pipefail
+          {
+            echo "### Preview \`$PREVIEW_NAME\` is up"
+            echo ""
+            echo "| Service | URL |"
+            echo "| --- | --- |"
+            echo "| webapp | $(tofu output -raw webapp_private_url 2>/dev/null || echo n/a) |"
+            echo "| Dagster | $(tofu output -raw dagster_private_url 2>/dev/null || echo n/a) |"
+            echo "| MLflow | $(tofu output -raw mlflow_private_url 2>/dev/null || echo n/a) |"
+          } >> "$GITHUB_STEP_SUMMARY"
