@@ -1,0 +1,29 @@
+# Local .terraform directories and plugin caches
+**/.terraform/*
+.terraform.lock.hcl
+
+# State files must never be committed
+*.tfstate
+*.tfstate.*
+*.tfstate.backup
+
+# Crash logs
+crash.log
+crash.*.log
+
+# Variable files that may contain secrets. Committed *.tfvars are only allowed
+# for non-secret example values; anything matching secret* stays local.
+secret*.tfvars
+secret*.tfvars.json
+*.auto.tfvars.local
+
+# CLI override files
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+
+# Editor / OS noise
+.DS_Store
+.idea/
+*.swp

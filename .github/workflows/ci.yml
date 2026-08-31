@@ -1,0 +1,107 @@
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+env:
+  # Pin the toolchain so local `tofu fmt`/`validate` and CI agree.
+  TOFU_VERSION: "1.9.0"
+
+jobs:
+  fmt:
+    name: fmt
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: opentofu/setup-opentofu@v1
+        with:
+          tofu_version: ${{ env.TOFU_VERSION }}
+      - name: tofu fmt (check, recursive)
+        run: tofu fmt -check -recursive -diff
+
+  validate:
+    name: validate
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        dir:
+          - modules/bootstrap
+          - modules/network
+          - modules/eks-platform
+          - modules/workloads
+          - modules/s3-bucket
+          - modules/preview-storage
+          - modules/neon-branches
+          - examples/minimal
+          - examples/complete
+          - examples/preview
+    steps:
+      - uses: actions/checkout@v4
+      - uses: opentofu/setup-opentofu@v1
+        with:
+          tofu_version: ${{ env.TOFU_VERSION }}
+      - name: tofu init (no backend)
+        run: tofu -chdir=${{ matrix.dir }} init -backend=false
+      - name: tofu validate
+        run: tofu -chdir=${{ matrix.dir }} validate
+
+  lint:
+    name: tflint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: terraform-linters/setup-tflint@v4
+      - run: tflint --init
+      - name: tflint (recursive)
+        run: tflint --recursive --config "$(pwd)/.tflint.hcl"
+
+  checkov:
+    name: checkov
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: bridgecrewio/checkov-action@v12
+        with:
+          directory: modules
+          framework: terraform
+          quiet: true
+          soft_fail: false
+
+  docs:
+    name: terraform-docs
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify generated module docs are up to date
+        uses: terraform-docs/gh-actions@v1
+        with:
+          working-dir: modules/bootstrap,modules/network,modules/eks-platform,modules/workloads,modules/s3-bucket,modules/preview-storage,modules/neon-branches
+          config-file: .terraform-docs.yml
+          output-format: markdown table
+          fail-on-diff: true
+
+  test:
+    name: tofu test
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        dir:
+          - modules/bootstrap
+          - modules/network
+          - modules/workloads
+    steps:
+      - uses: actions/checkout@v4
+      - uses: opentofu/setup-opentofu@v1
+        with:
+          tofu_version: ${{ env.TOFU_VERSION }}
+      - name: tofu init (no backend)
+        run: tofu -chdir=${{ matrix.dir }} init -backend=false
+      - name: Run plan-only toggle-matrix tests
+        run: tofu -chdir=${{ matrix.dir }} test
