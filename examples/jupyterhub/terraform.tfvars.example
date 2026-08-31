@@ -1,0 +1,13 @@
+# Rename to terraform.tfvars and adjust.
+
+region      = "us-west-2"
+environment = "lab"
+
+# Per-user logins: each name below may claim an account by setting a password at
+# first login. Admins can manage users/servers from the hub control panel.
+jupyterhub_admin_users   = ["ada"]
+jupyterhub_allowed_users = ["ada", "grace", "linus"]
+
+# Any docker-stacks-compatible image works; bake marimo into a custom image for
+# production (see main.tf).
+# jupyterhub_singleuser_image = "quay.io/jupyter/scipy-notebook:latest"

@@ -1,0 +1,12 @@
+# Rename to backend.tf and fill in the bucket/table created by modules/bootstrap.
+# Left as a template so the example applies out-of-the-box with local state.
+#
+# terraform {
+#   backend "s3" {
+#     bucket         = "my-org-terraform-state"
+#     key            = "examples/jupyterhub/terraform.tfstate"
+#     region         = "us-west-2"
+#     dynamodb_table = "terraform-locks"
+#     encrypt        = true
+#   }
+# }

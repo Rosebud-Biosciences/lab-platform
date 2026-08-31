@@ -1,0 +1,63 @@
+# JupyterHub example
+
+A multi-user notebook lab on the platform: per-user logins, a persistent
+per-user home directory, a shared team directory, and the
+[marimo](https://marimo.io) notebook available from the JupyterLab launcher.
+
+What you get:
+
+- **Per-user logins** — `firstuse` auth: each username on the allow list sets
+  its own password the first time it logs in. No identity provider needed;
+  switch `jupyterhub_auth_mechanism` to `"cognito"` for real OIDC when you have
+  one.
+- **Per-user home** — every user's `/home/jovyan` is a private sub-directory
+  (`home/<username>`) on one shared EFS filesystem, so notebooks survive server
+  restarts and idle culling.
+- **Shared directory** — `/home/shared` is mounted read-write in every user's
+  server for handing files around.
+- **marimo** — installed at server start via a `postStart` hook together with
+  `jupyter-marimo-proxy`, which adds a marimo tile to the JupyterLab launcher.
+  Bake both packages into `jupyterhub_singleuser_image` for production.
+
+## Apply
+
+```bash
+cp terraform.tfvars.example terraform.tfvars   # set your usernames
+tofu init
+
+# First apply only: create the cluster before planning the workloads on it.
+tofu apply -target=module.network -target=module.platform
+tofu apply
+```
+
+## Log in
+
+No ingress is configured in this example; use a port-forward:
+
+```bash
+aws eks update-kubeconfig --name "$(tofu output -raw cluster_name)" --region "$(tofu output -raw region)"
+tofu output -raw port_forward_command | sh
+```
+
+Open <http://localhost:8080>, log in as one of the allowed usernames, and pick
+any password — that password is now yours (admins can reset passwords from the
+control panel). Start the server, then:
+
+- your files live in `/home/jovyan` (private, persistent);
+- team files live in `/home/shared` (visible to everyone);
+- the launcher has a **marimo** tile next to the notebook/console tiles.
+
+## The data is guarded
+
+User homes live on one EFS filesystem, which is the only persistent user data
+in the stack. It is protected with `lifecycle.prevent_destroy` by default
+(`jupyterhub_efs_prevent_destroy = true`), so `tofu destroy` — or flipping
+`enable_jupyterhub` off — fails until you deliberately disarm the guard first
+and apply that change. Snapshot it with AWS Backup using the `jupyterhub_efs_id`
+output before ever doing so.
+
+## Cost
+
+Same baseline as [`examples/minimal`](../minimal) (~$225/mo: EKS control plane,
+core nodes, one NAT gateway) plus EFS (~$0.30/GiB-mo, pennies at notebook scale)
+and whatever nodes Karpenter provisions for active user servers.
