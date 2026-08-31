@@ -3,7 +3,7 @@
 # example using the aws eks get-token exec plugin). This module declares the
 # requirements but never configures a provider.
 terraform {
-  required_version = ">= 1.6"
+  required_version = ">= 1.12"
 
   required_providers {
     aws = {

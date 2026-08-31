@@ -39,10 +39,11 @@ resource "aws_s3_bucket" "this" {
   force_destroy = local.force_destroy
   tags          = local.tags
 
-  # prevent_destroy must be a literal, so protection is enforced via the
-  # optional bucket policy below (var.prevent_destroy) rather than here.
+  # Plan-time guard (dynamic prevent_destroy; OpenTofu >= 1.12), layered with
+  # the Deny bucket policy below, which also stops non-tofu principals
+  # (console, CLI, other stacks).
   lifecycle {
-    prevent_destroy = false
+    prevent_destroy = var.prevent_destroy
   }
 }
 
@@ -98,13 +99,13 @@ resource "aws_kms_key" "this" {
     prevent_destroy = local.prevent_destroy
   })
 
-  # lifecycle.prevent_destroy must be a literal, so it stays false for all
-  # callers (ephemeral/preview buckets must be able to tear the key down with
-  # `tofu destroy`). Per-environment protection is instead enforced by the
-  # "PreventKeyDeletion" Deny in key_default_policy.json, gated on
-  # var.prevent_destroy, which blocks kms:ScheduleKeyDeletion.
+  # Plan-time guard (dynamic prevent_destroy; OpenTofu >= 1.12): follows
+  # var.prevent_destroy, so ephemeral/preview buckets can still tear the key
+  # down with `tofu destroy`. Layered with the "PreventKeyDeletion" Deny in
+  # key_default_policy.json (same gate), which blocks
+  # kms:ScheduleKeyDeletion for every principal.
   lifecycle {
-    prevent_destroy = false
+    prevent_destroy = var.prevent_destroy
   }
 }
 

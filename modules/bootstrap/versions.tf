@@ -3,7 +3,7 @@
 # assume. Apply this with a local backend first, then migrate state into the
 # bucket it creates. The AWS provider is configured by the caller.
 terraform {
-  required_version = ">= 1.6"
+  required_version = ">= 1.12"
 
   required_providers {
     aws = {

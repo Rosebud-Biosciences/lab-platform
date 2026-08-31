@@ -56,7 +56,7 @@ an apply.
 
 ## State layout: one workspace per PR
 
-Each preview is a Terraform **workspace**, so its state is isolated:
+Each preview is an OpenTofu **workspace**, so its state is isolated:
 
 ```
 s3://my-org-terraform-state/preview/pr123/terraform.tfstate

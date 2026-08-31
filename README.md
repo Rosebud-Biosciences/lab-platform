@@ -1,9 +1,10 @@
 # terraform-aws-lab-platform
 
-A composable family of OpenTofu/Terraform modules for running a data/ML platform
-on AWS EKS — JupyterHub, Ray, Dagster, MLflow, and a public webapp, each behind
-an `enable_*` toggle — with **first-class preview environments** that branch prod
-for testing, off prod.
+A composable family of OpenTofu modules for running a data/ML platform on AWS
+EKS — JupyterHub, Ray, Dagster, MLflow, and a public webapp, each behind an
+`enable_*` toggle — with **first-class preview environments** that branch prod
+for testing, off prod. (The repo keeps the `terraform-aws-*` name because both
+registries require that naming convention.)
 
 > Status: extracted from a production stack and genericized for open source.
 > Wiring is validated (`tofu validate` + plan-only `tofu test`); a full apply
@@ -135,8 +136,10 @@ pods/nodes they actually schedule on top of the shared cluster.
 
 ## Requirements
 
-- OpenTofu >= 1.6 (or Terraform >= 1.6) — the toolchain is pinned to OpenTofu in
-  CI.
+- OpenTofu >= 1.12. The family is OpenTofu-only: the persistent-data guards use
+  dynamic `prevent_destroy` (1.12+), which Terraform's literal-only rule
+  rejects — Terraform users would need to reintroduce the two-resource guard
+  variants this feature made unnecessary.
 - AWS provider >= 6.40 across the family (the EKS module is pinned to v21, which
   requires the aws v6 provider).
 

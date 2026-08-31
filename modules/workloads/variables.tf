@@ -412,11 +412,10 @@ variable "jupyterhub_route53_zone_id" {
 variable "jupyterhub_efs_prevent_destroy" {
   description = <<-EOT
     Protect the JupyterHub EFS filesystem (user home directories) from
-    `terraform destroy` via lifecycle.prevent_destroy. Because prevent_destroy
-    must be a literal, the module keeps two mutually exclusive filesystem
-    resources and this flag selects which exists — CHANGING IT ON A LIVE
-    DEPLOYMENT REPLACES THE FILESYSTEM AND LOSES ITS DATA. Leave true for
-    durable environments; set false only for previews/ephemeral stamps.
+    `tofu destroy` via lifecycle.prevent_destroy (dynamic; OpenTofu >= 1.12).
+    Leave true for durable environments — destroys then fail until this is
+    first flipped off, an intentional two-step. Set false for
+    previews/ephemeral stamps so they can tear down.
   EOT
   type        = bool
   default     = true

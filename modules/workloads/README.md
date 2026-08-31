@@ -27,7 +27,7 @@ limits. Providers point at the target cluster and are configured by the caller.
 
 | Name | Version |
 |------|---------|
-| <a name="requirement_terraform"></a> [terraform](#requirement\_terraform) | >= 1.6 |
+| <a name="requirement_terraform"></a> [terraform](#requirement\_terraform) | >= 1.12 |
 | <a name="requirement_aws"></a> [aws](#requirement\_aws) | >= 6.28 |
 | <a name="requirement_helm"></a> [helm](#requirement\_helm) | ~> 3.0 |
 | <a name="requirement_kubectl"></a> [kubectl](#requirement\_kubectl) | >= 1.14 |
@@ -57,7 +57,6 @@ limits. Providers point at the target cluster and are configured by the caller.
 | Name | Type |
 |------|------|
 | [aws_efs_file_system.jupyterhub](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/efs_file_system) | resource |
-| [aws_efs_file_system.jupyterhub_ephemeral](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/efs_file_system) | resource |
 | [aws_efs_mount_target.jupyterhub](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/efs_mount_target) | resource |
 | [aws_iam_policy.ecr_read](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/iam_policy) | resource |
 | [aws_iam_policy.mlflow_s3](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/iam_policy) | resource |
@@ -138,7 +137,7 @@ limits. Providers point at the target cluster and are configured by the caller.
 | <a name="input_jupyterhub_allowed_users"></a> [jupyterhub\_allowed\_users](#input\_jupyterhub\_allowed\_users) | JupyterHub usernames allowed to log in. Empty allows any authenticated username (allow\_all). | `list(string)` | `[]` | no |
 | <a name="input_jupyterhub_auth_mechanism"></a> [jupyterhub\_auth\_mechanism](#input\_jupyterhub\_auth\_mechanism) | JupyterHub authentication: 'dummy' (shared password), 'firstuse' (each user sets their own password at first login), or 'cognito' (generic OIDC) | `string` | `"dummy"` | no |
 | <a name="input_jupyterhub_chart_version"></a> [jupyterhub\_chart\_version](#input\_jupyterhub\_chart\_version) | JupyterHub Helm chart version | `string` | `"3.3.8"` | no |
-| <a name="input_jupyterhub_efs_prevent_destroy"></a> [jupyterhub\_efs\_prevent\_destroy](#input\_jupyterhub\_efs\_prevent\_destroy) | Protect the JupyterHub EFS filesystem (user home directories) from<br/>`terraform destroy` via lifecycle.prevent\_destroy. Because prevent\_destroy<br/>must be a literal, the module keeps two mutually exclusive filesystem<br/>resources and this flag selects which exists — CHANGING IT ON A LIVE<br/>DEPLOYMENT REPLACES THE FILESYSTEM AND LOSES ITS DATA. Leave true for<br/>durable environments; set false only for previews/ephemeral stamps. | `bool` | `true` | no |
+| <a name="input_jupyterhub_efs_prevent_destroy"></a> [jupyterhub\_efs\_prevent\_destroy](#input\_jupyterhub\_efs\_prevent\_destroy) | Protect the JupyterHub EFS filesystem (user home directories) from<br/>`tofu destroy` via lifecycle.prevent\_destroy (dynamic; OpenTofu >= 1.12).<br/>Leave true for durable environments — destroys then fail until this is<br/>first flipped off, an intentional two-step. Set false for<br/>previews/ephemeral stamps so they can tear down. | `bool` | `true` | no |
 | <a name="input_jupyterhub_extra_values"></a> [jupyterhub\_extra\_values](#input\_jupyterhub\_extra\_values) | Additional YAML documents merged into the JupyterHub Helm values after the built-in template (highest precedence). Use for profiles, lifecycle hooks, resource limits, etc. | `list(string)` | `[]` | no |
 | <a name="input_jupyterhub_ingress_scheme"></a> [jupyterhub\_ingress\_scheme](#input\_jupyterhub\_ingress\_scheme) | ALB scheme for the JupyterHub ingress ('internal' or 'internet-facing') | `string` | `"internal"` | no |
 | <a name="input_jupyterhub_public_host"></a> [jupyterhub\_public\_host](#input\_jupyterhub\_public\_host) | Hostname for the JupyterHub ALB ingress. Empty skips the ingress/DNS. | `string` | `""` | no |

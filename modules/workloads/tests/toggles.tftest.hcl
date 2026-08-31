@@ -121,7 +121,7 @@ run "jupyterhub_protected_efs" {
   }
 }
 
-run "jupyterhub_ephemeral_efs_firstuse_auth" {
+run "jupyterhub_unguarded_efs_firstuse_auth" {
   command = plan
 
   variables {

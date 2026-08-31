@@ -2,7 +2,7 @@
 # processed-data S3 bucket that is torn down with the preview (force_destroy, no
 # versioning). The AWS provider is inherited from the caller.
 terraform {
-  required_version = ">= 1.6"
+  required_version = ">= 1.12"
 
   required_providers {
     aws = {

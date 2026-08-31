@@ -7,7 +7,7 @@
 # Providers (kubernetes / helm / kubectl / aws) are inherited from the caller,
 # which points them at the target cluster.
 terraform {
-  required_version = ">= 1.6"
+  required_version = ">= 1.12"
 
   required_providers {
     aws = {

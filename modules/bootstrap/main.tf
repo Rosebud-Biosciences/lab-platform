@@ -1,10 +1,16 @@
 # ------------------------------------------------------------------------------
-# TERRAFORM STATE BACKEND: S3 bucket + DynamoDB lock table
+# TOFU STATE BACKEND: S3 bucket + DynamoDB lock table
 # ------------------------------------------------------------------------------
 
 resource "aws_s3_bucket" "state" {
   bucket = var.state_bucket_name
   tags   = var.tags
+
+  # Plan-time layer of the same guard as the Deny policy below (dynamic
+  # prevent_destroy; OpenTofu >= 1.12).
+  lifecycle {
+    prevent_destroy = var.state_bucket_prevent_destroy
+  }
 }
 
 resource "aws_s3_bucket_ownership_controls" "state" {
@@ -50,8 +56,8 @@ resource "aws_s3_bucket_public_access_block" "state" {
   restrict_public_buckets = true
 }
 
-# Deletion guard: lifecycle.prevent_destroy only stops *Terraform*, and only
-# this configuration. A Deny bucket policy stops every principal (console, CLI,
+# Deletion guard: lifecycle.prevent_destroy only stops *tofu*, and only this
+# configuration. A Deny bucket policy stops every principal (console, CLI,
 # other stacks) from deleting the bucket that holds all state; removing the
 # guard is a deliberate two-step (delete/edit the policy, then the bucket).
 resource "aws_s3_bucket_policy" "prevent_destroy" {

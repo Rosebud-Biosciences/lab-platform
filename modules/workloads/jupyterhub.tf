@@ -19,11 +19,7 @@ locals {
 
   jupyterhub_ingress_enabled = var.enable_jupyterhub && var.jupyterhub_public_host != ""
 
-  # Whichever of the two guard-variant filesystems exists (see below).
-  jupyterhub_efs = one(concat(
-    aws_efs_file_system.jupyterhub[*],
-    aws_efs_file_system.jupyterhub_ephemeral[*],
-  ))
+  jupyterhub_efs = one(aws_efs_file_system.jupyterhub[*])
 }
 
 resource "kubernetes_namespace_v1" "jupyterhub" {
@@ -38,17 +34,17 @@ resource "kubernetes_namespace_v1" "jupyterhub" {
 # Shared EFS volume
 #
 # This filesystem holds every user's home directory and the shared directory --
-# the only persistent user data in the module. lifecycle.prevent_destroy must be
-# a literal, so the guard is expressed as two mutually exclusive resources and
-# var.jupyterhub_efs_prevent_destroy selects which one exists. Flipping the flag
-# on a live deployment REPLACES the filesystem (data loss); it exists so durable
-# environments are protected by default while previews can still tear down.
-# With protection on, disabling JupyterHub (or `terraform destroy`) fails until
-# the caller first disarms the flag -- an intentional two-step.
+# the only persistent user data in the module. OpenTofu 1.12's dynamic
+# prevent_destroy guards it directly: durable environments stay protected by
+# default while previews can tear down, and flipping the flag is now just a
+# plan-time guard change (under Terraform's literal-only rule this took two
+# mutually exclusive resources, and flipping REPLACED the filesystem). With
+# protection on, disabling JupyterHub (or `tofu destroy`) fails until the
+# caller first disarms the flag -- an intentional two-step.
 # ------------------------------------------------------------------------------
 
 resource "aws_efs_file_system" "jupyterhub" {
-  count     = var.enable_jupyterhub && var.jupyterhub_efs_prevent_destroy ? 1 : 0
+  count     = var.enable_jupyterhub ? 1 : 0
   encrypted = true
 
   lifecycle_policy {
@@ -63,25 +59,8 @@ resource "aws_efs_file_system" "jupyterhub" {
   })
 
   lifecycle {
-    prevent_destroy = true
+    prevent_destroy = var.jupyterhub_efs_prevent_destroy
   }
-}
-
-# Identical filesystem minus the guard, for ephemeral stamps (previews).
-resource "aws_efs_file_system" "jupyterhub_ephemeral" {
-  count     = var.enable_jupyterhub && !var.jupyterhub_efs_prevent_destroy ? 1 : 0
-  encrypted = true
-
-  lifecycle_policy {
-    transition_to_ia = "AFTER_30_DAYS"
-  }
-  lifecycle_policy {
-    transition_to_primary_storage_class = "AFTER_1_ACCESS"
-  }
-
-  tags = merge(var.tags, {
-    Name = local.efs_name
-  })
 }
 
 resource "aws_security_group" "efs" {

@@ -65,6 +65,15 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - CI and the reusable workflows default to OpenTofu 1.12.6 (1.9 left security
   support in May 2026); action pins unified (`checkout@v5`,
   `configure-aws-credentials@v6`).
+- The family is now **OpenTofu-only** (`required_version >= 1.12` everywhere):
+  persistent-data guards use OpenTofu 1.12's dynamic `prevent_destroy`. The
+  JupyterHub EFS two-resource guard pattern collapses into one resource whose
+  guard follows `jupyterhub_efs_prevent_destroy` — flipping the flag is now a
+  plan-time guard change instead of a filesystem REPLACEMENT — and the
+  `s3-bucket` module's bucket/KMS key (plus the bootstrap state bucket) gain
+  plan-time guards layered on the existing Deny policies. Terraform's
+  literal-only `prevent_destroy` cannot express any of this; the repo keeps
+  the `terraform-aws-*` name only because registries require it.
 
 ### Changed vs. the original private repo
 
