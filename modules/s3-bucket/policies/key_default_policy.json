@@ -1,0 +1,21 @@
+{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Sid": "Enable IAM User Permissions",
+            "Effect": "Allow",
+            "Principal": {
+                "AWS": "${user_arn}"
+            },
+            "Action": "kms:*",
+            "Resource": "*"
+        }%{ if prevent_destroy },
+        {
+            "Sid": "PreventKeyDeletion",
+            "Effect": "Deny",
+            "Principal": "*",
+            "Action": "kms:ScheduleKeyDeletion",
+            "Resource": "*"
+        }%{ endif }
+    ]
+}

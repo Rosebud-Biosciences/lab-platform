@@ -1,0 +1,12 @@
+{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Sid": "PreventDestroyBucket",
+            "Effect": "Deny",
+            "Action": "s3:DeleteBucket",
+            "Principal": "*",
+            "Resource": "${bucket_arn}"
+        }
+    ]
+}
