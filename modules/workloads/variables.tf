@@ -513,7 +513,13 @@ variable "mlflow_artifact_bucket_arn" {
 # ------------------------------------------------------------------------------
 
 variable "ray_version" {
-  description = "Ray version used for the cluster image tags and the RayCluster spec"
+  description = <<-EOT
+    Ray version used for the cluster image tags and the RayCluster spec.
+    Anything connecting via Ray client (`ray://`, e.g. Dagster user code) must
+    match the cluster on BOTH the Ray version and the Python minor version;
+    the robust pattern is building those images FROM the same base
+    (`rayproject/ray:<ray_version>-pyXXX`) so they match by construction.
+  EOT
   type        = string
   default     = "2.55.1"
 }
