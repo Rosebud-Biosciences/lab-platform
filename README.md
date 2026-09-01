@@ -93,6 +93,12 @@ Read the design writeup: [`docs/preview-environments.md`](docs/preview-environme
   expensive knobs on per environment.
 - **Bring-your-own private ingress**: Tailscale is the documented happy path, but
   `private_ingress_class_name` lets you point at any private ingress controller.
+  With Tailscale, `private_ingress_annotations` puts per-service device tags on
+  the proxies (`tailscale.com/tags`), so your tailnet ACL can grant UIs
+  individually — ops UIs to a platform group, the webapp to every member, and a
+  whole preview environment under one tag. Reachability is the access control
+  for UIs that ship no auth of their own, and since the tailnet's login provider
+  is your IdP (e.g. Google), those grants are grants on real user identities.
 - **Explicit couplings**: Dagster→Ray is a precondition with a clear error, not a
   silent `&&`.
 - **Secrets stay module inputs** (sensitive vars); the SSM Parameter Store

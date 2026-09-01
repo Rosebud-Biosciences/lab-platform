@@ -134,6 +134,38 @@ variable "private_ingress_hostname_prefix" {
   default     = ""
 }
 
+variable "private_ingress_annotations" {
+  description = <<-EOT
+    Annotations for the private Ingresses, keyed by service ("dagster",
+    "mlflow", "webapp", "ray"); the special key "*" applies to every service,
+    with per-service entries winning on conflict.
+
+    The flagship use is Tailscale ACL scoping. The operator tags every proxy
+    device tag:k8s by default, so one grant governs all UIs; per-service
+    device tags let the tailnet policy grant them individually -- ops UIs to
+    the platform group, the webapp (which authenticates users itself) to
+    every member:
+
+      private_ingress_annotations = {
+        dagster = { "tailscale.com/tags" = "tag:svc-dagster" }
+        mlflow  = { "tailscale.com/tags" = "tag:svc-mlflow" }
+        ray     = { "tailscale.com/tags" = "tag:svc-ray" }
+        webapp  = { "tailscale.com/tags" = "tag:svc-webapp" }
+      }
+
+    A preview stack instead collapses to one tag, so a single grant covers
+    the whole environment:
+
+      private_ingress_annotations = { "*" = { "tailscale.com/tags" = "tag:svc-preview" } }
+
+    Each tag needs the operator's tag as an owner in the policy's tagOwners
+    ("tag:svc-preview": ["tag:k8s-operator"]). Changing a tag recreates that
+    proxy device -- a brief blip; the hostname is unaffected.
+  EOT
+  type        = map(map(string))
+  default     = {}
+}
+
 variable "private_ingress_dns_suffix" {
   description = "DNS suffix for the private hostnames (e.g. your MagicDNS tailnet suffix <tailnet>.ts.net). Used only to build output URLs."
   type        = string
@@ -350,14 +382,74 @@ variable "jupyterhub_chart_version" {
 }
 
 variable "jupyterhub_auth_mechanism" {
-  description = "JupyterHub authentication: 'dummy' (shared password), 'firstuse' (each user sets their own password at first login), or 'cognito' (generic OIDC)"
+  description = "JupyterHub authentication: 'dummy' (shared password), 'firstuse' (each user sets their own password at first login), or 'oidc' (any OIDC provider — Google, Cognito, Okta, Keycloak — via the jupyterhub_oidc_* variables)"
   type        = string
   default     = "dummy"
 
   validation {
-    condition     = contains(["dummy", "firstuse", "cognito"], var.jupyterhub_auth_mechanism)
-    error_message = "jupyterhub_auth_mechanism must be 'dummy', 'firstuse', or 'cognito'."
+    condition     = contains(["dummy", "firstuse", "oidc"], var.jupyterhub_auth_mechanism)
+    error_message = "jupyterhub_auth_mechanism must be 'dummy', 'firstuse', or 'oidc'."
   }
+}
+
+variable "jupyterhub_oidc_client_id" {
+  description = "OIDC client id (auth mechanism 'oidc')"
+  type        = string
+  default     = ""
+
+  validation {
+    condition     = var.jupyterhub_auth_mechanism != "oidc" || var.jupyterhub_oidc_client_id != ""
+    error_message = "jupyterhub_oidc_client_id is required when jupyterhub_auth_mechanism is 'oidc'."
+  }
+}
+
+variable "jupyterhub_oidc_client_secret" {
+  description = "OIDC client secret (auth mechanism 'oidc')"
+  type        = string
+  default     = ""
+  sensitive   = true
+}
+
+variable "jupyterhub_oidc_authorize_url" {
+  description = "OIDC authorization endpoint, e.g. https://accounts.google.com/o/oauth2/v2/auth"
+  type        = string
+  default     = ""
+}
+
+variable "jupyterhub_oidc_token_url" {
+  description = "OIDC token endpoint, e.g. https://oauth2.googleapis.com/token"
+  type        = string
+  default     = ""
+}
+
+variable "jupyterhub_oidc_userdata_url" {
+  description = "OIDC userinfo endpoint, e.g. https://openidconnect.googleapis.com/v1/userinfo"
+  type        = string
+  default     = ""
+}
+
+variable "jupyterhub_oidc_callback_url" {
+  description = "OAuth callback: https://<jupyterhub host>/hub/oauth_callback (the host may be a tailnet ts.net name — the IdP only needs the browser to reach it, so private hubs work)"
+  type        = string
+  default     = ""
+}
+
+variable "jupyterhub_oidc_username_claim" {
+  description = "Claim used as the JupyterHub username (also the {username} EFS home sub-path, and what jupyterhub_admin_users/jupyterhub_allowed_users match against)"
+  type        = string
+  default     = "email"
+}
+
+variable "jupyterhub_oidc_scopes" {
+  description = "OAuth scopes to request"
+  type        = list(string)
+  default     = ["openid", "email"]
+}
+
+variable "jupyterhub_oidc_login_service" {
+  description = "Label on the JupyterHub login button, e.g. 'Google'"
+  type        = string
+  default     = "OIDC"
 }
 
 variable "jupyterhub_user_password" {
