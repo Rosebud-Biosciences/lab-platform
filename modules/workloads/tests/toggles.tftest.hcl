@@ -121,6 +121,35 @@ run "jupyterhub_protected_efs" {
   }
 }
 
+run "jupyterhub_oidc_auth" {
+  command = plan
+
+  variables {
+    enable_jupyterhub           = true
+    vpc_id                      = "vpc-12345678"
+    private_subnets             = ["subnet-aaa", "subnet-bbb"]
+    private_subnets_cidr_blocks = ["100.64.0.0/18", "100.64.64.0/18"]
+    vpc_secondary_cidr_blocks   = ["100.64.0.0/16"]
+
+    jupyterhub_auth_mechanism      = "oidc"
+    jupyterhub_oidc_client_id      = "test-client"
+    jupyterhub_oidc_client_secret  = "test-secret"
+    jupyterhub_oidc_callback_url   = "https://hub.example.ts.net/hub/oauth_callback"
+    jupyterhub_oidc_authorize_url  = "https://accounts.google.com/o/oauth2/v2/auth"
+    jupyterhub_oidc_token_url      = "https://oauth2.googleapis.com/token"
+    jupyterhub_oidc_userdata_url   = "https://openidconnect.googleapis.com/v1/userinfo"
+    jupyterhub_oidc_login_service  = "Google"
+    jupyterhub_allowed_users       = ["ada@example.com"]
+    jupyterhub_admin_users         = ["ada@example.com"]
+    jupyterhub_efs_prevent_destroy = false
+  }
+
+  assert {
+    condition     = output.jupyterhub_namespace != null
+    error_message = "jupyterhub should render with oidc auth"
+  }
+}
+
 run "jupyterhub_unguarded_efs_firstuse_auth" {
   command = plan
 

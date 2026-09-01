@@ -65,6 +65,16 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - CI and the reusable workflows default to OpenTofu 1.12.6 (1.9 left security
   support in May 2026); action pins unified (`checkout@v5`,
   `configure-aws-credentials@v6`).
+- First-class OIDC login for JupyterHub: `jupyterhub_auth_mechanism = "oidc"`
+  plus `jupyterhub_oidc_*` variables (client, endpoints, callback, username
+  claim) drive the generic-oauth authenticator directly — no hand-written
+  `jupyterhub_extra_values` YAML. Replaces the placeholder `"cognito"`
+  mechanism; the Google worked example lives in `examples/jupyterhub`.
+- `private_ingress_annotations` on `modules/workloads`: decorate the private
+  Ingresses per service or all at once (`"*"`), built for Tailscale ACL
+  scoping via `tailscale.com/tags` device tags — grant ops UIs to a platform
+  group, the webapp to every member, or a whole preview environment under one
+  tag.
 - The family is now **OpenTofu-only** (`required_version >= 1.12` everywhere):
   persistent-data guards use OpenTofu 1.12's dynamic `prevent_destroy`. The
   JupyterHub EFS two-resource guard pattern collapses into one resource whose

@@ -167,6 +167,17 @@ resource "helm_release" "jupyterhub" {
       admin_users                 = jsonencode(var.jupyterhub_admin_users)
       allowed_users               = jsonencode(var.jupyterhub_allowed_users)
       allow_all                   = length(var.jupyterhub_allowed_users) == 0
+      # oidc mechanism only; the other templates ignore these. Strings are
+      # jsonencode()d so secrets with YAML-special characters stay one scalar.
+      oidc_client_id      = jsonencode(var.jupyterhub_oidc_client_id)
+      oidc_client_secret  = jsonencode(var.jupyterhub_oidc_client_secret)
+      oidc_callback_url   = jsonencode(var.jupyterhub_oidc_callback_url)
+      oidc_authorize_url  = jsonencode(var.jupyterhub_oidc_authorize_url)
+      oidc_token_url      = jsonencode(var.jupyterhub_oidc_token_url)
+      oidc_userdata_url   = jsonencode(var.jupyterhub_oidc_userdata_url)
+      oidc_scopes         = jsonencode(var.jupyterhub_oidc_scopes)
+      oidc_username_claim = jsonencode(var.jupyterhub_oidc_username_claim)
+      oidc_login_service  = jsonencode(var.jupyterhub_oidc_login_service)
     })],
     # Caller overrides win (later documents take precedence in Helm).
     var.jupyterhub_extra_values,

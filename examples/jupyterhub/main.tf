@@ -95,7 +95,8 @@ module "workloads" {
   enable_jupyterhub = true
 
   # Per-user logins without an IdP: first login sets the user's password.
-  # Switch to "cognito" + extra values for real OIDC identity.
+  # Switch to "oidc" + the jupyterhub_oidc_* variables for real SSO identity
+  # (Google worked example in this example's README).
   jupyterhub_auth_mechanism = "firstuse"
   jupyterhub_admin_users    = var.jupyterhub_admin_users
   jupyterhub_allowed_users  = var.jupyterhub_allowed_users

@@ -1,15 +1,26 @@
-# JupyterHub with a generic OIDC authenticator (Amazon Cognito shown as one
-# example). Supply the issuer/client details via jupyterhub_extra_values or a
-# caller override values file; the placeholders below document the shape.
+# JupyterHub with a generic OIDC authenticator: any provider (Google, Cognito,
+# Okta, Keycloak) via the jupyterhub_oidc_* variables. The username (and so the
+# {username} home sub-path and admin/allowed matching) comes from
+# oidc_username_claim — "email" by default.
+#
+# allowed_users/allow_all still gate who may log in AFTER the IdP
+# authenticates; with allow_all any account the IdP admits gets a pod, so
+# durable deployments should set jupyterhub_allowed_users (or restrict the IdP
+# app to the org).
 hub:
   config:
     JupyterHub:
       authenticator_class: generic-oauth
     GenericOAuthenticator:
-      # Fill these in via a caller override (do not commit real secrets):
-      #   client_id, client_secret, oauth_callback_url,
-      #   authorize_url, token_url, userdata_url, scope
-      login_service: "OIDC"
+      client_id: ${oidc_client_id}
+      client_secret: ${oidc_client_secret}
+      oauth_callback_url: ${oidc_callback_url}
+      authorize_url: ${oidc_authorize_url}
+      token_url: ${oidc_token_url}
+      userdata_url: ${oidc_userdata_url}
+      scope: ${oidc_scopes}
+      username_claim: ${oidc_username_claim}
+      login_service: ${oidc_login_service}
     Authenticator:
       admin_users: ${admin_users}
 %{ if allow_all ~}

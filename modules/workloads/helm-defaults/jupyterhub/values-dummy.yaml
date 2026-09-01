@@ -1,7 +1,7 @@
 # JupyterHub with dummy (shared-password) auth: anyone with the shared password
 # can log in as any allowed username. Each username still gets its own home
 # directory (per-user EFS sub-path). Fine for demos and internal labs; use
-# "firstuse" for per-user passwords or "cognito"/OIDC for real identity.
+# "firstuse" for per-user passwords or "oidc" for real identity (Google etc.).
 hub:
   config:
     JupyterHub:

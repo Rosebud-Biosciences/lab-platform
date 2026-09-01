@@ -7,9 +7,27 @@ per-user home directory, a shared team directory, and the
 What you get:
 
 - **Per-user logins** — `firstuse` auth: each username on the allow list sets
-  its own password the first time it logs in. No identity provider needed;
-  switch `jupyterhub_auth_mechanism` to `"cognito"` for real OIDC when you have
-  one.
+  its own password the first time it logs in. No identity provider needed.
+  When you have one, switch to real SSO — Google shown, any OIDC provider
+  works the same way:
+
+  ```hcl
+  jupyterhub_auth_mechanism      = "oidc"
+  jupyterhub_oidc_login_service  = "Google"
+  jupyterhub_oidc_client_id      = var.google_client_id
+  jupyterhub_oidc_client_secret  = var.google_client_secret # sensitive
+  jupyterhub_oidc_authorize_url  = "https://accounts.google.com/o/oauth2/v2/auth"
+  jupyterhub_oidc_token_url      = "https://oauth2.googleapis.com/token"
+  jupyterhub_oidc_userdata_url   = "https://openidconnect.googleapis.com/v1/userinfo"
+  jupyterhub_oidc_callback_url   = "https://<hub host>/hub/oauth_callback"
+  # usernames are now email addresses (oidc_username_claim defaults to email):
+  jupyterhub_admin_users   = ["ada@your-org.com"]
+  jupyterhub_allowed_users = ["ada@your-org.com", "grace@your-org.com"]
+  ```
+
+  The callback host only needs to be reachable by the *browser*, so a
+  tailnet-private hub (`https://<name>.<tailnet>.ts.net`) works — register
+  that URL with the IdP.
 - **Per-user home** — every user's `/home/jovyan` is a private sub-directory
   (`home/<username>`) on one shared EFS filesystem, so notebooks survive server
   restarts and idle culling.
