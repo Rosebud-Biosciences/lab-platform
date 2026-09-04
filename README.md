@@ -14,7 +14,7 @@ registries require that naming convention.)
 
 | Module | What it is |
 | ------ | ---------- |
-| [`modules/bootstrap`](modules/bootstrap) | State bucket + lock table + GitHub OIDC CI/preview roles (least-privilege) |
+| [`modules/bootstrap`](modules/bootstrap) | State bucket + lock table + GitHub OIDC CI/preview roles (least-privilege) + optional MFA-gated operator role with guardrails |
 | [`modules/network`](modules/network) | VPC (pod secondary CIDR, VPC endpoints) + optional Tailscale subnet router |
 | [`modules/eks-platform`](modules/eks-platform) | EKS cluster + cluster-wide operators (Karpenter, LB controller, monitoring, GPU, KubeRay, Argo, Tailscale) |
 | [`modules/workloads`](modules/workloads) | webapp / JupyterHub / Dagster / MLflow / Ray, `name_prefix`-stamped and toggleable |
@@ -112,8 +112,8 @@ accidental `destroy`:
 
 | Data | Where | Guard |
 | --- | --- | --- |
-| Terraform state | `modules/bootstrap` S3 bucket | Versioning + a Deny `s3:DeleteBucket` bucket policy (`state_bucket_prevent_destroy`, default on) |
-| State locks | `modules/bootstrap` DynamoDB table | Native deletion protection (`lock_table_deletion_protection`, default on) |
+| Terraform state | `modules/bootstrap` S3 bucket | Versioning + a Deny `s3:DeleteBucket` bucket policy (`state_bucket_prevent_destroy`, default on); with the operator role on, an identity Deny on `DeleteObjectVersion` and on removing the bucket policy from a non-MFA key |
+| State locks | `modules/bootstrap` DynamoDB table | Native deletion protection (`lock_table_deletion_protection`, default on); with the operator role on, an identity Deny on `DeleteTable` and on flipping the flag from a non-MFA key |
 | JupyterHub user homes + shared dir | `modules/workloads` EFS filesystem | `lifecycle.prevent_destroy` (`jupyterhub_efs_prevent_destroy`, default on); back up via the `jupyterhub_efs_id` output |
 | Durable object data | `modules/s3-bucket` | Deny `s3:DeleteBucket` policy + a KMS key policy denying `kms:ScheduleKeyDeletion` (`prevent_destroy`), `force_destroy = false`, versioning |
 | Databases | External (Neon/RDS — never module-managed) | Provider-side (e.g. Neon retains parents; previews only ever touch child branches) |
@@ -124,6 +124,13 @@ guarded resources make teardown a deliberate two-step: disarm the guard in one
 apply, destroy in the next. Prometheus/MLflow/hub-db PVCs ride on EBS with the
 cluster's default reclaim policy and are treated as rebuildable caches; if you
 care about them, switch their StorageClass to `reclaimPolicy: Retain`.
+
+The guards above stop a stray `destroy`. They do not stop a person — or a leaked
+long-lived access key — from turning the guards off first. For that, the
+operator's static identity keeps only the right to step up into an MFA-gated
+role, and a Deny policy protects the guards and the role from anything that is
+not that role. How to set that up, and how to actually run tofu through it, is
+in [`docs/operator-access.md`](docs/operator-access.md).
 
 ## Cost
 

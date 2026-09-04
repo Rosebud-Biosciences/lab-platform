@@ -75,6 +75,22 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   scoping via `tailscale.com/tags` device tags — grant ops UIs to a platform
   group, the webapp to every member, or a whole preview environment under one
   tag.
+- `access_entries` and `enable_cluster_creator_admin_permissions` on
+  `modules/eks-platform`. Until now the only human who could reach the cluster
+  was whichever identity ran the first apply; any other principal — an
+  operator role, an SSO permission set, a CI deployer — needed a module edit.
+- Opt-in human-operator identity in `modules/bootstrap`
+  (`enable_operator_admin_role`): an admin role assumable only with a recent
+  MFA challenge, and a guardrail Deny policy protecting state history, the
+  lock table, CloudTrail, and the role itself from a leaked long-lived key.
+  Outputs `operator_admin_role_arn` (feed it to `access_entries`) and
+  `operator_guardrails_policy_arn` (attach it to your static identity).
+- `docs/operator-access.md` — how a person should authenticate to run tofu:
+  why `AWS_PROFILE` with `mfa_serial` cannot work with the provider and the
+  `export-credentials` workaround; why `aws:MultiFactorAuthPresent` is absent
+  from every assumed-role session and what that means for guardrail design;
+  `GetSessionToken` as break-glass; the EKS access-entry chicken-and-egg; and
+  the two-pass apply for changing a guardrail that binds you.
 - The family is now **OpenTofu-only** (`required_version >= 1.12` everywhere):
   persistent-data guards use OpenTofu 1.12's dynamic `prevent_destroy`. The
   JupyterHub EFS two-resource guard pattern collapses into one resource whose
