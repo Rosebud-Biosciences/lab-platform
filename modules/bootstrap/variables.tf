@@ -164,3 +164,48 @@ variable "preview_resource_tag_value" {
   type        = string
   default     = "preview"
 }
+
+# ------------------------------------------------------------------------------
+# HUMAN OPERATOR (MFA-gated admin role + guardrails; see operator.tf)
+# ------------------------------------------------------------------------------
+
+variable "enable_operator_admin_role" {
+  description = "Create the MFA-gated operator role and its guardrail policy. Requires operator_principal_arns. See docs/operator-access.md."
+  type        = bool
+  default     = false
+}
+
+variable "operator_admin_role_name" {
+  description = "Name for the operator admin IAM role; the guardrail policy is named <role>-guardrails"
+  type        = string
+  default     = "operator-admin"
+}
+
+variable "operator_principal_arns" {
+  description = "IAM user/role ARNs allowed to assume the operator role (with a recent MFA challenge). The module does not manage these identities."
+  type        = list(string)
+  default     = []
+}
+
+variable "operator_admin_policy_arns" {
+  description = "Managed policy ARNs attached to the operator role. AdministratorAccess by default; scope down once you know what your stacks call. The guardrail Deny policy is attached regardless."
+  type        = list(string)
+  default     = ["arn:aws:iam::aws:policy/AdministratorAccess"]
+}
+
+variable "operator_mfa_max_age" {
+  description = "Seconds since the MFA challenge within which the operator role may be assumed. Bounds how long an MFA'd session stays useful for stepping up."
+  type        = number
+  default     = 3600
+}
+
+variable "operator_admin_session_duration" {
+  description = "Maximum operator role session length in seconds (3600-43200). Long enough for a full cluster apply, because credentials expiring mid-apply is how state drifts from reality."
+  type        = number
+  default     = 14400
+
+  validation {
+    condition     = var.operator_admin_session_duration >= 3600 && var.operator_admin_session_duration <= 43200
+    error_message = "operator_admin_session_duration must be between 3600 and 43200 seconds (IAM's bounds for max_session_duration)."
+  }
+}

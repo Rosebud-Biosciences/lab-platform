@@ -27,3 +27,13 @@ output "preview_deployer_role_arn" {
   description = "ARN of the preview deployer role (null when disabled)"
   value       = var.enable_preview_deployer_role ? aws_iam_role.preview_deployer[0].arn : null
 }
+
+output "operator_admin_role_arn" {
+  description = "ARN of the MFA-gated operator role (null when disabled). Feed it to eks-platform's access_entries so the role can reach the cluster."
+  value       = var.enable_operator_admin_role ? aws_iam_role.operator_admin[0].arn : null
+}
+
+output "operator_guardrails_policy_arn" {
+  description = "ARN of the operator guardrail Deny policy (null when disabled). Already attached to the role; attach it to the static identities in operator_principal_arns too."
+  value       = var.enable_operator_admin_role ? aws_iam_policy.operator_guardrails[0].arn : null
+}

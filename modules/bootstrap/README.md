@@ -10,7 +10,14 @@ One-time, per-account setup that everything else depends on:
   - a **preview deployer** role whose permissions are scoped to exactly what the
     [preview stack](../../examples/preview) touches: its own Terraform state
     (writes limited to `preview/*`), name-pattern-scoped IAM, the ephemeral
-    bucket, and its KMS key (destructive KMS actions gated on the preview tag).
+    bucket, and its KMS key (destructive KMS actions gated on the preview tag);
+- optionally, the **human operator's** identity: an **MFA-gated admin role** that
+  the person running `tofu apply` steps up into, plus a **guardrail** Deny policy
+  protecting state history, the lock table, the audit trail, and the role
+  itself from a leaked long-lived key. Off by default because it needs your
+  principal ARNs. Read [docs/operator-access.md](../../docs/operator-access.md)
+  before turning it on — it also explains how to actually run tofu through an
+  MFA role, which is less obvious than it should be.
 
 Apply this first with a **local backend**, then migrate state into the bucket it
 creates.
@@ -23,6 +30,17 @@ module "bootstrap" {
   github_owner      = "my-org"
   ci_repos          = ["app"]
   preview_repos     = ["app"]
+
+  enable_operator_admin_role = true
+  operator_principal_arns    = ["arn:aws:iam::123456789012:user/alice"]
+}
+
+# Attach the guardrail to the static identity as well, so a leaked key cannot
+# undo the arrangement. From here on, changes to the guarded objects run as
+# the role (or a GetSessionToken MFA session) -- see the doc.
+resource "aws_iam_user_policy_attachment" "alice_guardrails" {
+  user       = "alice"
+  policy_arn = module.bootstrap.operator_guardrails_policy_arn
 }
 ```
 
@@ -46,10 +64,14 @@ module "bootstrap" {
 |------|------|
 | [aws_dynamodb_table.locks](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/dynamodb_table) | resource |
 | [aws_iam_openid_connect_provider.github](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/iam_openid_connect_provider) | resource |
+| [aws_iam_policy.operator_guardrails](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/iam_policy) | resource |
 | [aws_iam_role.ci_deployer](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/iam_role) | resource |
+| [aws_iam_role.operator_admin](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/iam_role) | resource |
 | [aws_iam_role.preview_deployer](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/iam_role) | resource |
 | [aws_iam_role_policy.ci_deployer](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/iam_role_policy) | resource |
 | [aws_iam_role_policy.preview_deployer](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/iam_role_policy) | resource |
+| [aws_iam_role_policy_attachment.operator_admin](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/iam_role_policy_attachment) | resource |
+| [aws_iam_role_policy_attachment.operator_guardrails](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/iam_role_policy_attachment) | resource |
 | [aws_s3_bucket.state](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/s3_bucket) | resource |
 | [aws_s3_bucket_acl.state](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/s3_bucket_acl) | resource |
 | [aws_s3_bucket_lifecycle_configuration.state](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/s3_bucket_lifecycle_configuration) | resource |
@@ -61,6 +83,8 @@ module "bootstrap" {
 | [aws_caller_identity.current](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/data-sources/caller_identity) | data source |
 | [aws_iam_policy_document.ci_assume](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/data-sources/iam_policy_document) | data source |
 | [aws_iam_policy_document.ci_deployer](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/data-sources/iam_policy_document) | data source |
+| [aws_iam_policy_document.operator_assume](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/data-sources/iam_policy_document) | data source |
+| [aws_iam_policy_document.operator_guardrails](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/data-sources/iam_policy_document) | data source |
 | [aws_iam_policy_document.preview_assume](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/data-sources/iam_policy_document) | data source |
 | [aws_iam_policy_document.preview_deployer](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/data-sources/iam_policy_document) | data source |
 | [aws_region.current](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/data-sources/region) | data source |
@@ -76,11 +100,17 @@ module "bootstrap" {
 | <a name="input_cluster_name_pattern"></a> [cluster\_name\_pattern](#input\_cluster\_name\_pattern) | EKS cluster name pattern the roles may eks:DescribeCluster (e.g. eks-*) | `string` | `"eks-*"` | no |
 | <a name="input_create_github_oidc_provider"></a> [create\_github\_oidc\_provider](#input\_create\_github\_oidc\_provider) | Create the GitHub Actions OIDC identity provider. Set false to reuse an existing one via github\_oidc\_provider\_arn. | `bool` | `true` | no |
 | <a name="input_enable_ci_deployer_role"></a> [enable\_ci\_deployer\_role](#input\_enable\_ci\_deployer\_role) | Create the GitHub Actions CI role (ECR push + eks:DescribeCluster) | `bool` | `true` | no |
+| <a name="input_enable_operator_admin_role"></a> [enable\_operator\_admin\_role](#input\_enable\_operator\_admin\_role) | Create the MFA-gated operator role and its guardrail policy. Requires operator\_principal\_arns. See docs/operator-access.md. | `bool` | `false` | no |
 | <a name="input_enable_preview_deployer_role"></a> [enable\_preview\_deployer\_role](#input\_enable\_preview\_deployer\_role) | Create the least-privilege GitHub Actions preview role that runs the preview Terraform stack | `bool` | `true` | no |
 | <a name="input_github_oidc_provider_arn"></a> [github\_oidc\_provider\_arn](#input\_github\_oidc\_provider\_arn) | ARN of an existing GitHub Actions OIDC provider (used when create\_github\_oidc\_provider is false) | `string` | `""` | no |
 | <a name="input_github_owner"></a> [github\_owner](#input\_github\_owner) | GitHub org/user that owns the CI and preview repositories | `string` | `""` | no |
 | <a name="input_lock_table_deletion_protection"></a> [lock\_table\_deletion\_protection](#input\_lock\_table\_deletion\_protection) | Enable DynamoDB deletion protection on the lock table | `bool` | `true` | no |
 | <a name="input_lock_table_name"></a> [lock\_table\_name](#input\_lock\_table\_name) | Name of the DynamoDB table used for state locking | `string` | `"terraform-locks"` | no |
+| <a name="input_operator_admin_policy_arns"></a> [operator\_admin\_policy\_arns](#input\_operator\_admin\_policy\_arns) | Managed policy ARNs attached to the operator role. AdministratorAccess by default; scope down once you know what your stacks call. The guardrail Deny policy is attached regardless. | `list(string)` | <pre>[<br/>  "arn:aws:iam::aws:policy/AdministratorAccess"<br/>]</pre> | no |
+| <a name="input_operator_admin_role_name"></a> [operator\_admin\_role\_name](#input\_operator\_admin\_role\_name) | Name for the operator admin IAM role; the guardrail policy is named <role>-guardrails | `string` | `"operator-admin"` | no |
+| <a name="input_operator_admin_session_duration"></a> [operator\_admin\_session\_duration](#input\_operator\_admin\_session\_duration) | Maximum operator role session length in seconds (3600-43200). Long enough for a full cluster apply, because credentials expiring mid-apply is how state drifts from reality. | `number` | `14400` | no |
+| <a name="input_operator_mfa_max_age"></a> [operator\_mfa\_max\_age](#input\_operator\_mfa\_max\_age) | Seconds since the MFA challenge within which the operator role may be assumed. Bounds how long an MFA'd session stays useful for stepping up. | `number` | `3600` | no |
+| <a name="input_operator_principal_arns"></a> [operator\_principal\_arns](#input\_operator\_principal\_arns) | IAM user/role ARNs allowed to assume the operator role (with a recent MFA challenge). The module does not manage these identities. | `list(string)` | `[]` | no |
 | <a name="input_preview_deployer_role_name"></a> [preview\_deployer\_role\_name](#input\_preview\_deployer\_role\_name) | Name for the preview deployer IAM role | `string` | `"github-actions-preview-deployer"` | no |
 | <a name="input_preview_ecr_repositories"></a> [preview\_ecr\_repositories](#input\_preview\_ecr\_repositories) | ECR repository names whose preview-tagged images the preview role may prune on teardown | `list(string)` | `[]` | no |
 | <a name="input_preview_ephemeral_bucket_pattern"></a> [preview\_ephemeral\_bucket\_pattern](#input\_preview\_ephemeral\_bucket\_pattern) | S3 bucket name pattern for per-preview ephemeral buckets the role may create/destroy | `string` | `"preview-processeddata-*"` | no |
@@ -103,6 +133,8 @@ module "bootstrap" {
 | <a name="output_ci_deployer_role_arn"></a> [ci\_deployer\_role\_arn](#output\_ci\_deployer\_role\_arn) | ARN of the CI deployer role (null when disabled) |
 | <a name="output_github_oidc_provider_arn"></a> [github\_oidc\_provider\_arn](#output\_github\_oidc\_provider\_arn) | ARN of the GitHub Actions OIDC provider (created or reused) |
 | <a name="output_lock_table_name"></a> [lock\_table\_name](#output\_lock\_table\_name) | Name of the DynamoDB state lock table |
+| <a name="output_operator_admin_role_arn"></a> [operator\_admin\_role\_arn](#output\_operator\_admin\_role\_arn) | ARN of the MFA-gated operator role (null when disabled). Feed it to eks-platform's access\_entries so the role can reach the cluster. |
+| <a name="output_operator_guardrails_policy_arn"></a> [operator\_guardrails\_policy\_arn](#output\_operator\_guardrails\_policy\_arn) | ARN of the operator guardrail Deny policy (null when disabled). Already attached to the role; attach it to the static identities in operator\_principal\_arns too. |
 | <a name="output_preview_deployer_role_arn"></a> [preview\_deployer\_role\_arn](#output\_preview\_deployer\_role\_arn) | ARN of the preview deployer role (null when disabled) |
 | <a name="output_state_bucket_arn"></a> [state\_bucket\_arn](#output\_state\_bucket\_arn) | ARN of the Terraform state bucket |
 | <a name="output_state_bucket_name"></a> [state\_bucket\_name](#output\_state\_bucket\_name) | Name of the Terraform state bucket |
