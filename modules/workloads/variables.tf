@@ -159,8 +159,20 @@ variable "private_ingress_annotations" {
       private_ingress_annotations = { "*" = { "tailscale.com/tags" = "tag:svc-preview" } }
 
     Each tag needs the operator's tag as an owner in the policy's tagOwners
-    ("tag:svc-preview": ["tag:k8s-operator"]). Changing a tag recreates that
-    proxy device -- a brief blip; the hostname is unaffected.
+    ("tag:svc-preview": ["tag:k8s-operator"]), applied BEFORE any Ingress
+    uses it, or the operator cannot mint the device.
+
+    Tags apply only at provisioning. The operator reads tailscale.com/tags
+    when it first creates a proxy device and never again, so editing the
+    annotation on a live Ingress changes nothing on the tailnet -- and since
+    the ACL grants by tag, that device silently falls out of the new grant.
+    Whenever a tag changes (including the first time you set one on an
+    existing environment), recreate the Ingress so a fresh device is minted:
+
+      tofu apply -replace='module.workloads.kubernetes_ingress_v1.webapp_private[0]'
+
+    The hostname is unaffected; the service blips while the new proxy pod
+    starts. Only ProxyGroup-mode Ingresses reconcile tag changes in place.
   EOT
   type        = map(map(string))
   default     = {}

@@ -74,7 +74,9 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   Ingresses per service or all at once (`"*"`), built for Tailscale ACL
   scoping via `tailscale.com/tags` device tags — grant ops UIs to a platform
   group, the webapp to every member, or a whole preview environment under one
-  tag.
+  tag. Note the operator applies tags only when it first provisions a proxy:
+  changing a tag on a live Ingress requires recreating it (`tofu apply
+  -replace=...`), and the tag must already be in the ACL's `tagOwners`.
 - `access_entries` and `enable_cluster_creator_admin_permissions` on
   `modules/eks-platform`. Until now the only human who could reach the cluster
   was whichever identity ran the first apply; any other principal — an
