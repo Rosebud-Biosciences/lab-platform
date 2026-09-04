@@ -20,6 +20,47 @@ namespace/cluster, NodePools) live in the sibling [workloads](../workloads)
 module. Providers (`kubernetes`/`helm`/`kubectl` + the `aws.ecr_public_region`
 alias) are configured by the caller — see [examples/minimal](../../examples/minimal).
 
+## Who can reach the cluster
+
+The cluster authenticates with **EKS access entries** (API mode). The
+`kubernetes`/`helm`/`kubectl` providers sign in with `aws eks get-token`, which
+uses whatever AWS credentials are ambient — so every identity that runs `tofu`
+or `kubectl` against the cluster needs an access entry, and the entry has to be
+created by an identity that already has one.
+
+By default the identity that creates the cluster gets cluster-admin
+(`enable_cluster_creator_admin_permissions`). Any other identity — an MFA-gated
+operator role, a CI deployer, an SSO permission set — goes in `access_entries`:
+
+```hcl
+access_entries = {
+  operator = {
+    principal_arn = module.bootstrap.operator_admin_role_arn
+    policy_associations = {
+      admin = {
+        policy_arn   = "arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy"
+        access_scope = { type = "cluster" }
+      }
+    }
+  }
+  ci = {
+    principal_arn = module.bootstrap.ci_deployer_role_arn
+    policy_associations = {
+      edit = {
+        policy_arn   = "arn:aws:eks::aws:cluster-access-policy/AmazonEKSEditPolicy"
+        access_scope = { type = "namespace", namespaces = ["webapp", "dagster"] }
+      }
+    }
+  }
+}
+```
+
+Apply that from the creator identity once; from then on the listed identities
+can run the stack themselves, and `enable_cluster_creator_admin_permissions`
+can be turned off so a bootstrap credential does not keep standing admin. The
+operator-role half of this is written up in
+[docs/operator-access.md](../../docs/operator-access.md).
+
 <!-- BEGIN_TF_DOCS -->
 ## Requirements
 
@@ -77,6 +118,7 @@ alias) are configured by the caller — see [examples/minimal](../../examples/mi
 | <a name="input_region"></a> [region](#input\_region) | AWS region | `string` | n/a | yes |
 | <a name="input_vpc_id"></a> [vpc\_id](#input\_vpc\_id) | VPC ID where the EKS cluster will be deployed | `string` | n/a | yes |
 | <a name="input_vpc_security_group_id"></a> [vpc\_security\_group\_id](#input\_vpc\_security\_group\_id) | Security group ID allowed to reach the cluster/nodes from within the VPC (e.g. the Tailscale relay SG for private admin access) | `string` | n/a | yes |
+| <a name="input_access_entries"></a> [access\_entries](#input\_access\_entries) | Additional EKS access entries, keyed by a stable label. Same shape as the<br/>upstream terraform-aws-modules/eks input: each entry names a principal and<br/>zero or more policy associations. Use it for every non-creator identity<br/>that runs tofu or kubectl here -- an MFA-gated operator role (see<br/>docs/operator-access.md), a CI role that deploys workloads, an SSO<br/>permission set. Policy ARNs are the AWS-managed cluster access policies,<br/>e.g. arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy. | <pre>map(object({<br/>    principal_arn     = string<br/>    type              = optional(string, "STANDARD")<br/>    kubernetes_groups = optional(list(string))<br/>    user_name         = optional(string)<br/>    tags              = optional(map(string), {})<br/>    policy_associations = optional(map(object({<br/>      policy_arn = string<br/>      access_scope = object({<br/>        type       = string<br/>        namespaces = optional(list(string))<br/>      })<br/>    })), {})<br/>  }))</pre> | `{}` | no |
 | <a name="input_cluster_endpoint_private_access"></a> [cluster\_endpoint\_private\_access](#input\_cluster\_endpoint\_private\_access) | Whether the EKS cluster endpoint is privately accessible | `bool` | `true` | no |
 | <a name="input_cluster_endpoint_public_access"></a> [cluster\_endpoint\_public\_access](#input\_cluster\_endpoint\_public\_access) | Whether the EKS cluster endpoint is publicly accessible | `bool` | `false` | no |
 | <a name="input_cluster_suffix"></a> [cluster\_suffix](#input\_cluster\_suffix) | Optional suffix for the cluster name (e.g. 'pr123' -> 'eks-dev-pr123') | `string` | `""` | no |
@@ -90,6 +132,7 @@ alias) are configured by the caller — see [examples/minimal](../../examples/mi
 | <a name="input_enable_aws_fluentbit"></a> [enable\_aws\_fluentbit](#input\_enable\_aws\_fluentbit) | Enable AWS FluentBit -> CloudWatch logging | `bool` | `false` | no |
 | <a name="input_enable_aws_load_balancer_controller"></a> [enable\_aws\_load\_balancer\_controller](#input\_enable\_aws\_load\_balancer\_controller) | Enable AWS Load Balancer Controller | `bool` | `true` | no |
 | <a name="input_enable_cluster_autoscaler"></a> [enable\_cluster\_autoscaler](#input\_enable\_cluster\_autoscaler) | Enable Cluster Autoscaler (leave off when using Karpenter for burst) | `bool` | `false` | no |
+| <a name="input_enable_cluster_creator_admin_permissions"></a> [enable\_cluster\_creator\_admin\_permissions](#input\_enable\_cluster\_creator\_admin\_permissions) | Give the identity that creates the cluster a cluster-admin access entry.<br/>Leave on for the first apply (otherwise nobody can reach the API to install<br/>the add-ons); turn off once access\_entries carries the identities you<br/>actually operate from, so a bootstrap credential does not keep standing<br/>admin. Turning it off removes the creator's entry -- make sure the identity<br/>running that apply is in access\_entries first. | `bool` | `true` | no |
 | <a name="input_enable_gpu_support"></a> [enable\_gpu\_support](#input\_enable\_gpu\_support) | Enable the NVIDIA GPU Operator | `bool` | `false` | no |
 | <a name="input_enable_karpenter"></a> [enable\_karpenter](#input\_enable\_karpenter) | Enable the Karpenter controller + CRDs (NodePools are defined in the workloads module) | `bool` | `true` | no |
 | <a name="input_enable_kube_prometheus"></a> [enable\_kube\_prometheus](#input\_enable\_kube\_prometheus) | Enable the Prometheus + Grafana monitoring stack | `bool` | `false` | no |

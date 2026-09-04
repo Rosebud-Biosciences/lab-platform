@@ -41,8 +41,11 @@ module "eks" {
   subnet_ids = local.eks_subnet_ids
 
   # EKS access entries (API mode) instead of the deprecated aws-auth ConfigMap.
+  # The Karpenter node entry is separate (addons.tf); everything else that may
+  # reach the API is either the creator or listed in var.access_entries.
   authentication_mode                      = "API"
-  enable_cluster_creator_admin_permissions = true
+  enable_cluster_creator_admin_permissions = var.enable_cluster_creator_admin_permissions
+  access_entries                           = var.access_entries
 
   security_group_additional_rules = {
     ingress_nodes_ephemeral_ports_tcp = {

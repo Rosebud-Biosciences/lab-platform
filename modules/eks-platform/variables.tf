@@ -89,6 +89,57 @@ variable "cluster_endpoint_private_access" {
 }
 
 # ------------------------------------------------------------------------------
+# CLUSTER ACCESS (EKS access entries)
+#
+# The cluster uses API authentication mode, so who may talk to the Kubernetes
+# API is decided by EKS access entries, not the aws-auth ConfigMap. The
+# kubernetes/helm/kubectl providers authenticate with `aws eks get-token`, which
+# signs as whatever AWS credentials are ambient -- so EVERY identity that will
+# run tofu against this cluster (or kubectl) needs an entry, and the entry has
+# to be created by an identity that already has one.
+# ------------------------------------------------------------------------------
+
+variable "enable_cluster_creator_admin_permissions" {
+  description = <<-EOT
+    Give the identity that creates the cluster a cluster-admin access entry.
+    Leave on for the first apply (otherwise nobody can reach the API to install
+    the add-ons); turn off once access_entries carries the identities you
+    actually operate from, so a bootstrap credential does not keep standing
+    admin. Turning it off removes the creator's entry -- make sure the identity
+    running that apply is in access_entries first.
+  EOT
+  type        = bool
+  default     = true
+}
+
+variable "access_entries" {
+  description = <<-EOT
+    Additional EKS access entries, keyed by a stable label. Same shape as the
+    upstream terraform-aws-modules/eks input: each entry names a principal and
+    zero or more policy associations. Use it for every non-creator identity
+    that runs tofu or kubectl here -- an MFA-gated operator role (see
+    docs/operator-access.md), a CI role that deploys workloads, an SSO
+    permission set. Policy ARNs are the AWS-managed cluster access policies,
+    e.g. arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy.
+  EOT
+  type = map(object({
+    principal_arn     = string
+    type              = optional(string, "STANDARD")
+    kubernetes_groups = optional(list(string))
+    user_name         = optional(string)
+    tags              = optional(map(string), {})
+    policy_associations = optional(map(object({
+      policy_arn = string
+      access_scope = object({
+        type       = string
+        namespaces = optional(list(string))
+      })
+    })), {})
+  }))
+  default = {}
+}
+
+# ------------------------------------------------------------------------------
 # CORE NODE GROUP
 # ------------------------------------------------------------------------------
 
