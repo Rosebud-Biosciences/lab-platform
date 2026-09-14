@@ -96,3 +96,22 @@ variable "ts_relay_instance_type" {
   type        = string
   default     = "t3a.micro"
 }
+variable "ts_relay_ami" {
+  description = <<-EOT
+    AMI for the Tailscale relay. Empty resolves Canonical's current Ubuntu 24.04
+    LTS image from its public SSM parameter at plan time -- convenient for a
+    first apply, but `ami` forces replacement and Canonical republishes that
+    parameter every few weeks, so an unpinned relay is rebuilt on whatever
+    apply happens to follow, taking the tailnet's route into the private
+    subnets with it for a few minutes. Pin it in anything long-lived.
+
+    A rebuild is always safe to run (the relay's single-use pre-auth key is
+    re-minted in the same apply; see terraform_data.relay_build) but never
+    free, so bump the pin deliberately. The current image for a region:
+      aws ssm get-parameter --region us-west-2 --output text \
+        --name /aws/service/canonical/ubuntu/server/24.04/stable/current/amd64/hvm/ebs-gp3/ami-id \
+        --query Parameter.Value
+  EOT
+  type        = string
+  default     = ""
+}

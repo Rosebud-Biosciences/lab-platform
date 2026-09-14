@@ -36,6 +36,7 @@ module "network" {
 |------|---------|
 | <a name="provider_aws"></a> [aws](#provider\_aws) | 6.62.0 |
 | <a name="provider_tailscale"></a> [tailscale](#provider\_tailscale) | 0.29.2 |
+| <a name="provider_terraform"></a> [terraform](#provider\_terraform) | n/a |
 
 ## Modules
 
@@ -58,6 +59,7 @@ module "network" {
 | [aws_vpc_security_group_ingress_rule.tailscale_icmp](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/vpc_security_group_ingress_rule) | resource |
 | [aws_vpc_security_group_ingress_rule.tailscale_wireguard](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/vpc_security_group_ingress_rule) | resource |
 | [tailscale_tailnet_key.relay](https://registry.terraform.io/providers/tailscale/tailscale/latest/docs/resources/tailnet_key) | resource |
+| [terraform_data.relay_build](https://registry.terraform.io/providers/hashicorp/terraform/latest/docs/resources/data) | resource |
 | [aws_availability_zones.available](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/data-sources/availability_zones) | data source |
 | [aws_iam_policy_document.tailscale_assume](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/data-sources/iam_policy_document) | data source |
 | [aws_ssm_parameter.ubuntu](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/data-sources/ssm_parameter) | data source |
@@ -75,6 +77,7 @@ module "network" {
 | <a name="input_secondary_vpc_cidr"></a> [secondary\_vpc\_cidr](#input\_secondary\_vpc\_cidr) | Secondary CIDR block for the VPC (extra pod IP space for EKS/VPC-CNI) | `string` | `"100.64.0.0/16"` | no |
 | <a name="input_single_nat_gateway"></a> [single\_nat\_gateway](#input\_single\_nat\_gateway) | Use a single shared NAT gateway instead of one per AZ. Cheaper for dev/OSS defaults; set false for HA production. | `bool` | `true` | no |
 | <a name="input_tags"></a> [tags](#input\_tags) | A map of tags to add to all resources | `map(string)` | `{}` | no |
+| <a name="input_ts_relay_ami"></a> [ts\_relay\_ami](#input\_ts\_relay\_ami) | AMI for the Tailscale relay. Empty resolves Canonical's current Ubuntu 24.04<br/>LTS image from its public SSM parameter at plan time -- convenient for a<br/>first apply, but `ami` forces replacement and Canonical republishes that<br/>parameter every few weeks, so an unpinned relay is rebuilt on whatever<br/>apply happens to follow, taking the tailnet's route into the private<br/>subnets with it for a few minutes. Pin it in anything long-lived.<br/><br/>A rebuild is always safe to run (the relay's single-use pre-auth key is<br/>re-minted in the same apply; see terraform\_data.relay\_build) but never<br/>free, so bump the pin deliberately. The current image for a region:<br/>  aws ssm get-parameter --region us-west-2 --output text \<br/>    --name /aws/service/canonical/ubuntu/server/24.04/stable/current/amd64/hvm/ebs-gp3/ami-id \<br/>    --query Parameter.Value | `string` | `""` | no |
 | <a name="input_ts_relay_client_id"></a> [ts\_relay\_client\_id](#input\_ts\_relay\_client\_id) | Tailscale OAuth client ID used to mint the relay's pre-auth key. Must be a<br/>client that OWNS tag:subnet-router (auth keys inherit only their client's<br/>tags). Required when enable\_tailscale\_subnet\_router = true. | `string` | `""` | no |
 | <a name="input_ts_relay_client_secret"></a> [ts\_relay\_client\_secret](#input\_ts\_relay\_client\_secret) | Tailscale subnet-router OAuth client secret. Required when enable\_tailscale\_subnet\_router = true. | `string` | `""` | no |
 | <a name="input_ts_relay_instance_type"></a> [ts\_relay\_instance\_type](#input\_ts\_relay\_instance\_type) | EC2 instance type for the Tailscale relay | `string` | `"t3a.micro"` | no |

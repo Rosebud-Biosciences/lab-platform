@@ -6,8 +6,12 @@
 #   - lives in a PRIVATE subnet (egress via NAT), no public IP / inbound surface
 #   - admin access via SSM Session Manager (no SSH key, no port 22)
 #   - IMDSv2 required, encrypted gp3 root volume
-#   - latest Ubuntu 24.04 LTS AMI resolved from the Canonical SSM parameter
+#   - Ubuntu 24.04 LTS: pinned via var.ts_relay_ami, or Canonical's current
+#     image from its SSM parameter when unpinned (see the variable for why an
+#     unpinned relay gets rebuilt on Canonical's schedule, not yours)
 #   - tagged so route approval flows through the tailnet ACL, not a user
+#   - keeps itself current: tailscale-init.sh turns on Tailscale auto-updates,
+#     so client releases (CVE fixes included) land without a rebuild
 #
 # All resources here are gated on var.enable_tailscale_subnet_router. Leave it
 # off to bring your own private-access path (VPN, bastion, public EKS endpoint
@@ -15,8 +19,25 @@
 # ------------------------------------------------------------------------------
 
 data "aws_ssm_parameter" "ubuntu" {
-  count = var.enable_tailscale_subnet_router ? 1 : 0
+  count = var.enable_tailscale_subnet_router && var.ts_relay_ami == "" ? 1 : 0
   name  = "/aws/service/canonical/ubuntu/server/24.04/stable/current/amd64/hvm/ebs-gp3/ami-id"
+}
+
+locals {
+  # one() is null when the data source is not created, so this never indexes
+  # an empty list -- whichever branch is taken.
+  ts_relay_ami = var.ts_relay_ami != "" ? var.ts_relay_ami : one(data.aws_ssm_parameter.ubuntu[*].value)
+}
+
+# Everything that forces aws_instance.tailscale to be replaced, in one place, so
+# the relay's pre-auth key can be re-minted whenever the instance is rebuilt.
+resource "terraform_data" "relay_build" {
+  count = var.enable_tailscale_subnet_router ? 1 : 0
+
+  input = {
+    ami           = local.ts_relay_ami
+    instance_type = var.ts_relay_instance_type
+  }
 }
 
 resource "aws_network_interface" "tailscale" {
@@ -37,6 +58,12 @@ resource "aws_network_interface" "tailscale" {
 
 # Persistent (non-ephemeral) pre-auth key so the relay keeps its node identity
 # across reboots; tagged so the ACL autoApprovers approve its routes.
+#
+# Single-use, so it survives exactly one `tailscale up`: a replacement instance
+# handed the same key fails to authenticate, and because tailscale-init.sh runs
+# under `set -e` it dies there, leaving a relay that advertises no routes. The
+# trigger mints a fresh key in the same apply that rebuilds the instance, so
+# the new user_data always carries an unspent key.
 resource "tailscale_tailnet_key" "relay" {
   count = var.enable_tailscale_subnet_router ? 1 : 0
 
@@ -44,6 +71,10 @@ resource "tailscale_tailnet_key" "relay" {
   ephemeral     = false
   preauthorized = true
   tags          = [var.ts_relay_tag]
+
+  lifecycle {
+    replace_triggered_by = [terraform_data.relay_build[0]]
+  }
 }
 
 data "aws_iam_policy_document" "tailscale_assume" {
@@ -85,7 +116,7 @@ resource "aws_instance" "tailscale" {
   count = var.enable_tailscale_subnet_router ? 1 : 0
 
   instance_type        = var.ts_relay_instance_type
-  ami                  = data.aws_ssm_parameter.ubuntu[0].value
+  ami                  = local.ts_relay_ami
   iam_instance_profile = aws_iam_instance_profile.tailscale[0].name
 
   primary_network_interface {
