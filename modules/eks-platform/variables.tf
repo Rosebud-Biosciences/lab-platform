@@ -280,9 +280,17 @@ variable "enable_tailscale_operator" {
 }
 
 variable "tailscale_operator_chart_version" {
-  description = "Pinned tailscale-operator Helm chart version (see https://pkgs.tailscale.com/helmcharts)"
+  description = <<-EOT
+    Pinned tailscale-operator Helm chart version (tracks the Tailscale client
+    release train; see https://pkgs.tailscale.com/helmcharts). This one pin is
+    the Tailscale version of every container on the tailnet: the operator and
+    the Ingress proxies it runs for each private UI. Containers never
+    self-update, so bumping it is how Tailscale CVE fixes reach the cluster;
+    the operator rolls each proxy to the new image (node identity persists,
+    expect a pod-restart blip per UI). See docs/upgrades.md.
+  EOT
   type        = string
-  default     = "1.98.9"
+  default     = "1.102.3"
 }
 
 variable "tailscale_oauth_client_id" {
