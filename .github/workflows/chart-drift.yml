@@ -1,0 +1,103 @@
+# Monthly report on the Helm chart versions this module family pins as input
+# defaults, against their chart repositories. Dependabot covers the providers,
+# registry modules and Actions; a chart version in a variable default is
+# invisible to it, and the module's defaults are its promise to users -- a
+# fresh apply should not install last year's charts. The Tailscale operator
+# chart gets the strictest threshold: that pin is the Tailscale version of
+# every container on the tailnet, containers cannot self-update, and Tailscale
+# ships CVE fixes as releases. The logic is .github/scripts/chart-drift.sh,
+# runnable locally with helm + jq and no credentials.
+#
+# Findings land in one long-lived issue rather than a failing job: a pin that
+# trails by a few releases stays that way until someone bumps it, and a job
+# that is red for weeks trains people to ignore it. The issue notifies once,
+# refreshes in place, and closes itself when the thresholds clear.
+#
+# Monthly is a safety net, not the trigger: Tailscale (and most charts here)
+# release more often than that. For an urgent Tailscale bump the trigger is
+# their security bulletins; before any deliberate upgrade, run the script
+# locally for fresh numbers.
+
+name: Chart drift
+
+on:
+  schedule:
+    # The 1st at 16:00 UTC (09:00 PT). Not "first Monday": cron ORs
+    # day-of-month against day-of-week when both are restricted.
+    - cron: "0 16 1 * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  report:
+    runs-on: ubuntu-latest # ships helm + jq
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Report
+        id: report
+        run: |
+          set -uo pipefail
+          # Exit 2 means "something needs attention" and is not a script
+          # failure. `|| code=$?` stops the runner's default `bash -e` from
+          # aborting before the code is recorded.
+          code=0
+          .github/scripts/chart-drift.sh > "$RUNNER_TEMP/drift.md" || code=$?
+          if [ "$code" -ne 0 ] && [ "$code" -ne 2 ]; then
+            echo "::error::chart-drift.sh failed with exit $code"
+            cat "$RUNNER_TEMP/drift.md"
+            exit 1
+          fi
+          tee -a "$GITHUB_STEP_SUMMARY" < "$RUNNER_TEMP/drift.md"
+          echo "attention=$([ "$code" -eq 2 ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+
+      - name: Track in an issue
+        uses: actions/github-script@v8
+        env:
+          ATTENTION: ${{ steps.report.outputs.attention }}
+        with:
+          script: |
+            const fs = require('fs');
+            const marker = '<!-- chart-drift -->';
+            const title = 'Helm chart pin drift';
+            const report = fs.readFileSync(`${process.env.RUNNER_TEMP}/drift.md`, 'utf8');
+            const run = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+
+            const { owner, repo } = context.repo;
+            const open = await github.paginate(github.rest.issues.listForRepo, {
+              owner, repo, state: 'open', per_page: 100,
+            });
+            const existing = open.find(i => (i.body ?? '').includes(marker));
+
+            if (process.env.ATTENTION !== 'true') {
+              if (existing) {
+                await github.rest.issues.createComment({
+                  owner, repo, issue_number: existing.number,
+                  body: `Resolved: nothing needs attention as of [this run](${run}).\n\n${report}`,
+                });
+                await github.rest.issues.update({
+                  owner, repo, issue_number: existing.number, state: 'closed',
+                });
+              }
+              return;
+            }
+
+            const body = [
+              marker,
+              report,
+              `Refreshed in place by [Chart drift](${run}) monthly, and closed`,
+              'automatically once the thresholds are clear. Each finding names its',
+              'variable and file; `CHART_WARN_BEHIND` and `TAILSCALE_WARN_BEHIND`',
+              'in the workflow tune the thresholds. See docs/upgrades.md.',
+            ].join('\n');
+
+            if (existing) {
+              await github.rest.issues.update({
+                owner, repo, issue_number: existing.number, body,
+              });
+            } else {
+              await github.rest.issues.create({ owner, repo, title, body });
+            }
