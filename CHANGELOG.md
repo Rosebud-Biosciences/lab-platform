@@ -55,6 +55,21 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   protection.
 - `nightly-sweep` accepts `extra_destroy_args` (parity with `preview-down`) so
   stacks whose variables lack defaults can still be swept.
+- `chart-drift` GitHub workflow + `.github/scripts/chart-drift.sh` — monthly
+  report (one self-refreshing issue) of every module-input Helm chart pin
+  against its repository's stable releases, which Dependabot cannot see. The
+  Tailscale operator chart is held to "any newer release": it is the Tailscale
+  version of every container on the tailnet and containers cannot self-update.
+- `modules/network`: `ts_relay_ami` pins the relay's image (empty keeps the
+  previous resolve-Canonical's-current behaviour, which rebuilds the relay on
+  Canonical's publish schedule), and a rebuild now re-mints the relay's
+  single-use pre-auth key in the same apply via `terraform_data.relay_build` —
+  previously a replaced instance booted with the already-spent key and never
+  joined the tailnet.
+- `docs/upgrades.md` — what Dependabot covers and cannot, the chart-drift
+  report, and the three update paths for Tailscale clients (chart pin for
+  containers, auto-update on the relay, the tailnet-wide default for the rest).
+- Tailscale operator chart default bumped 1.98.9 → 1.102.3.
 - `examples/preview` now documents the stack's own S3 backend, including the
   non-obvious `workspace_key_prefix` requirement: workspace state lands at
   `<prefix>/<workspace>/<key>`, so the backend default (`env:`) would fall

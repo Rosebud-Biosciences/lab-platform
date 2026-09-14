@@ -132,6 +132,14 @@ role, and a Deny policy protects the guards and the role from anything that is
 not that role. How to set that up, and how to actually run tofu through it, is
 in [`docs/operator-access.md`](docs/operator-access.md).
 
+## Keeping it current
+
+Dependabot handles providers, modules and Actions. The Helm chart pins in the
+module defaults are checked monthly by the `chart-drift` workflow (strictest for
+the Tailscale operator chart, which is the Tailscale version of every proxy on
+the tailnet), and the three update paths for Tailscale clients — containers,
+the relay, everything else — are in [`docs/upgrades.md`](docs/upgrades.md).
+
 ## Cost
 
 The baseline shared platform (`examples/minimal`) is roughly:
