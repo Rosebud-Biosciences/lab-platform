@@ -14,7 +14,7 @@ EKS API endpoint without a bastion. Off by default; bring your own
 
 ```hcl
 module "network" {
-  source = "your-org/lab-platform/aws//modules/network"
+  source = "github.com/Rosebud-Biosciences/terraform-aws-lab-platform//modules/network?ref=main"
 
   name        = "vpc-dev"
   environment = "dev"

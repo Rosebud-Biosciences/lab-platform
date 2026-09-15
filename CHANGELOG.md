@@ -83,6 +83,39 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `dagster_user_code_secret_env` on the workloads module. The latter also fixes
   a gap: Dagster's user-code deployment and its runs now receive `DATABASE_URL`
   like the webapp does, where previously they received no environment at all.
+- `modules/eks-platform`: the EBS CSI IRSA role moves to
+  `terraform-aws-modules/iam/aws//modules/iam-role-for-service-accounts` `~> 6.8`
+  (v6 folded the `-eks` submodule into it; the workloads module was already
+  there). Applying this to an existing cluster recreates the role under a new
+  name; the add-on picks up the new ARN in the same apply.
+- GitHub Actions bumped to current majors across the workflows:
+  `actions/checkout` v7, `opentofu/setup-opentofu` v2, `actions/github-script`
+  v9, `terraform-linters/setup-tflint` v6, `tailscale/github-action` v4.1.3.
+- Module READMEs are regenerated from a clean checkout: the provider tables
+  showed resolved versions from local `.terraform.lock.hcl` files, which the
+  terraform-docs CI gate (no lock files) rejected. Regenerate with no lock
+  file beside the module.
+- checkov's first run against the modules, resolved one finding at a time
+  rather than softened. Adopted: S3 ACLs disabled (`BucketOwnerEnforced`,
+  the `aws_s3_bucket_acl` resources are gone) on the state bucket and the
+  `s3-bucket` module; point-in-time recovery on the lock table; an
+  abort-incomplete-multipart rule on the state bucket; SSE-KMS by default on
+  the state bucket with the AWS-managed `aws/s3` key (no customer key policy
+  to lock an operator out, no grants to hand out; bucket key on); WAF request
+  logging to a 30-day `aws-waf-logs-*` log group; the ECR pull actions scoped
+  to the account's repositories (only `GetAuthorizationToken` keeps `*`).
+  Declined, with the reason beside each: `.checkov.yml` for the repo-wide
+  four (module commit-hash pins, cross-region replication, S3 event
+  notifications, a CMK on the lock table) and inline `#checkov:skip` on the
+  resource for access logging, the opt-in IAM-user attachments, the
+  ephemeral bucket's versioning and the Grafana secret's rotation.
+- Module sources and reusable-workflow references in the docs name the
+  upstream repo, `github.com/Rosebud-Biosciences/terraform-aws-lab-platform`,
+  instead of the `your-org` placeholder; forks of the platform replace it.
+- Removed two unused declarations tflint flagged: `ts_tailnet` on
+  `modules/network` (a leftover from when the module configured the Tailscale
+  provider itself; the caller does) and the `private_mlflow_fqdn` local in
+  `modules/workloads` (the output computed the same URL inline).
 - `examples/preview` now documents the stack's own S3 backend, including the
   non-obvious `workspace_key_prefix` requirement: workspace state lands at
   `<prefix>/<workspace>/<key>`, so the backend default (`env:`) would fall

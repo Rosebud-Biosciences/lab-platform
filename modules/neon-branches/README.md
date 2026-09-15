@@ -13,7 +13,7 @@ step, or an Aurora fast-clone.
 
 ```hcl
 module "neon" {
-  source = "your-org/lab-platform/aws//modules/neon-branches"
+  source = "github.com/Rosebud-Biosciences/terraform-aws-lab-platform//modules/neon-branches?ref=main"
 
   name_prefix = "pr123"
   branch_sources = {

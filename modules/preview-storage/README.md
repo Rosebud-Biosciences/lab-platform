@@ -9,7 +9,7 @@ read-only / read-write IAM policy ARNs for the workloads to consume.
 
 ```hcl
 module "storage" {
-  source = "your-org/lab-platform/aws//modules/preview-storage"
+  source = "github.com/Rosebud-Biosciences/terraform-aws-lab-platform//modules/preview-storage?ref=main"
 
   name_prefix = "pr123"
 }
