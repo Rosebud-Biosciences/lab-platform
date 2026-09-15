@@ -50,7 +50,7 @@ and namespace instead and need none of this.
 
 | Name | Version |
 |------|---------|
-| <a name="provider_aws"></a> [aws](#provider\_aws) | 6.64.0 |
+| <a name="provider_aws"></a> [aws](#provider\_aws) | >= 6.40 |
 
 ## Resources
 

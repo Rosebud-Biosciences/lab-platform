@@ -39,7 +39,7 @@ module "neon" {
 
 | Name | Version |
 |------|---------|
-| <a name="provider_neon"></a> [neon](#provider\_neon) | 0.15.0 |
+| <a name="provider_neon"></a> [neon](#provider\_neon) | >= 0.6.3 |
 
 ## Resources
 

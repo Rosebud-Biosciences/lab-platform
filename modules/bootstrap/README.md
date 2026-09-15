@@ -56,7 +56,7 @@ resource "aws_iam_user_policy_attachment" "alice_guardrails" {
 
 | Name | Version |
 |------|---------|
-| <a name="provider_aws"></a> [aws](#provider\_aws) | 6.62.0 |
+| <a name="provider_aws"></a> [aws](#provider\_aws) | >= 6.40 |
 
 ## Resources
 
