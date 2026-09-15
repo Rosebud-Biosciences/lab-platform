@@ -9,7 +9,7 @@ policy that denies both bucket and key deletion.
 
 ```hcl
 module "artifacts" {
-  source = "your-org/lab-platform/aws//modules/s3-bucket"
+  source = "github.com/Rosebud-Biosciences/terraform-aws-lab-platform//modules/s3-bucket?ref=main"
 
   name = "my-org-mlflow-artifacts"
 }
@@ -41,7 +41,6 @@ module "artifacts" {
 | [aws_iam_user_policy_attachment.putget](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/iam_user_policy_attachment) | resource |
 | [aws_kms_key.this](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/kms_key) | resource |
 | [aws_s3_bucket.this](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/s3_bucket) | resource |
-| [aws_s3_bucket_acl.this](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/s3_bucket_acl) | resource |
 | [aws_s3_bucket_intelligent_tiering_configuration.this](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/s3_bucket_intelligent_tiering_configuration) | resource |
 | [aws_s3_bucket_lifecycle_configuration.this](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/s3_bucket_lifecycle_configuration) | resource |
 | [aws_s3_bucket_ownership_controls.this](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/s3_bucket_ownership_controls) | resource |

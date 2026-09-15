@@ -1,0 +1,30 @@
+# checkov policy for this module family, read by the checkov job in ci.yml.
+#
+# The gate is hard (soft_fail: false): a new finding blocks the PR. What is
+# listed here is a decision with its reason, made once, not a suppression of
+# convenience -- and it is the whole list of repo-wide exceptions. Exceptions
+# that belong to one resource live next to that resource as an inline
+# `#checkov:skip=<ID>:<reason>` (access logging on the two buckets, the
+# opt-in IAM-user attachments, the ephemeral bucket's versioning, the
+# Grafana secret's rotation), so the reason is in the reviewer's diff.
+#
+# Everything checkov flagged on the first run that was cheap and right has been
+# adopted instead: ACLs disabled (BucketOwnerEnforced), point-in-time recovery
+# on the lock table, abort-incomplete-multipart on the state bucket, SSE-KMS
+# by default on the state bucket, WAF request logging, and the ECR pull
+# actions scoped to the account's repositories.
+
+skip-check:
+  # Registry modules are pinned by version constraint and bumped by
+  # Dependabot; a commit hash would defeat the constraint model the whole
+  # repo (and its chart-drift / Dependabot tooling) is built on.
+  - CKV_TF_1
+  # Cross-region replication of S3 buckets is a cost and DR decision for the
+  # consumer of a template, not its default.
+  - CKV_AWS_144
+  # S3 event notifications: nothing here consumes them.
+  - CKV2_AWS_62
+  # A customer-managed KMS key on the state lock table: it holds lock ids and
+  # nothing else, and a key policy is one more thing that can lock an
+  # operator out of the run that would fix it.
+  - CKV_AWS_119

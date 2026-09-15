@@ -28,6 +28,11 @@ resource "kubernetes_namespace_v1" "ray" {
   }
 }
 
+data "aws_caller_identity" "current" {}
+data "aws_partition" "current" {}
+
+# GetAuthorizationToken accepts only "*"; the pull actions take repository
+# ARNs, so they are scoped to this account's repositories in this region.
 resource "aws_iam_policy" "ecr_read" {
   count       = var.enable_ray || var.enable_argo_workflows ? 1 : 0
   name        = "${var.cluster_name}-${local.prefix}ecr-read"
@@ -37,14 +42,20 @@ resource "aws_iam_policy" "ecr_read" {
     Version = "2012-10-17"
     Statement = [
       {
+        Sid      = "Login"
+        Effect   = "Allow"
+        Action   = ["ecr:GetAuthorizationToken"]
+        Resource = "*"
+      },
+      {
+        Sid    = "PullFromAccountRepositories"
         Effect = "Allow"
         Action = [
-          "ecr:GetAuthorizationToken",
           "ecr:BatchCheckLayerAvailability",
           "ecr:BatchGetImage",
           "ecr:GetDownloadUrlForLayer"
         ]
-        Resource = "*"
+        Resource = "arn:${data.aws_partition.current.partition}:ecr:${var.region}:${data.aws_caller_identity.current.account_id}:repository/*"
       }
     ]
   })

@@ -24,7 +24,7 @@ creates.
 
 ```hcl
 module "bootstrap" {
-  source = "your-org/lab-platform/aws//modules/bootstrap"
+  source = "github.com/Rosebud-Biosciences/terraform-aws-lab-platform//modules/bootstrap?ref=main"
 
   state_bucket_name = "my-org-terraform-state"
   github_owner      = "my-org"
@@ -73,7 +73,6 @@ resource "aws_iam_user_policy_attachment" "alice_guardrails" {
 | [aws_iam_role_policy_attachment.operator_admin](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/iam_role_policy_attachment) | resource |
 | [aws_iam_role_policy_attachment.operator_guardrails](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/iam_role_policy_attachment) | resource |
 | [aws_s3_bucket.state](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/s3_bucket) | resource |
-| [aws_s3_bucket_acl.state](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/s3_bucket_acl) | resource |
 | [aws_s3_bucket_lifecycle_configuration.state](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/s3_bucket_lifecycle_configuration) | resource |
 | [aws_s3_bucket_ownership_controls.state](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/s3_bucket_ownership_controls) | resource |
 | [aws_s3_bucket_policy.prevent_destroy](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/s3_bucket_policy) | resource |

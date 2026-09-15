@@ -228,3 +228,21 @@ resource "aws_wafv2_web_acl" "webapp" {
 
   tags = var.tags
 }
+
+# WAF request logs: the audit trail for what the rules above blocked and why.
+# The log group name must start with aws-waf-logs- for WAF to accept it.
+# Sampled requests in the console show a slice; this keeps 30 days of all.
+resource "aws_cloudwatch_log_group" "webapp_waf" {
+  count = local.webapp_waf_enabled ? 1 : 0
+
+  name              = "aws-waf-logs-${local.prefix}${var.webapp_app_name}-public"
+  retention_in_days = 30
+  tags              = var.tags
+}
+
+resource "aws_wafv2_web_acl_logging_configuration" "webapp" {
+  count = local.webapp_waf_enabled ? 1 : 0
+
+  resource_arn            = aws_wafv2_web_acl.webapp[0].arn
+  log_destination_configs = [aws_cloudwatch_log_group.webapp_waf[0].arn]
+}

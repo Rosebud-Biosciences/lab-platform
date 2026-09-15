@@ -6,6 +6,10 @@ resource "aws_s3_bucket" "state" {
   bucket = var.state_bucket_name
   tags   = var.tags
 
+  # Access logging needs a second bucket to log into; that is the consumer's
+  # call (and their bucket), not a template default.
+  #checkov:skip=CKV_AWS_18:access logging needs a destination bucket the consumer owns; opt in downstream
+
   # Plan-time layer of the same guard as the Deny policy below (dynamic
   # prevent_destroy; OpenTofu >= 1.12).
   lifecycle {
@@ -13,17 +17,13 @@ resource "aws_s3_bucket" "state" {
   }
 }
 
+# ACLs disabled outright (BucketOwnerEnforced): the bucket policy and IAM are
+# the only access control, and there is no aws_s3_bucket_acl to drift.
 resource "aws_s3_bucket_ownership_controls" "state" {
   bucket = aws_s3_bucket.state.id
   rule {
-    object_ownership = "BucketOwnerPreferred"
+    object_ownership = "BucketOwnerEnforced"
   }
-}
-
-resource "aws_s3_bucket_acl" "state" {
-  depends_on = [aws_s3_bucket_ownership_controls.state]
-  bucket     = aws_s3_bucket.state.id
-  acl        = "private"
 }
 
 resource "aws_s3_bucket_versioning" "state" {
@@ -33,17 +33,21 @@ resource "aws_s3_bucket_versioning" "state" {
   }
 }
 
-# SSE-S3 (not a CMK): this bucket holds the state for every stack, including its
-# own, so a key-policy mistake must not be able to lock you out of the run that
-# would repair it, and a CMK would need kms grants on every principal that
-# touches state (notably the preview role below).
+# SSE-KMS with the AWS-managed aws/s3 key, deliberately not a CMK: this bucket
+# holds the state for every stack, including its own, so a key-policy mistake
+# must not be able to lock you out of the run that would repair it, and a CMK
+# would need kms grants on every principal that touches state (notably the
+# preview role below). The AWS-managed key has neither problem -- no customer
+# key policy, usable by any principal in the account that may use S3 -- and
+# costs nothing beyond per-request KMS calls, which the bucket key collapses.
 resource "aws_s3_bucket_server_side_encryption_configuration" "state" {
   bucket = aws_s3_bucket.state.bucket
 
   rule {
     apply_server_side_encryption_by_default {
-      sse_algorithm = "AES256"
+      sse_algorithm = "aws:kms"
     }
+    bucket_key_enabled = true
   }
 }
 
@@ -89,6 +93,16 @@ resource "aws_s3_bucket_lifecycle_configuration" "state" {
       noncurrent_days = var.state_noncurrent_expiration_days
     }
   }
+
+  # A state upload that died mid-flight leaves parts that bill forever.
+  rule {
+    id     = "abort-incomplete-uploads"
+    status = "Enabled"
+    filter {}
+    abort_incomplete_multipart_upload {
+      days_after_initiation = 7
+    }
+  }
 }
 
 resource "aws_dynamodb_table" "locks" {
@@ -99,6 +113,11 @@ resource "aws_dynamodb_table" "locks" {
 
   # Native deletion guard (unlike prevent_destroy it also blocks console/CLI).
   deletion_protection_enabled = var.lock_table_deletion_protection
+
+  # Free at this table's size; the lock table is what every apply gates on.
+  point_in_time_recovery {
+    enabled = true
+  }
 
   attribute {
     name = "LockID"

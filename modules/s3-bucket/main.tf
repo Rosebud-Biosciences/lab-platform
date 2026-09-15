@@ -35,6 +35,8 @@ locals {
 # ------------------------------------------------------------------------------
 
 resource "aws_s3_bucket" "this" {
+  #checkov:skip=CKV_AWS_18:access logging needs a destination bucket the consumer owns; opt in downstream
+  #checkov:skip=CKV_AWS_21:versioning is var.versioning -- ephemeral preview buckets turn it off on purpose
   bucket        = local.name
   force_destroy = local.force_destroy
   tags          = local.tags
@@ -68,18 +70,13 @@ resource "aws_s3_bucket_policy" "prevent_destroy" {
 # Make private
 # ------------------------------------------------------------------------------
 
+# ACLs disabled outright (BucketOwnerEnforced): bucket policy and IAM are the
+# only access control, and there is no aws_s3_bucket_acl to drift.
 resource "aws_s3_bucket_ownership_controls" "this" {
   bucket = aws_s3_bucket.this.id
   rule {
-    object_ownership = "BucketOwnerPreferred"
+    object_ownership = "BucketOwnerEnforced"
   }
-}
-
-resource "aws_s3_bucket_acl" "this" {
-  depends_on = [aws_s3_bucket_ownership_controls.this]
-
-  bucket = aws_s3_bucket.this.id
-  acl    = "private"
 }
 
 # ------------------------------------------------------------------------------
@@ -290,6 +287,7 @@ resource "aws_iam_policy" "putget" {
 # ------------------------------------------------------------------------------
 
 resource "aws_iam_user_policy_attachment" "put" {
+  #checkov:skip=CKV_AWS_40:opt-in feature -- existing access-key users the consumer names in iam_users; roles are the default path
   for_each = toset(local.put_users)
 
   user       = each.value
@@ -297,6 +295,7 @@ resource "aws_iam_user_policy_attachment" "put" {
 }
 
 resource "aws_iam_user_policy_attachment" "get" {
+  #checkov:skip=CKV_AWS_40:opt-in feature -- existing access-key users the consumer names in iam_users; roles are the default path
   for_each = toset(local.get_users)
 
   user       = each.value
@@ -304,6 +303,7 @@ resource "aws_iam_user_policy_attachment" "get" {
 }
 
 resource "aws_iam_user_policy_attachment" "putget" {
+  #checkov:skip=CKV_AWS_40:opt-in feature -- existing access-key users the consumer names in iam_users; roles are the default path
   for_each = toset(local.putget_users)
 
   user       = each.value

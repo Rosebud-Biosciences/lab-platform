@@ -237,6 +237,7 @@ resource "random_password" "grafana" {
 
 #tfsec:ignore:aws-ssm-secret-use-customer-key
 resource "aws_secretsmanager_secret" "grafana" {
+  #checkov:skip=CKV2_AWS_57:a generated Grafana admin password with no rotation function; rotate by tainting the version
   count                   = var.enable_kube_prometheus ? 1 : 0
   name_prefix             = "${local.cluster_name}-grafana-"
   recovery_window_in_days = 0 # ephemeral: force delete on destroy
