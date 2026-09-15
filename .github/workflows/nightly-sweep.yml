@@ -12,7 +12,7 @@ name: Nightly Sweep
 #       - cron: "17 3 * * *"
 #   jobs:
 #     sweep:
-#       uses: your-org/terraform-aws-lab-platform/.github/workflows/nightly-sweep.yml@main
+#       uses: Rosebud-Biosciences/terraform-aws-lab-platform/.github/workflows/nightly-sweep.yml@main
 #       with:
 #         role_to_assume: arn:aws:iam::123456789012:role/github-actions-preview-deployer
 #         cluster_name: eks-prod
@@ -78,7 +78,7 @@ jobs:
       TF_VAR_neon_api_key: ${{ secrets.neon_api_key }}
       GH_TOKEN: ${{ github.token }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
       - uses: aws-actions/configure-aws-credentials@v6
         with:
@@ -87,14 +87,14 @@ jobs:
 
       - name: Connect to Tailscale
         if: ${{ inputs.tailscale }}
-        uses: tailscale/github-action@306e68a486fd2350f2bfc3b19fcd143891a4a2d8 # v4
+        uses: tailscale/github-action@780049a30b6ff5c378a9e7b389d15ece7a204888 # v4.1.3
         with:
           oauth-client-id: ${{ secrets.ts_oauth_client_id }}
           oauth-secret: ${{ secrets.ts_oauth_secret }}
           tags: tag:ci
           version: latest
 
-      - uses: opentofu/setup-opentofu@v1
+      - uses: opentofu/setup-opentofu@v2
         with:
           tofu_version: ${{ inputs.tofu_version }}
           tofu_wrapper: false

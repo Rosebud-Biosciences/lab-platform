@@ -14,7 +14,7 @@ name: Preview Down
 #
 #   jobs:
 #     down:
-#       uses: your-org/terraform-aws-lab-platform/.github/workflows/preview-down.yml@main
+#       uses: Rosebud-Biosciences/terraform-aws-lab-platform/.github/workflows/preview-down.yml@main
 #       with:
 #         preview_name: pr${{ github.event.pull_request.number }}
 #         role_to_assume: arn:aws:iam::123456789012:role/github-actions-preview-deployer
@@ -84,7 +84,7 @@ jobs:
       EXTRA_TFVARS_JSON: ${{ secrets.extra_tfvars_json }}
       PREVIEW_NAME: ${{ inputs.preview_name }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
       - uses: aws-actions/configure-aws-credentials@v6
         with:
@@ -93,14 +93,14 @@ jobs:
 
       - name: Connect to Tailscale
         if: ${{ inputs.tailscale }}
-        uses: tailscale/github-action@306e68a486fd2350f2bfc3b19fcd143891a4a2d8 # v4
+        uses: tailscale/github-action@780049a30b6ff5c378a9e7b389d15ece7a204888 # v4.1.3
         with:
           oauth-client-id: ${{ secrets.ts_oauth_client_id }}
           oauth-secret: ${{ secrets.ts_oauth_secret }}
           tags: tag:ci
           version: latest
 
-      - uses: opentofu/setup-opentofu@v1
+      - uses: opentofu/setup-opentofu@v2
         with:
           tofu_version: ${{ inputs.tofu_version }}
           tofu_wrapper: false

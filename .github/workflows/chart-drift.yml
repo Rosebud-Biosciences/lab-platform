@@ -35,7 +35,7 @@ jobs:
   report:
     runs-on: ubuntu-latest # ships helm + jq
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
       - name: Report
         id: report
@@ -55,7 +55,7 @@ jobs:
           echo "attention=$([ "$code" -eq 2 ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
 
       - name: Track in an issue
-        uses: actions/github-script@v8
+        uses: actions/github-script@v9
         env:
           ATTENTION: ${{ steps.report.outputs.attention }}
         with:

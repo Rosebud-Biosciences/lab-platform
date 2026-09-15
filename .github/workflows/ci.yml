@@ -17,8 +17,8 @@ jobs:
     name: fmt
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
-      - uses: opentofu/setup-opentofu@v1
+      - uses: actions/checkout@v7
+      - uses: opentofu/setup-opentofu@v2
         with:
           tofu_version: ${{ env.TOFU_VERSION }}
       - name: tofu fmt (check, recursive)
@@ -45,8 +45,8 @@ jobs:
           - examples/preview
           - examples/jupyterhub
     steps:
-      - uses: actions/checkout@v5
-      - uses: opentofu/setup-opentofu@v1
+      - uses: actions/checkout@v7
+      - uses: opentofu/setup-opentofu@v2
         with:
           tofu_version: ${{ env.TOFU_VERSION }}
       - name: tofu init (no backend)
@@ -58,8 +58,8 @@ jobs:
     name: tflint
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
-      - uses: terraform-linters/setup-tflint@v4
+      - uses: actions/checkout@v7
+      - uses: terraform-linters/setup-tflint@v6
       - run: tflint --init
       - name: tflint (recursive)
         run: tflint --recursive --config "$(pwd)/.tflint.hcl"
@@ -68,11 +68,14 @@ jobs:
     name: checkov
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
+      # Repo-wide exceptions live in .checkov.yml with their reasons; per-resource
+      # ones are inline next to the resource. The gate stays hard.
       - uses: bridgecrewio/checkov-action@v12
         with:
           directory: modules
           framework: terraform
+          config_file: .checkov.yml
           quiet: true
           soft_fail: false
 
@@ -80,7 +83,7 @@ jobs:
     name: terraform-docs
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - name: Verify generated module docs are up to date
         uses: terraform-docs/gh-actions@v1
         with:
@@ -102,8 +105,8 @@ jobs:
           - modules/iceberg-branches
           - modules/data-access
     steps:
-      - uses: actions/checkout@v5
-      - uses: opentofu/setup-opentofu@v1
+      - uses: actions/checkout@v7
+      - uses: opentofu/setup-opentofu@v2
         with:
           tofu_version: ${{ env.TOFU_VERSION }}
       - name: tofu init (no backend)
