@@ -5,6 +5,11 @@ name: Preview Down
 # copy-on-write Neon branches AND the ephemeral bucket), then deletes the
 # workspace. Prod is untouched.
 #
+# `extra_tfvars_json` mirrors preview-up.yml's: a JSON object (or base64 of
+# one) written to <working_directory>/external.auto.tfvars.json before destroy,
+# for stacks whose variables have no defaults. Stacks fed by an external data
+# provider should default those variables instead, so a teardown needs nothing.
+#
 # Caller example:
 #
 #   jobs:
@@ -62,6 +67,9 @@ on:
         required: false
       ts_oauth_secret:
         required: false
+      extra_tfvars_json:
+        description: "JSON object (or base64 of one) of extra variable values, written to external.auto.tfvars.json before destroy"
+        required: false
 
 permissions:
   id-token: write
@@ -73,6 +81,7 @@ jobs:
     env:
       NEON_API_KEY: ${{ secrets.neon_api_key }}
       TF_VAR_neon_api_key: ${{ secrets.neon_api_key }}
+      EXTRA_TFVARS_JSON: ${{ secrets.extra_tfvars_json }}
       PREVIEW_NAME: ${{ inputs.preview_name }}
     steps:
       - uses: actions/checkout@v5
@@ -95,6 +104,18 @@ jobs:
         with:
           tofu_version: ${{ inputs.tofu_version }}
           tofu_wrapper: false
+
+      - name: Write external tfvars
+        working-directory: ${{ inputs.working_directory }}
+        run: |
+          set -euo pipefail
+          [ -n "${EXTRA_TFVARS_JSON:-}" ] || exit 0
+          if ! printf '%s' "$EXTRA_TFVARS_JSON" | jq -e 'type == "object"' >/dev/null 2>&1; then
+            EXTRA_TFVARS_JSON=$(printf '%s' "$EXTRA_TFVARS_JSON" | base64 -d)
+          fi
+          printf '%s' "$EXTRA_TFVARS_JSON" |
+            jq -e 'if type == "object" then . else error("extra_tfvars_json must be a JSON object") end' \
+            > external.auto.tfvars.json
 
       - name: Destroy preview stack
         working-directory: ${{ inputs.working_directory }}
