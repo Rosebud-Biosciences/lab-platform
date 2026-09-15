@@ -70,6 +70,19 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   report, and the three update paths for Tailscale clients (chart pin for
   containers, auto-update on the relay, the tailnet-wide default for the rest).
 - Tailscale operator chart default bumped 1.98.9 → 1.102.3.
+- A second provider of ephemeral preview data, documented in
+  `docs/preview-environments.md` ("Ephemeral data: two providers"): alongside
+  the Terraform modules that stamp isolated empty copies, a dataset tool
+  ([tether](https://github.com/elyall/tether)) may fork the production stores
+  per preview. Three pieces make that possible without touching the tofu path:
+  `modules/data-access` (read/write-no-delete IAM on prod store prefixes and
+  read/commit on listed S3 Tables tables), a `secrets.extra_tfvars_json` input
+  on the reusable `preview-up` / `preview-down` workflows (a JSON object, or
+  base64 of one, written to `external.auto.tfvars.json` before apply/destroy,
+  for values a previous job minted), and `dagster_user_code_env` /
+  `dagster_user_code_secret_env` on the workloads module. The latter also fixes
+  a gap: Dagster's user-code deployment and its runs now receive `DATABASE_URL`
+  like the webapp does, where previously they received no environment at all.
 - `examples/preview` now documents the stack's own S3 backend, including the
   non-obvious `workspace_key_prefix` requirement: workspace state lands at
   `<prefix>/<workspace>/<key>`, so the backend default (`env:`) would fall

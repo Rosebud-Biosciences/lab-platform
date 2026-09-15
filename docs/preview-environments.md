@@ -112,6 +112,53 @@ True copy-on-write *branch refs* on prod tables are an engine-side operation
 (pyiceberg one-liner in the module README), mirroring how Neon handles the
 relational side in one API call.
 
+## Ephemeral data: two providers
+
+The three modules above are one way to give a preview its data: Terraform
+stamps an isolated, mostly **empty** copy — a copy-on-write Neon branch, a fresh
+bucket, a fresh namespace — and tears it down with the stack. The other way is a
+dataset tool that **forks the production stores themselves**:
+[tether](https://github.com/elyall/tether) cuts a branch per preview in every
+registered system (Neon, Icechunk, Iceberg, Lance), pins the baseline it forked
+from, and can land the result back on prod. The two are alternatives selected
+per deployment, not layers; the `lab-platform-template-app` shows both behind a
+`fork_provider` toggle (`tofu`, the default, or `tether`).
+
+| | `tofu` (this page so far) | `tether` |
+| --- | --- | --- |
+| Postgres | `neon-branches`: CoW branch, tuned compute | tether fork of the Neon project's branch (one branch serves every database), `--pin record` |
+| Object stores (Icechunk, Lance, Delta) | fresh copies in the `preview-storage` bucket: **empty** | branches inside the prod stores, forked from the last pinned state |
+| Iceberg | `iceberg-branches`: empty namespace, IAM-isolated | table branches on the prod tables |
+| Which prod state was tested | not recorded | a pinned dataset commit per preview |
+| Landing preview data on prod | not possible | `tether promote` for Icechunk / Iceberg (fast-forward); recompute for the rest |
+| Preview's access to prod data | none (writes are physically elsewhere) | write into prod buckets and commit to prod tables, no delete ([`data-access`](../modules/data-access)) |
+| Dependencies | none | `tether-vcs` (beta; Neon and Iceberg backends `experimental`) |
+| Teardown | `tofu destroy` | `tofu destroy`, then `tether gc --prune-bookmarks --force-prune` |
+
+Two facts about the tether side belong next to any decision to use it. A fork of
+an Iceberg table on S3 Tables is a branch on the **production** table, so the
+preview's pods need commit rights IAM cannot scope to a branch — trust in the
+code, audited by tether's operation log and `verify`, is the guard. And user refs
+on an S3 Tables table suspend its automatic maintenance while they exist, so
+forks are kept short-lived and swept.
+
+**The contract both providers meet.** Application code never learns which
+provider is in use. Pods receive:
+
+- `DATABASE_URL` — the preview's Postgres (the `neon-branches` URL, or the URL
+  tether's `open` prints for the fork).
+- `DATA_REFS` — a JSON object `key -> address`, one entry per data object, in the
+  address forms tether's `open --json` prints: `s3://.../x.icechunk#<branch>`,
+  `<namespace>.<table>#<branch>`, `s3://.../x.lance#<branch>`, `s3://.../x.delta`
+  (`@vN` for a read-only version), `s3://.../prefix/`. Terraform builds it from
+  the ephemeral bucket and namespace in `tofu` mode; a CI job builds it from the
+  forks in `tether` mode. Prod sets every ref to `#main` at the real locations.
+
+Passing values a CI job minted (the fork's database URL) into the apply is what
+the reusable workflows' `extra_tfvars_json` secret is for; the Dagster user-code
+deployment receives `DATABASE_URL` and the caller's `dagster_user_code_env`
+exactly as the webapp does, so the assets and the app read the same data.
+
 ## GPU isolation
 
 Ray GPU workers select their nodes by NodePool. The preview stamps a

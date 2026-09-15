@@ -22,6 +22,7 @@ registries require that naming convention.)
 | [`modules/preview-storage`](modules/preview-storage) | Ephemeral per-preview bucket |
 | [`modules/neon-branches`](modules/neon-branches) | Copy-on-write Neon Postgres branches per preview |
 | [`modules/iceberg-branches`](modules/iceberg-branches) | Ephemeral per-preview Iceberg (S3 Tables) namespace with namespace-scoped IAM |
+| [`modules/data-access`](modules/data-access) | Read/write-no-delete IAM on prod store prefixes and Iceberg tables, for previews whose data is forked by a dataset tool (tether mode) |
 
 ## Architecture
 
@@ -81,6 +82,14 @@ and an ephemeral S3 bucket — then it all disappears on teardown, prod untouche
 The reusable [`preview-up`/`preview-down`/`nightly-sweep`](.github/workflows)
 workflows and the least-privilege preview role in `modules/bootstrap` make it
 runnable from CI.
+
+The preview's *data* has two providers. Terraform (the modules above) stamps
+isolated, mostly empty copies; [tether](https://github.com/elyall/tether) forks
+the production stores themselves — a branch per preview in Neon, Icechunk,
+Iceberg and Lance, a pinned baseline, and `promote` back to prod — with
+[`modules/data-access`](modules/data-access) as its IAM. Both hand pods the same
+`DATABASE_URL` + `DATA_REFS` contract; the template app shows them side by side
+behind a `fork_provider` toggle.
 
 Read the design writeup: [`docs/preview-environments.md`](docs/preview-environments.md).
 
