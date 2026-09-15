@@ -8,7 +8,7 @@
 
 module "ebs_csi_driver_irsa" {
   source                = "terraform-aws-modules/iam/aws//modules/iam-role-for-service-accounts-eks"
-  version               = "~> 5.20"
+  version               = "~> 6.8"
   role_name_prefix      = format("%s-%s", local.cluster_name, "ebs-csi-driver-")
   attach_ebs_csi_policy = true
 
