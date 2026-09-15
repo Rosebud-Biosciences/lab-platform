@@ -31,7 +31,6 @@ module "network" {
 
   # Private admin access to the cluster API via a Tailscale subnet router.
   enable_tailscale_subnet_router = local.tailscale_enabled
-  ts_tailnet                     = var.tailscale_tailnet
   ts_relay_client_id             = var.tailscale_oauth_client_id
   ts_relay_client_secret         = var.tailscale_oauth_client_secret
 

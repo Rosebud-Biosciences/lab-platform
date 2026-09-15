@@ -34,8 +34,8 @@ module "network" {
 
 | Name | Version |
 |------|---------|
-| <a name="provider_aws"></a> [aws](#provider\_aws) | 6.62.0 |
-| <a name="provider_tailscale"></a> [tailscale](#provider\_tailscale) | 0.29.2 |
+| <a name="provider_aws"></a> [aws](#provider\_aws) | >= 6.0.0 |
+| <a name="provider_tailscale"></a> [tailscale](#provider\_tailscale) | >= 0.18 |
 | <a name="provider_terraform"></a> [terraform](#provider\_terraform) | n/a |
 
 ## Modules
@@ -82,7 +82,6 @@ module "network" {
 | <a name="input_ts_relay_client_secret"></a> [ts\_relay\_client\_secret](#input\_ts\_relay\_client\_secret) | Tailscale subnet-router OAuth client secret. Required when enable\_tailscale\_subnet\_router = true. | `string` | `""` | no |
 | <a name="input_ts_relay_instance_type"></a> [ts\_relay\_instance\_type](#input\_ts\_relay\_instance\_type) | EC2 instance type for the Tailscale relay | `string` | `"t3a.micro"` | no |
 | <a name="input_ts_relay_tag"></a> [ts\_relay\_tag](#input\_ts\_relay\_tag) | Tailscale ACL tag applied to the relay's pre-auth key (its autoApprovers should cover the advertised routes) | `string` | `"tag:subnet-router"` | no |
-| <a name="input_ts_tailnet"></a> [ts\_tailnet](#input\_ts\_tailnet) | Tailscale tailnet; "-" resolves to the OAuth client's default tailnet. | `string` | `"-"` | no |
 | <a name="input_vpc_cidr"></a> [vpc\_cidr](#input\_vpc\_cidr) | The primary CIDR block for the VPC | `string` | `"10.0.0.0/16"` | no |
 
 ## Outputs

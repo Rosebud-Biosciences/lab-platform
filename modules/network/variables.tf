@@ -61,12 +61,6 @@ variable "enable_tailscale_subnet_router" {
   default     = false
 }
 
-variable "ts_tailnet" {
-  description = "Tailscale tailnet; \"-\" resolves to the OAuth client's default tailnet."
-  type        = string
-  default     = "-"
-}
-
 variable "ts_relay_client_id" {
   description = <<-EOT
     Tailscale OAuth client ID used to mint the relay's pre-auth key. Must be a

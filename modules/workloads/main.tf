@@ -46,7 +46,6 @@ locals {
   private_mlflow_host  = "${var.private_ingress_hostname_prefix}mlflow"
   private_webapp_host  = "${var.private_ingress_hostname_prefix}webapp"
   private_ray_host     = "${var.private_ingress_hostname_prefix}ray"
-  private_mlflow_fqdn  = var.enable_private_ingress && var.private_ingress_dns_suffix != "" ? "${local.private_mlflow_host}.${var.private_ingress_dns_suffix}" : ""
 
   create_pools = var.karpenter_node_iam_role_name != "" ? var.karpenter_node_pools : {}
 }
