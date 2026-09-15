@@ -18,7 +18,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-      - uses: opentofu/setup-opentofu@v1
+      - uses: opentofu/setup-opentofu@v2
         with:
           tofu_version: ${{ env.TOFU_VERSION }}
       - name: tofu fmt (check, recursive)
@@ -46,7 +46,7 @@ jobs:
           - examples/jupyterhub
     steps:
       - uses: actions/checkout@v5
-      - uses: opentofu/setup-opentofu@v1
+      - uses: opentofu/setup-opentofu@v2
         with:
           tofu_version: ${{ env.TOFU_VERSION }}
       - name: tofu init (no backend)
@@ -103,7 +103,7 @@ jobs:
           - modules/data-access
     steps:
       - uses: actions/checkout@v5
-      - uses: opentofu/setup-opentofu@v1
+      - uses: opentofu/setup-opentofu@v2
         with:
           tofu_version: ${{ env.TOFU_VERSION }}
       - name: tofu init (no backend)
