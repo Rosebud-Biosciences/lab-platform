@@ -39,6 +39,7 @@ jobs:
           - modules/preview-storage
           - modules/neon-branches
           - modules/iceberg-branches
+          - modules/data-access
           - examples/minimal
           - examples/complete
           - examples/preview
@@ -83,7 +84,7 @@ jobs:
       - name: Verify generated module docs are up to date
         uses: terraform-docs/gh-actions@v1
         with:
-          working-dir: modules/bootstrap,modules/network,modules/eks-platform,modules/workloads,modules/s3-bucket,modules/preview-storage,modules/neon-branches,modules/iceberg-branches
+          working-dir: modules/bootstrap,modules/network,modules/eks-platform,modules/workloads,modules/s3-bucket,modules/preview-storage,modules/neon-branches,modules/iceberg-branches,modules/data-access
           config-file: .terraform-docs.yml
           output-format: markdown table
           fail-on-diff: true
@@ -99,6 +100,7 @@ jobs:
           - modules/network
           - modules/workloads
           - modules/iceberg-branches
+          - modules/data-access
     steps:
       - uses: actions/checkout@v5
       - uses: opentofu/setup-opentofu@v1
