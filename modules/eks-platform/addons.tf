@@ -6,10 +6,16 @@
 #   Phase 2:        Karpenter, autoscalers, monitoring, Argo (depends on Phase 1)
 # ------------------------------------------------------------------------------
 
+# v6 of the IAM module folded the EKS-specific submodule into
+# iam-role-for-service-accounts (the one the workloads module already uses);
+# `name` + use_name_prefix is the old role_name_prefix, the output is `arn`.
+# Moving an existing cluster onto this recreates the role (new addresses, new
+# name); the EBS CSI add-on picks up the new ARN in the same apply.
 module "ebs_csi_driver_irsa" {
-  source                = "terraform-aws-modules/iam/aws//modules/iam-role-for-service-accounts-eks"
-  version               = "~> 5.20"
-  role_name_prefix      = format("%s-%s", local.cluster_name, "ebs-csi-driver-")
+  source                = "terraform-aws-modules/iam/aws//modules/iam-role-for-service-accounts"
+  version               = "~> 6.8"
+  name                  = format("%s-%s", local.cluster_name, "ebs-csi-driver-")
+  use_name_prefix       = true
   attach_ebs_csi_policy = true
 
   oidc_providers = {
@@ -40,7 +46,7 @@ module "eks_blueprints_addons_core" {
   eks_addons = {
     aws-ebs-csi-driver = {
       addon_version            = "v1.63.1-eksbuild.1"
-      service_account_role_arn = module.ebs_csi_driver_irsa.iam_role_arn
+      service_account_role_arn = module.ebs_csi_driver_irsa.arn
     }
     coredns = {
       addon_version = "v1.14.3-eksbuild.3"
