@@ -35,7 +35,7 @@ jobs:
   report:
     runs-on: ubuntu-latest # ships helm + jq
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
       - name: Report
         id: report

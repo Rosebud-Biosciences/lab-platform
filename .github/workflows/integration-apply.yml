@@ -60,7 +60,7 @@ jobs:
       run:
         working-directory: examples/${{ github.event.inputs.example || 'minimal' }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
       - uses: opentofu/setup-opentofu@v1
         with:
