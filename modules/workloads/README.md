@@ -37,8 +37,8 @@ limits. Providers point at the target cluster and are configured by the caller.
 
 | Name | Version |
 |------|---------|
-| <a name="provider_aws"></a> [aws](#provider\_aws) | 6.62.0 |
-| <a name="provider_helm"></a> [helm](#provider\_helm) | 3.2.0 |
+| <a name="provider_aws"></a> [aws](#provider\_aws) | 6.64.0 |
+| <a name="provider_helm"></a> [helm](#provider\_helm) | 3.3.0 |
 | <a name="provider_kubernetes"></a> [kubernetes](#provider\_kubernetes) | 3.2.1 |
 
 ## Modules
@@ -91,6 +91,7 @@ limits. Providers point at the target cluster and are configured by the caller.
 | [kubernetes_namespace_v1.webapp](https://registry.terraform.io/providers/hashicorp/kubernetes/latest/docs/resources/namespace_v1) | resource |
 | [kubernetes_pod_disruption_budget_v1.webapp](https://registry.terraform.io/providers/hashicorp/kubernetes/latest/docs/resources/pod_disruption_budget_v1) | resource |
 | [kubernetes_secret_v1.dagster_db_password](https://registry.terraform.io/providers/hashicorp/kubernetes/latest/docs/resources/secret_v1) | resource |
+| [kubernetes_secret_v1.dagster_user_code_env](https://registry.terraform.io/providers/hashicorp/kubernetes/latest/docs/resources/secret_v1) | resource |
 | [kubernetes_secret_v1.database_url](https://registry.terraform.io/providers/hashicorp/kubernetes/latest/docs/resources/secret_v1) | resource |
 | [kubernetes_secret_v1.mlflow_db](https://registry.terraform.io/providers/hashicorp/kubernetes/latest/docs/resources/secret_v1) | resource |
 | [kubernetes_secret_v1.webapp_env](https://registry.terraform.io/providers/hashicorp/kubernetes/latest/docs/resources/secret_v1) | resource |
@@ -119,7 +120,9 @@ limits. Providers point at the target cluster and are configured by the caller.
 | <a name="input_dagster_db_password"></a> [dagster\_db\_password](#input\_dagster\_db\_password) | Dagster metadata Postgres password | `string` | `""` | no |
 | <a name="input_dagster_db_user"></a> [dagster\_db\_user](#input\_dagster\_db\_user) | Dagster metadata Postgres user | `string` | `""` | no |
 | <a name="input_dagster_repository"></a> [dagster\_repository](#input\_dagster\_repository) | Helm repository for the Dagster chart | `string` | `"https://dagster-io.github.io/helm"` | no |
+| <a name="input_dagster_user_code_env"></a> [dagster\_user\_code\_env](#input\_dagster\_user\_code\_env) | Plain environment variables for the Dagster user-code deployment and, through<br/>includeConfigInLaunchedRuns, every run it launches -- how assets learn where<br/>their data lives (e.g. DATA\_REFS, ICEBERG\_CATALOG; see<br/>docs/preview-environments.md). Ignored when dagster\_user\_code\_image is empty. | `map(string)` | `{}` | no |
 | <a name="input_dagster_user_code_image"></a> [dagster\_user\_code\_image](#input\_dagster\_user\_code\_image) | User-code (code location) image for Dagster, repository:tag. Empty deploys the chart with the example user code. | `string` | `""` | no |
+| <a name="input_dagster_user_code_secret_env"></a> [dagster\_user\_code\_secret\_env](#input\_dagster\_user\_code\_secret\_env) | Secret environment variables for the Dagster user-code deployment and its<br/>runs, delivered through a Kubernetes Secret. database\_url is added as<br/>DATABASE\_URL automatically, mirroring the webapp, so assets and the webapp<br/>read the same database without extra wiring. | `map(string)` | `{}` | no |
 | <a name="input_database_url"></a> [database\_url](#input\_database\_url) | Application database URL, published as the DATABASE\_URL secret key for services that use it | `string` | `""` | no |
 | <a name="input_efs_subnet_cidr_octet_prefix"></a> [efs\_subnet\_cidr\_octet\_prefix](#input\_efs\_subnet\_cidr\_octet\_prefix) | First-octet prefix selecting which private subnets host the JupyterHub EFS mount targets | `string` | `"100."` | no |
 | <a name="input_enable_argo_workflows"></a> [enable\_argo\_workflows](#input\_enable\_argo\_workflows) | Create the Argo Workflows service account + RBAC in the Ray namespace | `bool` | `false` | no |

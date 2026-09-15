@@ -113,6 +113,30 @@ resource "kubernetes_secret_v1" "dagster_db_password" {
   }
 }
 
+# Environment for the user-code deployment (and, via includeConfigInLaunchedRuns,
+# every run pod). DATABASE_URL rides along automatically, as it does for the
+# webapp: the assets and the app read the same database. The Secret exists
+# whenever user code is deployed so the chart values can reference it
+# unconditionally; an empty one is harmless.
+locals {
+  dagster_user_code_secret_env = merge(
+    var.dagster_user_code_secret_env,
+    var.database_url != "" ? { DATABASE_URL = var.database_url } : {}
+  )
+  dagster_user_code_env_secret = "dagster-user-code-env"
+}
+
+resource "kubernetes_secret_v1" "dagster_user_code_env" {
+  count = local.enable_dagster && var.dagster_user_code_image != "" ? 1 : 0
+
+  metadata {
+    name      = local.dagster_user_code_env_secret
+    namespace = kubernetes_namespace_v1.dagster[0].metadata[0].name
+  }
+
+  data = local.dagster_user_code_secret_env
+}
+
 resource "helm_release" "dagster" {
   count = local.enable_dagster ? 1 : 0
 
@@ -130,11 +154,14 @@ resource "helm_release" "dagster" {
     db_user                 = var.dagster_db_user
     db_name                 = var.dagster_db_name
     user_code_image         = var.dagster_user_code_image
+    user_code_env           = var.dagster_user_code_env
+    user_code_env_secret    = local.dagster_user_code_env_secret
   })]
 
   depends_on = [
     kubernetes_service_account_v1.dagster,
     kubernetes_cluster_role_binding_v1.dagster_ray_ops,
     kubernetes_secret_v1.dagster_db_password,
+    kubernetes_secret_v1.dagster_user_code_env,
   ]
 }

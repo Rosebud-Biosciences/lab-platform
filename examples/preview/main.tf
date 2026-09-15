@@ -131,7 +131,10 @@ module "workloads" {
   enable_ray_cluster = true
   enable_mlflow      = true
 
-  # DB connections come from the ephemeral Neon branches (module.neon).
+  # DB connections come from the ephemeral Neon branches (module.neon). The
+  # webapp AND Dagster's user-code deployment (hence every run it launches)
+  # receive database_url as DATABASE_URL; dagster_user_code_env /
+  # dagster_user_code_secret_env carry anything else the assets need.
   database_url = local.neon_enabled ? module.neon.postgres_urls["app"] : ""
 
   dagster_db_host     = local.neon_enabled ? module.neon.connections["dagster"].host : ""

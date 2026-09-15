@@ -41,6 +41,17 @@ dagster-user-deployments:
         - "/opt/dagster/app/repo.py"
       port: 3030
       serviceAccountName: ${service_account_name}
+      # Plain values inline; secrets (DATABASE_URL and the caller's) from the
+      # module-managed Secret. Both reach launched run pods as well
+      # (includeConfigInLaunchedRuns is on by default).
+%{ if length(user_code_env) > 0 ~}
+      env:
+%{ for k, v in user_code_env ~}
+        ${k}: ${jsonencode(v)}
+%{ endfor ~}
+%{ endif ~}
+      envSecrets:
+        - name: ${user_code_env_secret}
 %{ else ~}
 # No user-code image supplied: the chart's built-in example user deployment is
 # used. Set var.dagster_user_code_image to run your own code location.

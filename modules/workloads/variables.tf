@@ -584,6 +584,29 @@ variable "dagster_bucket_policies" {
   default     = {}
 }
 
+variable "dagster_user_code_env" {
+  description = <<-EOT
+    Plain environment variables for the Dagster user-code deployment and, through
+    includeConfigInLaunchedRuns, every run it launches -- how assets learn where
+    their data lives (e.g. DATA_REFS, ICEBERG_CATALOG; see
+    docs/preview-environments.md). Ignored when dagster_user_code_image is empty.
+  EOT
+  type        = map(string)
+  default     = {}
+}
+
+variable "dagster_user_code_secret_env" {
+  description = <<-EOT
+    Secret environment variables for the Dagster user-code deployment and its
+    runs, delivered through a Kubernetes Secret. database_url is added as
+    DATABASE_URL automatically, mirroring the webapp, so assets and the webapp
+    read the same database without extra wiring.
+  EOT
+  type        = map(string)
+  default     = {}
+  sensitive   = true
+}
+
 # ------------------------------------------------------------------------------
 # MLFLOW
 # ------------------------------------------------------------------------------
