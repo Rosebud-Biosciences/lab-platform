@@ -64,6 +64,9 @@ on:
         required: false
       ts_oauth_secret:
         required: false
+      modules_git_token:
+        description: "Token with read access to the repository the module sources point at, when it is private (see the step that uses it)"
+        required: false
 
 permissions:
   id-token: write
@@ -76,6 +79,7 @@ jobs:
     env:
       NEON_API_KEY: ${{ secrets.neon_api_key }}
       TF_VAR_neon_api_key: ${{ secrets.neon_api_key }}
+      MODULES_GIT_TOKEN: ${{ secrets.modules_git_token }}
       GH_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@v7
@@ -93,6 +97,15 @@ jobs:
           oauth-secret: ${{ secrets.ts_oauth_secret }}
           tags: tag:ci
           version: latest
+
+      # Module sources under github.com/<org>/... are fetched with git, and the
+      # runner's own GITHUB_TOKEN reaches only its own repository. Consuming a
+      # PRIVATE platform repo therefore needs a token of its own: a fine-grained
+      # PAT (or GitHub App token) with read-only Contents on that repo, passed
+      # as the modules_git_token secret. Leave it unset once the repo is public.
+      - name: Authenticate module fetches
+        if: ${{ env.MODULES_GIT_TOKEN != '' }}
+        run: git config --global url."https://x-access-token:${MODULES_GIT_TOKEN}@github.com/".insteadOf "https://github.com/"
 
       - uses: opentofu/setup-opentofu@v2
         with:

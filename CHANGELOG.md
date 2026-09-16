@@ -109,6 +109,11 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   notifications, a CMK on the lock table) and inline `#checkov:skip` on the
   resource for access logging, the opt-in IAM-user attachments, the
   ephemeral bucket's versioning and the Grafana secret's rotation.
+- Reusable `preview-up` / `preview-down` / `nightly-sweep` accept an optional
+  `modules_git_token` secret and, when set, `git config url...insteadOf` it
+  before `tofu init`, so a consumer can fetch `github.com/...` module sources
+  from this repo while it is private (a runner's `GITHUB_TOKEN` reaches only
+  its own repository). Unset it once the repo is public.
 - Module sources and reusable-workflow references in the docs name the
   upstream repo, `github.com/Rosebud-Biosciences/terraform-aws-lab-platform`,
   instead of the `your-org` placeholder; forks of the platform replace it.

@@ -202,6 +202,10 @@ sequenceDiagram
    directly), wiring `cluster_name` / `oidc_provider_arn` / … from the platform
    stack's remote state.
 4. Add caller workflows that invoke the reusable `preview-up`/`preview-down`
-   workflows, passing your freshly built image tags.
+   workflows, passing your freshly built image tags. While this platform repo
+   is private, also pass `modules_git_token` (a fine-grained PAT or App token
+   with read-only Contents on it): `tofu init` fetches `github.com/...`
+   module sources with git, and a runner's own `GITHUB_TOKEN` reaches only
+   the repository it runs in.
 5. Point the preview role's `preview_state_key_prefix`, IAM name patterns, and
    ephemeral bucket pattern at whatever your naming actually is.
