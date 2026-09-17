@@ -16,7 +16,8 @@ it:
 | EKS (same cloud as the data) | `module.platform.oidc_provider_arn` | `webhook` (default) | stamps `eks.amazonaws.com/role-arn` on each ServiceAccount; EKS injects the token |
 | kind, GKE, AKS, on-prem | [`aws/oidc-provider`](../oidc-provider) output | `projected` | mounts a projected token and sets `AWS_ROLE_ARN` + `AWS_WEB_IDENTITY_TOKEN_FILE`; no webhook needed |
 
-The trusted subjects are fixed by workloads' identity contract (see its README);
+The trusted subjects are fixed by workloads' identity contract (see its README;
+Argo's is `<prefix>argo/argo-workflow`);
 this module derives the same names from the same `name_prefix` /
 `webapp_app_name`, and both publish them as `service_accounts` so a test can
 assert they agree.
@@ -91,7 +92,7 @@ recreating them (see CHANGELOG 0.2.0).
 | <a name="input_region"></a> [region](#input\_region) | AWS region the data lives in, published to pods as AWS\_REGION | `string` | n/a | yes |
 | <a name="input_binding"></a> [binding](#input\_binding) | How pods present the trusted token:<br/>  webhook    the cluster injects it (EKS IRSA via the pod identity<br/>             webhook): workloads gets an eks.amazonaws.com/role-arn SA<br/>             annotation and nothing in the pod spec.<br/>  projected  any cluster: workloads mounts a projected ServiceAccount<br/>             token with audience sts.amazonaws.com and the SDK reads<br/>             AWS\_ROLE\_ARN + AWS\_WEB\_IDENTITY\_TOKEN\_FILE from env. Use<br/>             with aws/oidc-provider for kind/GKE/AKS/on-prem compute. | `string` | `"webhook"` | no |
 | <a name="input_dagster_policy_arns"></a> [dagster\_policy\_arns](#input\_dagster\_policy\_arns) | IAM policy ARNs attached to the Dagster role | `map(string)` | `{}` | no |
-| <a name="input_enable_argo_workflows"></a> [enable\_argo\_workflows](#input\_enable\_argo\_workflows) | Create the Argo Workflows role (lives in the Ray namespace) | `bool` | `false` | no |
+| <a name="input_enable_argo_workflows"></a> [enable\_argo\_workflows](#input\_enable\_argo\_workflows) | Create the Argo Workflows role (workflow pods in the environment's argo namespace) | `bool` | `false` | no |
 | <a name="input_enable_dagster"></a> [enable\_dagster](#input\_enable\_dagster) | Create the Dagster role | `bool` | `false` | no |
 | <a name="input_enable_ecr_pull"></a> [enable\_ecr\_pull](#input\_enable\_ecr\_pull) | Let the Ray, Argo and Dagster roles pull from this account's ECR repositories (needed when pods pull private images with their own credentials rather than the node's) | `bool` | `true` | no |
 | <a name="input_enable_jupyterhub"></a> [enable\_jupyterhub](#input\_enable\_jupyterhub) | Create the JupyterHub single-user role | `bool` | `false` | no |

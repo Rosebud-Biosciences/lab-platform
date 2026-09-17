@@ -51,7 +51,7 @@ kubectl get raycluster -n ray -w    # a cluster appears, then is reclaimed
 Argo:
 
 ```bash
-argo submit -n ray argo/workflow.yaml --watch
+argo submit -n argo argo/workflow.yaml --watch   # the RayJob it creates lands in the ray namespace
 ```
 
 Dagster (local dev UI against your kubeconfig):

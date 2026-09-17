@@ -2,8 +2,10 @@
 # WORKLOADS MODULE - WEBAPP (generic web application, namespaced by name_prefix)
 #
 # A single-container Deployment + Service + ServiceAccount, with configurable
-# plain and secret env, optional Service-level session affinity, and (in
-# webapp_public.tf) an optional internet-facing Ingress with HPA/PDB.
+# plain and secret env (plus the service URLs: MLFLOW_TRACKING_URI,
+# DAGSTER_WEBSERVER_URL, ARGO_SERVER_URL -- stamped here or shared, see
+# main.tf), optional Service-level session affinity, and (in webapp_public.tf)
+# an optional internet-facing Ingress with HPA/PDB.
 # Cloud identity arrives through the workload_identity contract: SA
 # annotations, env, a projected token volume, and/or static secret env.
 # ------------------------------------------------------------------------------
@@ -15,7 +17,7 @@ locals {
 
   # Plain env: caller-supplied plus the identity contract's (region, role ARN,
   # token path, endpoint URL).
-  webapp_plain_env = merge(local.identity.webapp.env, var.webapp_env)
+  webapp_plain_env = merge(local.identity.webapp.env, local.service_urls_env, var.webapp_env)
 }
 
 resource "kubernetes_namespace_v1" "webapp" {

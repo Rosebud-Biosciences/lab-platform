@@ -32,3 +32,13 @@ output "ray_dashboard_private_url" {
   description = "Private (tailnet) URL for the Ray dashboard"
   value       = module.workloads.ray_dashboard_private_url
 }
+
+output "argo_private_url" {
+  description = "Private (tailnet) URL for the Argo Workflows UI"
+  value       = module.workloads.argo_private_url
+}
+
+output "in_cluster_urls" {
+  description = "In-cluster URLs of this environment's Dagster/MLflow/Argo -- what an app-only preview passes as shared_service_urls (workloads README \"Stamp or share\")"
+  value       = module.workloads.in_cluster_urls
+}

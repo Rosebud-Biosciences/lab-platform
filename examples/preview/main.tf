@@ -24,6 +24,36 @@ locals {
 
   neon_enabled    = length(var.neon_branch_sources) > 0
   iceberg_enabled = var.iceberg_table_bucket_arn != ""
+
+  # "app": webapp only; the pipeline services are prod's (see variables.tf).
+  pipelines = var.preview_profile == "full"
+
+  # Preview-scoped Karpenter NodePools (name-prefixed by the adapter; scale to
+  # zero when idle, torn down on destroy). Modest caps so a preview can't
+  # balloon cost. The GPU pool is prefixed too, so RayJobs that select
+  # module.compute.node_pool_names["ray-gpu-worker"] get isolated GPU capacity
+  # instead of sharing prod's.
+  preview_pools = {
+    default = {
+      instance_families = ["m7i"]
+      instance_sizes    = ["large", "xlarge"]
+      capacity_types    = ["spot", "on-demand"]
+      limits            = { cpu = "16", memory = "64Gi" }
+    }
+    ray-gpu-worker = {
+      instance_families      = ["g6"]
+      instance_sizes         = ["xlarge", "2xlarge"]
+      instance_architectures = ["amd64"]
+      capacity_types         = ["on-demand"]
+      labels                 = { "nvidia.com/gpu" = "true" }
+      limits                 = { "nvidia.com/gpu" = "4" }
+      taints = [{
+        key    = "nvidia.com/gpu"
+        value  = "true"
+        effect = "NoSchedule"
+      }]
+    }
+  }
 }
 
 # In real use this stack needs its own remote backend: every preview job
@@ -120,9 +150,9 @@ module "data" {
   region            = var.region
 
   enable_webapp  = true
-  enable_dagster = true
-  enable_ray     = true
-  enable_mlflow  = true
+  enable_dagster = local.pipelines
+  enable_ray     = local.pipelines
+  enable_mlflow  = local.pipelines
 
   webapp_policy_arns          = { processeddata = module.storage.get_policy_arn }
   dagster_policy_arns         = local.pipeline_policies
@@ -134,12 +164,8 @@ module "data" {
   tags = local.preview_tags
 }
 
-# Compute axis: preview-scoped Karpenter NodePools (name-prefixed; scale to
-# zero when idle, torn down on destroy). Modest caps so a preview can't
-# balloon cost. Pipeline pods are pinned to the preview's own default pool;
-# the GPU pool is prefixed too, so RayJobs that select
-# module.compute.node_pool_names["ray-gpu-worker"] get isolated GPU capacity
-# instead of sharing prod's.
+# Compute axis: the preview's Karpenter NodePools (local.preview_pools), with
+# pipeline pods pinned to the preview's own default pool.
 module "compute" {
   source = "../../aws/compute-adapter"
 
@@ -151,30 +177,11 @@ module "compute" {
   vpc_name                     = var.vpc_name
   karpenter_node_iam_role_name = var.karpenter_node_iam_role_name
 
-  karpenter_node_pools = {
-    default = {
-      instance_families = ["m7i"]
-      instance_sizes    = ["large", "xlarge"]
-      capacity_types    = ["spot", "on-demand"]
-      limits            = { cpu = "16", memory = "64Gi" }
-    }
-    ray-gpu-worker = {
-      instance_families      = ["g6"]
-      instance_sizes         = ["xlarge", "2xlarge"]
-      instance_architectures = ["amd64"]
-      capacity_types         = ["on-demand"]
-      labels                 = { "nvidia.com/gpu" = "true" }
-      limits                 = { "nvidia.com/gpu" = "4" }
-      taints = [{
-        key    = "nvidia.com/gpu"
-        value  = "true"
-        effect = "NoSchedule"
-      }]
-    }
-  }
-  node_pool_roles = {
-    default = ["dagster", "ray_head", "ray_worker"]
-  }
+  # No pipelines, no pools: an app-only preview rides the shared node group.
+  # (A filtered for-expression rather than `cond ? pools : {}`: the two pool
+  # objects differ in shape, which a conditional cannot unify.)
+  karpenter_node_pools = { for k, v in local.preview_pools : k => v if local.pipelines }
+  node_pool_roles      = { for k, v in { default = ["dagster", "ray_head", "ray_worker"] } : k => v if local.pipelines }
 
   tags = local.preview_tags
 }
@@ -203,13 +210,19 @@ module "workloads" {
   private_ingress_hostname_prefix = local.name_prefix
   private_ingress_dns_suffix      = var.private_ingress_dns_suffix
 
-  # Full workload set with a dedicated persistent Ray cluster for the preview.
+  # preview_profile "full": the whole set with a dedicated persistent Ray
+  # cluster. "app": the webapp alone, pointed at prod's Dagster and MLflow --
+  # the same env var names, different targets (workloads README "Stamp or
+  # share").
   enable_webapp      = true
   webapp_image       = var.webapp_image
-  enable_dagster     = true
-  enable_ray         = true
-  enable_ray_cluster = true
-  enable_mlflow      = true
+  enable_dagster     = local.pipelines
+  enable_ray         = local.pipelines
+  enable_ray_cluster = local.pipelines
+  enable_mlflow      = local.pipelines
+
+  dagster_webserver_url = local.pipelines ? "" : var.shared_service_urls.dagster_webserver_url
+  mlflow_tracking_uri   = local.pipelines ? "" : var.shared_service_urls.mlflow_tracking_uri
 
   # DB connections come from the ephemeral Neon branches (module.neon). The
   # webapp AND Dagster's user-code deployment (hence every run it launches)

@@ -112,6 +112,43 @@ True copy-on-write *branch refs* on prod tables are an engine-side operation
 (pyiceberg one-liner in the module README), mirroring how Neon handles the
 relational side in one API call.
 
+## Two preview profiles: full, or app-only
+
+A preview stamps whatever its `preview_profile` says
+([`examples/preview`](../examples/preview); the template app maps it to a PR
+label):
+
+| | `full` (default) | `app` |
+| --- | --- | --- |
+| Webapp | the PR's image, its own namespace and **database branch** | same |
+| Dagster, Ray, MLflow | stamped: the PR's code location, a Ray cluster, a tracking server, all isolated | **not stamped** -- the webapp points at prod's via `shared_service_urls` (prod's `in_cluster_urls` output) |
+| Karpenter pools | the preview's own | none; rides the shared node group |
+| Time to green | build two images, ~8-10 min | build one image, ~2 min |
+| Tests | app and pipeline changes together | **the app only** |
+
+The `app` profile is the right tool for a frontend or API change and the
+wrong one for anything else, because of what "shared Dagster" means: runs the
+preview's app triggers execute **prod's code location on prod's data and
+prod's database**, while the preview's webapp reads its *own* branch. A
+pipeline or schema change in such a PR is simply not exercised. The label
+makes the choice visible on the PR; the profile is also what
+`enable_x = false` + a `*_url` override on `modules/workloads` gives you by
+hand (its README, "Stamp or share").
+
+## Neon topology: projects and branches
+
+A Neon branch is a snapshot of a whole project (every database on the parent,
+at one instant) and a compute belongs to the branch. `modules/neon-branches`
+therefore branches per (project, parent branch): three databases in one
+project cost a preview **one** branch and one compute, three projects cost
+three. Choose the prod layout on those terms. Per-service projects isolate
+each service's connections, WAL/history window and Postgres upgrade — worth
+it for Dagster, whose polling keeps its compute awake and whose event log pads
+the project's history storage. Databases that should snapshot together and
+have similar churn (the app, MLflow, the Argo archive) belong in one project,
+so a preview of them is one coherent branch. Two projects, `data` and
+`orchestration`, is the shape that gets both.
+
 ## Ephemeral data: two providers
 
 The three modules above are one way to give a preview its data: Terraform

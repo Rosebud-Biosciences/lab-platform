@@ -1,10 +1,10 @@
 # ------------------------------------------------------------------------------
-# WORKLOADS MODULE - RAY & ARGO WORKFLOWS (namespaced by name_prefix)
+# WORKLOADS MODULE - RAY (namespaced by name_prefix)
 #
 # Deploys the Ray namespace, the Ray ServiceAccount carrying the identity
-# contract, an optional persistent Ray cluster (KubeRay ray-cluster chart), and
-# an optional Argo Workflows service account + RBAC. The KubeRay operator is a
-# cluster prerequisite (see README).
+# contract, and an optional persistent Ray cluster (KubeRay ray-cluster chart).
+# The KubeRay operator is a cluster prerequisite (see README). Argo Workflows,
+# which launches RayJobs into this namespace, lives in argo.tf.
 #
 # RayJobs launched by user code (Dagster, Argo) build their own pod specs; two
 # module-owned objects give them a stable contract in this namespace:
@@ -51,8 +51,9 @@ resource "kubernetes_service_account_v1" "ray_cluster_sa" {
   automount_service_account_token = true
 }
 
-# Shared analytics env for pipeline compute: MLflow tracking, environment, and
-# the identity contract's plain env (region, endpoint URL, role ARN).
+# Shared analytics env for pipeline compute: the service URLs (MLflow tracking,
+# Dagster, Argo -- stamped or shared), the environment name, and the identity
+# contract's plain env (region, endpoint URL, role ARN).
 resource "kubernetes_config_map_v1" "analytics_config" {
   count = var.enable_ray ? 1 : 0
 
@@ -63,10 +64,8 @@ resource "kubernetes_config_map_v1" "analytics_config" {
 
   data = merge(
     local.identity.ray.env,
-    {
-      "MLFLOW_TRACKING_URI" = local.mlflow_tracking_uri
-      "PIPELINE_ENV"        = var.environment
-    },
+    local.service_urls_env,
+    { "PIPELINE_ENV" = var.environment },
   )
 }
 
@@ -91,69 +90,6 @@ resource "kubernetes_secret_v1" "database_url" {
 
   data = {
     DATABASE_URL = var.database_url
-  }
-}
-
-# ------------------------------------------------------------------------------
-# Argo Workflows service account + RBAC (cluster-scoped RBAC is name-prefixed)
-# ------------------------------------------------------------------------------
-
-resource "kubernetes_service_account_v1" "argo_workflow" {
-  count = var.enable_argo_workflows && var.enable_ray ? 1 : 0
-
-  metadata {
-    name        = local.argo_service_account_name
-    namespace   = kubernetes_namespace_v1.ray[0].metadata[0].name
-    annotations = local.identity.argo.service_account_annotations
-  }
-}
-
-resource "kubernetes_cluster_role_v1" "argo_workflow" {
-  count = var.enable_argo_workflows ? 1 : 0
-
-  metadata {
-    name = "${local.prefix}argo-workflow-role"
-  }
-
-  rule {
-    api_groups = [""]
-    resources  = ["pods", "pods/log", "configmaps", "services"]
-    verbs      = ["get", "watch", "patch", "list", "create", "delete"]
-  }
-
-  rule {
-    api_groups = ["ray.io"]
-    # rayjobs is the ephemeral-cluster primitive (shutdownAfterJobFinishes);
-    # rayclusters is retained for workflows that manage a cluster's lifecycle by
-    # hand. See docs/ephemeral-ray.md.
-    resources = ["rayclusters", "rayclusters/status", "rayclusters/finalizers", "rayjobs", "rayjobs/status"]
-    verbs     = ["get", "list", "create", "delete", "patch", "watch", "update"]
-  }
-
-  rule {
-    api_groups = ["argoproj.io"]
-    resources  = ["workflowtaskresults"]
-    verbs      = ["create", "patch"]
-  }
-}
-
-resource "kubernetes_cluster_role_binding_v1" "argo_workflow" {
-  count = var.enable_argo_workflows && var.enable_ray ? 1 : 0
-
-  metadata {
-    name = "${local.prefix}argo-workflow-binding"
-  }
-
-  role_ref {
-    api_group = "rbac.authorization.k8s.io"
-    kind      = "ClusterRole"
-    name      = kubernetes_cluster_role_v1.argo_workflow[0].metadata[0].name
-  }
-
-  subject {
-    kind      = "ServiceAccount"
-    name      = kubernetes_service_account_v1.argo_workflow[0].metadata[0].name
-    namespace = kubernetes_namespace_v1.ray[0].metadata[0].name
   }
 }
 

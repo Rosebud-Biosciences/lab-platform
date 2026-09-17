@@ -105,11 +105,12 @@ module "data" {
   oidc_provider_arn = module.platform.oidc_provider_arn
   region            = var.region
 
-  enable_webapp     = true
-  enable_ray        = true
-  enable_dagster    = true
-  enable_mlflow     = true
-  enable_jupyterhub = true
+  enable_webapp         = true
+  enable_ray            = true
+  enable_dagster        = true
+  enable_argo_workflows = true
+  enable_mlflow         = true
+  enable_jupyterhub     = true
 
   mlflow_artifact_bucket      = module.artifacts.aws_s3_bucket.bucket
   mlflow_artifact_bucket_arn  = module.artifacts.aws_s3_bucket.arn
@@ -203,6 +204,14 @@ module "workloads" {
   dagster_db_name     = var.dagster_db.name
   dagster_db_user     = var.dagster_db.user
   dagster_db_password = var.dagster_db.password
+
+  # --- Argo Workflows (per environment; archive when a database is given) ---
+  enable_argo_workflows        = true
+  enable_argo_workflow_archive = var.argo_db.host != ""
+  argo_db_host                 = var.argo_db.host
+  argo_db_name                 = var.argo_db.name
+  argo_db_user                 = var.argo_db.user
+  argo_db_password             = var.argo_db.password
 
   # --- MLflow (artifacts to the hardened S3 bucket) ---
   enable_mlflow        = true

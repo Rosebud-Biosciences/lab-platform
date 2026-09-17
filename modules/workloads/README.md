@@ -29,8 +29,58 @@ Per-service `enable_*` toggles:
   coupling);
 - **MLflow** -- tracking server backed by external Postgres + an S3-compatible
   artifact root;
+- **Argo Workflows** -- a namespace-scoped controller + server per
+  environment with an optional workflow archive on external Postgres
+  (`enable_argo_workflow_archive` + `argo_db_*`); the CRDs are a cluster
+  prerequisite. Workflows run as `argo-workflow` and may drive RayJobs in the
+  Ray namespace;
 - **Ray** -- the Ray namespace/ServiceAccount and an optional persistent Ray
   cluster.
+
+## Stamp or share
+
+Kubernetes decides what *can* be per environment; you decide what *should*.
+
+| Kind | Examples | Placement |
+| --- | --- | --- |
+| Operators and CRDs | KubeRay operator, Argo CRDs, Tailscale operator, LB controller | Always one per cluster (a CRD has one owner; two operators fight). Installed by the platform module. |
+| The app under test | webapp, Dagster with the app's code location | Per environment: a preview exists to run *its* code. |
+| Stateful services | MLflow, Dagster, Argo, JupyterHub | **Your call, per environment**: stamp one (`enable_x = true`) or share another environment's (`enable_x = false` + that environment's URL). |
+
+Sharing is one input per service, fed from the other environment's
+`in_cluster_urls` output:
+
+```hcl
+# prod stack
+output "service_urls" { value = module.workloads.in_cluster_urls }
+
+# preview stack: an app-only preview -- its own webapp and database branch,
+# prod's Dagster/MLflow/Argo
+module "workloads" {
+  # ...
+  enable_dagster        = false
+  dagster_webserver_url = data.terraform_remote_state.prod.outputs.service_urls.dagster_webserver_url
+  enable_mlflow         = false
+  mlflow_tracking_uri   = data.terraform_remote_state.prod.outputs.service_urls.mlflow_tracking_uri
+}
+```
+
+Either way the pods see the same variables -- `MLFLOW_TRACKING_URI`,
+`DAGSTER_WEBSERVER_URL`, `ARGO_SERVER_URL` -- so application code never
+knows which it got. What sharing costs you:
+
+| Shared service | The preview gets | The preview gives up |
+| --- | --- | --- |
+| **MLflow** | prod's tracking UI and history; nothing to spin up | Isolation of tracking data: its experiments and artifacts land in prod's store and bucket (namespace them by experiment name). |
+| **Dagster** | An app-only preview in ~2 minutes: no code-location image build, no Ray, no run pods | Any pipeline change goes untested. Runs the preview's app triggers execute **prod's code location against prod's database and data**; the preview's own `DATABASE_URL` (its Neon branch) is what the *webapp* reads, not what those runs write. Only use it when the change is confined to the app. |
+| **Argo** | prod's workflow UI and archive | Workflows submitted through the shared server run in prod's namespace, as prod's `argo-workflow` identity, on prod's data. |
+| **JupyterHub** | (share by simply not enabling it; notebooks live on the shared hub) | Nothing preview-specific to test in a hub anyway. |
+
+The mixed state to be aware of is the Dagster one: an app-only preview is
+"new frontend, prod backend". That is exactly right for a CSS change and
+exactly wrong for a schema migration -- `examples/preview` exposes it as
+`preview_profile = "app"`, and the template app maps it to a
+`preview:app-only` PR label so the choice is visible on the PR.
 
 ## Cluster prerequisites
 
@@ -39,6 +89,7 @@ What the cluster must already provide, whoever built it:
 | Need | Why | On EKS (`aws/eks-platform`) | Elsewhere |
 | --- | --- | --- | --- |
 | KubeRay operator | `enable_ray`, `enable_dagster` create RayCluster/RayJob objects | `enable_ray` | `helm install kuberay-operator kuberay/kuberay-operator` |
+| Argo Workflows CRDs | `enable_argo_workflows` installs a namespace-scoped controller, never the cluster-scoped CRDs | `enable_argo_workflows` (installs the CRDs only) | `kubectl apply` the `manifests/base/crds/minimal` files of the matching Argo release (see `examples/kind/scripts/prereqs.sh`) |
 | metrics-server | the public webapp HPA | on by default | most distros ship it; `kind` needs it installed |
 | a private IngressClass | `enable_private_ingress` (default class `tailscale`) | Tailscale operator | Tailscale operator works anywhere; or any controller via `private_ingress_class_name` |
 | a public IngressClass | `enable_webapp_public_ingress`, `jupyterhub_public_host` | AWS Load Balancer Controller (`alb`) | ingress-nginx + cert-manager; set the class/annotations/TLS secret inputs |
@@ -57,7 +108,7 @@ subjects (`output.service_accounts` publishes them, `name_prefix` included):
 | webapp | `<prefix><webapp_app_name>` | `<webapp_app_name>` | the webapp Deployment |
 | dagster | `<prefix>dagster` | `dagster` | webserver, daemon, user code, launched runs |
 | ray | `<prefix>ray` | `ray-s3-sa` | persistent Ray head/workers; RayJobs that user code launches with this SA |
-| argo | `<prefix>ray` | `argo-workflow` | Argo Workflows pods |
+| argo | `<prefix>argo` | `argo-workflow` | workflow pods (the controller/server run as chart-owned SAs) |
 | mlflow | `<prefix>mlflow` | `mlflow` | the tracking server |
 | jupyterhub | `<prefix>jupyterhub` | `jupyterhub-single-user` | every notebook server |
 
@@ -108,6 +159,7 @@ caller.
 
 | Name | Type |
 |------|------|
+| [helm_release.argo_workflows](https://registry.terraform.io/providers/hashicorp/helm/latest/docs/resources/release) | resource |
 | [helm_release.dagster](https://registry.terraform.io/providers/hashicorp/helm/latest/docs/resources/release) | resource |
 | [helm_release.jupyterhub](https://registry.terraform.io/providers/hashicorp/helm/latest/docs/resources/release) | resource |
 | [helm_release.jupyterhub_shared_volume](https://registry.terraform.io/providers/hashicorp/helm/latest/docs/resources/release) | resource |
@@ -122,18 +174,22 @@ caller.
 | [kubernetes_deployment_v1.webapp](https://registry.terraform.io/providers/hashicorp/kubernetes/latest/docs/resources/deployment_v1) | resource |
 | [kubernetes_deployment_v1.webapp_pinned](https://registry.terraform.io/providers/hashicorp/kubernetes/latest/docs/resources/deployment_v1) | resource |
 | [kubernetes_horizontal_pod_autoscaler_v2.webapp](https://registry.terraform.io/providers/hashicorp/kubernetes/latest/docs/resources/horizontal_pod_autoscaler_v2) | resource |
+| [kubernetes_ingress_v1.argo_private](https://registry.terraform.io/providers/hashicorp/kubernetes/latest/docs/resources/ingress_v1) | resource |
 | [kubernetes_ingress_v1.dagster_private](https://registry.terraform.io/providers/hashicorp/kubernetes/latest/docs/resources/ingress_v1) | resource |
 | [kubernetes_ingress_v1.jupyterhub](https://registry.terraform.io/providers/hashicorp/kubernetes/latest/docs/resources/ingress_v1) | resource |
 | [kubernetes_ingress_v1.mlflow_private](https://registry.terraform.io/providers/hashicorp/kubernetes/latest/docs/resources/ingress_v1) | resource |
 | [kubernetes_ingress_v1.ray_dashboard_private](https://registry.terraform.io/providers/hashicorp/kubernetes/latest/docs/resources/ingress_v1) | resource |
 | [kubernetes_ingress_v1.webapp_private](https://registry.terraform.io/providers/hashicorp/kubernetes/latest/docs/resources/ingress_v1) | resource |
 | [kubernetes_ingress_v1.webapp_public](https://registry.terraform.io/providers/hashicorp/kubernetes/latest/docs/resources/ingress_v1) | resource |
+| [kubernetes_namespace_v1.argo](https://registry.terraform.io/providers/hashicorp/kubernetes/latest/docs/resources/namespace_v1) | resource |
 | [kubernetes_namespace_v1.dagster](https://registry.terraform.io/providers/hashicorp/kubernetes/latest/docs/resources/namespace_v1) | resource |
 | [kubernetes_namespace_v1.jupyterhub](https://registry.terraform.io/providers/hashicorp/kubernetes/latest/docs/resources/namespace_v1) | resource |
 | [kubernetes_namespace_v1.mlflow](https://registry.terraform.io/providers/hashicorp/kubernetes/latest/docs/resources/namespace_v1) | resource |
 | [kubernetes_namespace_v1.ray](https://registry.terraform.io/providers/hashicorp/kubernetes/latest/docs/resources/namespace_v1) | resource |
 | [kubernetes_namespace_v1.webapp](https://registry.terraform.io/providers/hashicorp/kubernetes/latest/docs/resources/namespace_v1) | resource |
 | [kubernetes_pod_disruption_budget_v1.webapp](https://registry.terraform.io/providers/hashicorp/kubernetes/latest/docs/resources/pod_disruption_budget_v1) | resource |
+| [kubernetes_secret_v1.argo_db](https://registry.terraform.io/providers/hashicorp/kubernetes/latest/docs/resources/secret_v1) | resource |
+| [kubernetes_secret_v1.argo_identity_env](https://registry.terraform.io/providers/hashicorp/kubernetes/latest/docs/resources/secret_v1) | resource |
 | [kubernetes_secret_v1.dagster_db_password](https://registry.terraform.io/providers/hashicorp/kubernetes/latest/docs/resources/secret_v1) | resource |
 | [kubernetes_secret_v1.dagster_identity_env](https://registry.terraform.io/providers/hashicorp/kubernetes/latest/docs/resources/secret_v1) | resource |
 | [kubernetes_secret_v1.dagster_user_code_env](https://registry.terraform.io/providers/hashicorp/kubernetes/latest/docs/resources/secret_v1) | resource |
@@ -154,6 +210,15 @@ caller.
 
 | Name | Description | Type | Default | Required |
 |------|-------------|------|---------|:--------:|
+| <a name="input_argo_db_host"></a> [argo\_db\_host](#input\_argo\_db\_host) | Argo workflow-archive Postgres host | `string` | `""` | no |
+| <a name="input_argo_db_name"></a> [argo\_db\_name](#input\_argo\_db\_name) | Argo workflow-archive Postgres database name | `string` | `""` | no |
+| <a name="input_argo_db_password"></a> [argo\_db\_password](#input\_argo\_db\_password) | Argo workflow-archive Postgres password | `string` | `""` | no |
+| <a name="input_argo_db_port"></a> [argo\_db\_port](#input\_argo\_db\_port) | Argo workflow-archive Postgres port | `number` | `5432` | no |
+| <a name="input_argo_db_ssl_mode"></a> [argo\_db\_ssl\_mode](#input\_argo\_db\_ssl\_mode) | libpq sslmode for the archive connection: require (Neon, RDS) or disable (an in-cluster Postgres) | `string` | `"require"` | no |
+| <a name="input_argo_db_user"></a> [argo\_db\_user](#input\_argo\_db\_user) | Argo workflow-archive Postgres user | `string` | `""` | no |
+| <a name="input_argo_server_url"></a> [argo\_server\_url](#input\_argo\_server\_url) | Use another environment's Argo server instead of running one here (enable\_argo\_workflows = false): its in-cluster URL. Workflows submitted through it run in THAT environment's namespace with its identity and data. | `string` | `""` | no |
+| <a name="input_argo_workflows_chart_version"></a> [argo\_workflows\_chart\_version](#input\_argo\_workflows\_chart\_version) | Version of the argo/argo-workflows Helm chart. Its appVersion must match the CRDs the platform installed (aws/eks-platform argo\_workflows\_version; 2.0.6 -> v4.1.3). | `string` | `"2.0.6"` | no |
+| <a name="input_argo_workflows_repository"></a> [argo\_workflows\_repository](#input\_argo\_workflows\_repository) | Helm repository for the Argo Workflows chart | `string` | `"https://argoproj.github.io/argo-helm"` | no |
 | <a name="input_dagster_chart_version"></a> [dagster\_chart\_version](#input\_dagster\_chart\_version) | Version of the official dagster/dagster Helm chart. Must be >= 1.13.23: earlier images are amd64-only, and an arm64 cluster (kind on Apple Silicon, Graviton nodes) cannot pull them. | `string` | `"1.13.23"` | no |
 | <a name="input_dagster_db_host"></a> [dagster\_db\_host](#input\_dagster\_db\_host) | Dagster metadata Postgres host | `string` | `""` | no |
 | <a name="input_dagster_db_name"></a> [dagster\_db\_name](#input\_dagster\_db\_name) | Dagster metadata Postgres database name | `string` | `""` | no |
@@ -163,8 +228,10 @@ caller.
 | <a name="input_dagster_user_code_env"></a> [dagster\_user\_code\_env](#input\_dagster\_user\_code\_env) | Plain environment variables for the Dagster user-code deployment and, through<br/>includeConfigInLaunchedRuns, every run it launches -- how assets learn where<br/>their data lives (e.g. DATA\_REFS, ICEBERG\_CATALOG; see<br/>docs/preview-environments.md). Ignored when dagster\_user\_code\_image is empty. | `map(string)` | `{}` | no |
 | <a name="input_dagster_user_code_image"></a> [dagster\_user\_code\_image](#input\_dagster\_user\_code\_image) | User-code (code location) image for Dagster, repository:tag, exposing /opt/dagster/app/repo.py. Empty deploys the module's own hello-world code location (helm-defaults/dagster/hello\_repo.py) in the stock dagster-k8s image. | `string` | `""` | no |
 | <a name="input_dagster_user_code_secret_env"></a> [dagster\_user\_code\_secret\_env](#input\_dagster\_user\_code\_secret\_env) | Secret environment variables for the Dagster user-code deployment and its<br/>runs, delivered through a Kubernetes Secret. database\_url is added as<br/>DATABASE\_URL automatically, mirroring the webapp, so assets and the webapp<br/>read the same database without extra wiring. | `map(string)` | `{}` | no |
+| <a name="input_dagster_webserver_url"></a> [dagster\_webserver\_url](#input\_dagster\_webserver\_url) | Use another environment's Dagster instead of running one here (enable\_dagster = false): its in-cluster webserver URL. Runs the app triggers there use THAT environment's code location, database and data -- an app-only preview, not a pipeline one. | `string` | `""` | no |
 | <a name="input_database_url"></a> [database\_url](#input\_database\_url) | Application database URL, published as the DATABASE\_URL secret key for services that use it | `string` | `""` | no |
-| <a name="input_enable_argo_workflows"></a> [enable\_argo\_workflows](#input\_enable\_argo\_workflows) | Create the Argo Workflows service account + RBAC in the Ray namespace | `bool` | `false` | no |
+| <a name="input_enable_argo_workflow_archive"></a> [enable\_argo\_workflow\_archive](#input\_enable\_argo\_workflow\_archive) | Persist completed workflows to Postgres (the workflow archive), so they outlive their etcd objects and the UI keeps history. Requires argo\_db\_*. | `bool` | `false` | no |
+| <a name="input_enable_argo_workflows"></a> [enable\_argo\_workflows](#input\_enable\_argo\_workflows) | Deploy Argo Workflows for this environment: namespace, workflow ServiceAccount + RBAC (may manage RayJobs in the Ray namespace), a namespace-scoped controller + server, optional workflow archive. The CRDs are a cluster prerequisite (aws/eks-platform enable\_argo\_workflows). | `bool` | `false` | no |
 | <a name="input_enable_dagster"></a> [enable\_dagster](#input\_enable\_dagster) | Deploy Dagster (requires enable\_ray = true) | `bool` | `false` | no |
 | <a name="input_enable_jupyterhub"></a> [enable\_jupyterhub](#input\_enable\_jupyterhub) | Deploy JupyterHub (namespace, shared RWX volume, ServiceAccount, Helm release, optional public ingress). Requires jupyterhub\_shared\_storage. | `bool` | `false` | no |
 | <a name="input_enable_mlflow"></a> [enable\_mlflow](#input\_enable\_mlflow) | Deploy the MLflow tracking server | `bool` | `false` | no |
@@ -202,8 +269,9 @@ caller.
 | <a name="input_mlflow_db_password"></a> [mlflow\_db\_password](#input\_mlflow\_db\_password) | MLflow tracking Postgres password | `string` | `""` | no |
 | <a name="input_mlflow_db_user"></a> [mlflow\_db\_user](#input\_mlflow\_db\_user) | MLflow tracking Postgres user | `string` | `""` | no |
 | <a name="input_mlflow_repository"></a> [mlflow\_repository](#input\_mlflow\_repository) | Helm repository for the MLflow chart | `string` | `"https://community-charts.github.io/helm-charts"` | no |
+| <a name="input_mlflow_tracking_uri"></a> [mlflow\_tracking\_uri](#input\_mlflow\_tracking\_uri) | Use another environment's MLflow instead of running one here (enable\_mlflow = false): its in-cluster URL, e.g. http://mlflow.mlflow.svc.cluster.local:80. Experiments and artifacts then land in THAT environment's store. | `string` | `""` | no |
 | <a name="input_name_prefix"></a> [name\_prefix](#input\_name\_prefix) | Prefix applied to every namespace, Helm release, and private hostname so<br/>multiple workload environments can share one cluster. Empty ("")<br/>reproduces the base names. A preview uses e.g. "pr123-".<br/><br/>Backend adapters derive their own resource names (IAM roles, NodePools,<br/>filesystems) from the same prefix, so it is validated against the tightest<br/>downstream limits -- a Kubernetes namespace (63), an AWS IAM role name<br/>(64), an ALB name (32) -- rather than only what this module creates. | `string` | `""` | no |
-| <a name="input_private_ingress_annotations"></a> [private\_ingress\_annotations](#input\_private\_ingress\_annotations) | Annotations for the private Ingresses, keyed by service ("dagster",<br/>"mlflow", "webapp", "ray"); the special key "*" applies to every service,<br/>with per-service entries winning on conflict.<br/><br/>The flagship use is Tailscale ACL scoping. The operator tags every proxy<br/>device tag:k8s by default, so one grant governs all UIs; per-service<br/>device tags let the tailnet policy grant them individually -- ops UIs to<br/>the platform group, the webapp (which authenticates users itself) to<br/>every member:<br/><br/>  private\_ingress\_annotations = {<br/>    dagster = { "tailscale.com/tags" = "tag:svc-dagster" }<br/>    mlflow  = { "tailscale.com/tags" = "tag:svc-mlflow" }<br/>    ray     = { "tailscale.com/tags" = "tag:svc-ray" }<br/>    webapp  = { "tailscale.com/tags" = "tag:svc-webapp" }<br/>  }<br/><br/>A preview stack instead collapses to one tag, so a single grant covers<br/>the whole environment:<br/><br/>  private\_ingress\_annotations = { "*" = { "tailscale.com/tags" = "tag:svc-preview" } }<br/><br/>Each tag needs the operator's tag as an owner in the policy's tagOwners<br/>("tag:svc-preview": ["tag:k8s-operator"]), applied BEFORE any Ingress<br/>uses it, or the operator cannot mint the device.<br/><br/>Tags apply only at provisioning. The operator reads tailscale.com/tags<br/>when it first creates a proxy device and never again, so editing the<br/>annotation on a live Ingress changes nothing on the tailnet -- and since<br/>the ACL grants by tag, that device silently falls out of the new grant.<br/>Whenever a tag changes (including the first time you set one on an<br/>existing environment), recreate the Ingress so a fresh device is minted:<br/><br/>  tofu apply -replace='module.workloads.kubernetes\_ingress\_v1.webapp\_private[0]'<br/><br/>The hostname is unaffected; the service blips while the new proxy pod<br/>starts. Only ProxyGroup-mode Ingresses reconcile tag changes in place. | `map(map(string))` | `{}` | no |
+| <a name="input_private_ingress_annotations"></a> [private\_ingress\_annotations](#input\_private\_ingress\_annotations) | Annotations for the private Ingresses, keyed by service ("dagster",<br/>"mlflow", "webapp", "ray", "argo"); the special key "*" applies to every service,<br/>with per-service entries winning on conflict.<br/><br/>The flagship use is Tailscale ACL scoping. The operator tags every proxy<br/>device tag:k8s by default, so one grant governs all UIs; per-service<br/>device tags let the tailnet policy grant them individually -- ops UIs to<br/>the platform group, the webapp (which authenticates users itself) to<br/>every member:<br/><br/>  private\_ingress\_annotations = {<br/>    dagster = { "tailscale.com/tags" = "tag:svc-dagster" }<br/>    mlflow  = { "tailscale.com/tags" = "tag:svc-mlflow" }<br/>    ray     = { "tailscale.com/tags" = "tag:svc-ray" }<br/>    webapp  = { "tailscale.com/tags" = "tag:svc-webapp" }<br/>  }<br/><br/>A preview stack instead collapses to one tag, so a single grant covers<br/>the whole environment:<br/><br/>  private\_ingress\_annotations = { "*" = { "tailscale.com/tags" = "tag:svc-preview" } }<br/><br/>Each tag needs the operator's tag as an owner in the policy's tagOwners<br/>("tag:svc-preview": ["tag:k8s-operator"]), applied BEFORE any Ingress<br/>uses it, or the operator cannot mint the device.<br/><br/>Tags apply only at provisioning. The operator reads tailscale.com/tags<br/>when it first creates a proxy device and never again, so editing the<br/>annotation on a live Ingress changes nothing on the tailnet -- and since<br/>the ACL grants by tag, that device silently falls out of the new grant.<br/>Whenever a tag changes (including the first time you set one on an<br/>existing environment), recreate the Ingress so a fresh device is minted:<br/><br/>  tofu apply -replace='module.workloads.kubernetes\_ingress\_v1.webapp\_private[0]'<br/><br/>The hostname is unaffected; the service blips while the new proxy pod<br/>starts. Only ProxyGroup-mode Ingresses reconcile tag changes in place. | `map(map(string))` | `{}` | no |
 | <a name="input_private_ingress_class_name"></a> [private\_ingress\_class\_name](#input\_private\_ingress\_class\_name) | IngressClass backing the private workload Ingresses. 'tailscale' uses the operator (a cluster prerequisite); set to your own private ingress controller to bring your own. | `string` | `"tailscale"` | no |
 | <a name="input_private_ingress_dns_suffix"></a> [private\_ingress\_dns\_suffix](#input\_private\_ingress\_dns\_suffix) | DNS suffix for the private hostnames (e.g. your MagicDNS tailnet suffix <tailnet>.ts.net). Used only to build output URLs. | `string` | `""` | no |
 | <a name="input_private_ingress_hostname_prefix"></a> [private\_ingress\_hostname\_prefix](#input\_private\_ingress\_hostname\_prefix) | Prefix for the private hostnames (keeps names unique per env). Usually equal to name\_prefix. | `string` | `""` | no |
@@ -219,7 +287,7 @@ caller.
 | <a name="input_ray_version"></a> [ray\_version](#input\_ray\_version) | Ray version used for the cluster image tags and the RayCluster spec.<br/>Anything connecting via Ray client (`ray://`, e.g. Dagster user code) must<br/>match the cluster on BOTH the Ray version and the Python minor version;<br/>the robust pattern is building those images FROM the same base<br/>(`rayproject/ray:<ray_version>-pyXXX`) so they match by construction. | `string` | `"2.55.1"` | no |
 | <a name="input_ray_worker_max_replicas"></a> [ray\_worker\_max\_replicas](#input\_ray\_worker\_max\_replicas) | Autoscaling ceiling for the persistent Ray CPU worker group (min is 0) | `number` | `10` | no |
 | <a name="input_ray_worker_resources"></a> [ray\_worker\_resources](#input\_ray\_worker\_resources) | Resource requests/limits for the persistent Ray CPU worker containers | <pre>object({<br/>    requests = optional(map(string), { cpu = "1", memory = "2Gi" })<br/>    limits   = optional(map(string), { cpu = "2", memory = "4Gi" })<br/>  })</pre> | `{}` | no |
-| <a name="input_scheduling"></a> [scheduling](#input\_scheduling) | Node placement per pod role: webapp, dagster (webserver, daemon, user code,<br/>run pods), mlflow, jupyterhub (hub + proxy), jupyterhub\_singleuser,<br/>ray\_head, ray\_worker. Each gives a nodeSelector and tolerations. Empty<br/>(the default) schedules anywhere, which is what a laptop kind cluster<br/>wants; aws/compute-adapter emits `karpenter.sh/nodepool` selectors and the<br/>matching tolerations for the NodePools it creates. Unknown keys are ignored. | <pre>map(object({<br/>    node_selector = optional(map(string), {})<br/>    tolerations = optional(list(object({<br/>      key      = optional(string)<br/>      operator = optional(string, "Equal")<br/>      value    = optional(string)<br/>      effect   = optional(string)<br/>    })), [])<br/>  }))</pre> | `{}` | no |
+| <a name="input_scheduling"></a> [scheduling](#input\_scheduling) | Node placement per pod role: webapp, dagster (webserver, daemon, user code,<br/>run pods), mlflow, argo (controller + server), jupyterhub (hub + proxy),<br/>jupyterhub\_singleuser, ray\_head, ray\_worker. Each gives a nodeSelector and tolerations. Empty<br/>(the default) schedules anywhere, which is what a laptop kind cluster<br/>wants; aws/compute-adapter emits `karpenter.sh/nodepool` selectors and the<br/>matching tolerations for the NodePools it creates. Unknown keys are ignored. | <pre>map(object({<br/>    node_selector = optional(map(string), {})<br/>    tolerations = optional(list(object({<br/>      key      = optional(string)<br/>      operator = optional(string, "Equal")<br/>      value    = optional(string)<br/>      effect   = optional(string)<br/>    })), [])<br/>  }))</pre> | `{}` | no |
 | <a name="input_webapp_app_name"></a> [webapp\_app\_name](#input\_webapp\_app\_name) | Name used for the webapp namespace/Service/Deployment (auto-prefixed) | `string` | `"webapp"` | no |
 | <a name="input_webapp_container_port"></a> [webapp\_container\_port](#input\_webapp\_container\_port) | Container port the webapp listens on | `number` | `8080` | no |
 | <a name="input_webapp_cpu_request"></a> [webapp\_cpu\_request](#input\_webapp\_cpu\_request) | CPU request for the webapp container (also the HPA scaling baseline) | `string` | `"100m"` | no |
@@ -247,9 +315,12 @@ caller.
 
 | Name | Description |
 |------|-------------|
+| <a name="output_argo_namespace"></a> [argo\_namespace](#output\_argo\_namespace) | Argo Workflows namespace (if enabled) |
+| <a name="output_argo_private_url"></a> [argo\_private\_url](#output\_argo\_private\_url) | Private URL for the Argo Workflows UI |
 | <a name="output_dagster_namespace"></a> [dagster\_namespace](#output\_dagster\_namespace) | Dagster namespace (if enabled) |
 | <a name="output_dagster_private_url"></a> [dagster\_private\_url](#output\_dagster\_private\_url) | Private URL for Dagit (if the private ingress + DNS suffix are set) |
 | <a name="output_identity_secret_names"></a> [identity\_secret\_names](#output\_identity\_secret\_names) | Per-service name of the <service>-identity-env Secret (in that service's namespace) carrying workload\_identity\_secret\_env; RayJobs launched by user code can envFrom the ray one. |
+| <a name="output_in_cluster_urls"></a> [in\_cluster\_urls](#output\_in\_cluster\_urls) | In-cluster URLs of the services THIS environment runs (null when a service is off). Another environment shares them by passing them as its mlflow\_tracking\_uri / dagster\_webserver\_url / argo\_server\_url with the matching enable\_* off -- see README "Stamp or share". |
 | <a name="output_jupyterhub_namespace"></a> [jupyterhub\_namespace](#output\_jupyterhub\_namespace) | JupyterHub namespace (if enabled) |
 | <a name="output_mlflow_namespace"></a> [mlflow\_namespace](#output\_mlflow\_namespace) | MLflow namespace (if enabled) |
 | <a name="output_mlflow_private_url"></a> [mlflow\_private\_url](#output\_mlflow\_private\_url) | Private URL for the MLflow UI |

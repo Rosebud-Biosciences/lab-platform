@@ -74,7 +74,7 @@ variable "enable_ray" {
 }
 
 variable "enable_argo_workflows" {
-  description = "Create the Argo Workflows role (lives in the Ray namespace)"
+  description = "Create the Argo Workflows role (workflow pods in the environment's argo namespace)"
   type        = bool
   default     = false
 }

@@ -1,0 +1,68 @@
+# Values for the argo/argo-workflows chart as a PER-ENVIRONMENT install: a
+# namespace-scoped controller + server, no CRDs (a cluster prerequisite,
+# installed once by the platform), no cluster-scoped roles, the module's own
+# workflow ServiceAccount, and an optional workflow archive on the
+# environment's Postgres. Identity and scheduling come from the module's
+# contract inputs; lists/maps are rendered as JSON, which YAML accepts inline.
+
+fullnameOverride: ${fullname}
+
+# CRDs are cluster-scoped and owned by the platform install.
+crds:
+  install: false
+
+# Everything this release creates lives in its namespace: no aggregate
+# ClusterRoles, no ClusterWorkflowTemplate bindings, controller and server
+# watch only their own namespace.
+singleNamespace: true
+createAggregateRoles: false
+
+# Workflows run as the module-created ServiceAccount (identity contract key
+# "argo"); the chart adds the namespaced Role it needs to report task results.
+workflow:
+  serviceAccount:
+    create: false
+    name: ${workflow_sa}
+  rbac:
+    create: true
+
+controller:
+  clusterWorkflowTemplates:
+    enabled: false
+  workflowDefaults:
+    spec:
+      serviceAccountName: ${workflow_sa}
+%{ if archive ~}
+  # Workflow archive: completed workflows outlive their etcd objects, in this
+  # environment's database (a Neon branch for a preview, like Dagster's).
+  persistence:
+    archive: true
+    postgresql:
+      host: ${db_host}
+      port: ${db_port}
+      database: ${db_name}
+      tableName: argo_workflows
+      userNameSecret:
+        name: ${db_secret}
+        key: username
+      passwordSecret:
+        name: ${db_secret}
+        key: password
+      ssl: ${db_ssl_mode != "disable"}
+      sslMode: ${db_ssl_mode}
+%{ endif ~}
+  nodeSelector: ${node_selector}
+  tolerations: ${tolerations}
+
+server:
+  # ClusterIP only: the UI is reached through the module's private Ingress
+  # (ingress.tf), never a controller-allocated load balancer.
+  serviceType: ClusterIP
+  # Access is gated by the private network's ACL on that Ingress, as for
+  # Dagster/MLflow; the server itself does not ask for a token.
+  authModes:
+    - server
+  clusterWorkflowTemplates:
+    enabled: false
+  nodeSelector: ${node_selector}
+  tolerations: ${tolerations}

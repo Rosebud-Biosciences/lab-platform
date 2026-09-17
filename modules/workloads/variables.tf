@@ -115,8 +115,8 @@ variable "workload_identity_secret_env" {
 variable "scheduling" {
   description = <<-EOT
     Node placement per pod role: webapp, dagster (webserver, daemon, user code,
-    run pods), mlflow, jupyterhub (hub + proxy), jupyterhub_singleuser,
-    ray_head, ray_worker. Each gives a nodeSelector and tolerations. Empty
+    run pods), mlflow, argo (controller + server), jupyterhub (hub + proxy),
+    jupyterhub_singleuser, ray_head, ray_worker. Each gives a nodeSelector and tolerations. Empty
     (the default) schedules anywhere, which is what a laptop kind cluster
     wants; aws/compute-adapter emits `karpenter.sh/nodepool` selectors and the
     matching tolerations for the NodePools it creates. Unknown keys are ignored.
@@ -162,7 +162,7 @@ variable "enable_ray" {
 }
 
 variable "enable_argo_workflows" {
-  description = "Create the Argo Workflows service account + RBAC in the Ray namespace"
+  description = "Deploy Argo Workflows for this environment: namespace, workflow ServiceAccount + RBAC (may manage RayJobs in the Ray namespace), a namespace-scoped controller + server, optional workflow archive. The CRDs are a cluster prerequisite (aws/eks-platform enable_argo_workflows)."
   type        = bool
   default     = false
 }
@@ -186,6 +186,51 @@ variable "enable_private_ingress" {
 }
 
 # ------------------------------------------------------------------------------
+# STAMP OR SHARE
+#
+# Each stateful service (MLflow, Dagster, Argo) is either stamped into this
+# environment (enable_x = true) or shared from another one by passing that
+# environment's in-cluster URL here (its `in_cluster_urls` output) with
+# enable_x = false. The URL reaches every pod that runs code as
+# MLFLOW_TRACKING_URI / DAGSTER_WEBSERVER_URL / ARGO_SERVER_URL either way.
+# Sharing trades isolation for cost and speed; the consequences are spelled
+# out in README "Stamp or share".
+# ------------------------------------------------------------------------------
+
+variable "mlflow_tracking_uri" {
+  description = "Use another environment's MLflow instead of running one here (enable_mlflow = false): its in-cluster URL, e.g. http://mlflow.mlflow.svc.cluster.local:80. Experiments and artifacts then land in THAT environment's store."
+  type        = string
+  default     = ""
+
+  validation {
+    condition     = !(var.enable_mlflow && var.mlflow_tracking_uri != "")
+    error_message = "mlflow_tracking_uri is for sharing another environment's MLflow; unset it or set enable_mlflow = false."
+  }
+}
+
+variable "dagster_webserver_url" {
+  description = "Use another environment's Dagster instead of running one here (enable_dagster = false): its in-cluster webserver URL. Runs the app triggers there use THAT environment's code location, database and data -- an app-only preview, not a pipeline one."
+  type        = string
+  default     = ""
+
+  validation {
+    condition     = !(var.enable_dagster && var.dagster_webserver_url != "")
+    error_message = "dagster_webserver_url is for sharing another environment's Dagster; unset it or set enable_dagster = false."
+  }
+}
+
+variable "argo_server_url" {
+  description = "Use another environment's Argo server instead of running one here (enable_argo_workflows = false): its in-cluster URL. Workflows submitted through it run in THAT environment's namespace with its identity and data."
+  type        = string
+  default     = ""
+
+  validation {
+    condition     = !(var.enable_argo_workflows && var.argo_server_url != "")
+    error_message = "argo_server_url is for sharing another environment's Argo; unset it or set enable_argo_workflows = false."
+  }
+}
+
+# ------------------------------------------------------------------------------
 # PRIVATE INGRESS (defaults to the Tailscale operator's IngressClass)
 # ------------------------------------------------------------------------------
 
@@ -204,7 +249,7 @@ variable "private_ingress_hostname_prefix" {
 variable "private_ingress_annotations" {
   description = <<-EOT
     Annotations for the private Ingresses, keyed by service ("dagster",
-    "mlflow", "webapp", "ray"); the special key "*" applies to every service,
+    "mlflow", "webapp", "ray", "argo"); the special key "*" applies to every service,
     with per-service entries winning on conflict.
 
     The flagship use is Tailscale ACL scoping. The operator tags every proxy
@@ -700,6 +745,70 @@ variable "mlflow_artifact_root" {
   validation {
     condition     = var.mlflow_artifact_root == "" || can(regex("^s3://[^/]+", var.mlflow_artifact_root))
     error_message = "mlflow_artifact_root must be empty or an s3://bucket[/prefix] URI (S3-compatible stores included)."
+  }
+}
+
+# ------------------------------------------------------------------------------
+# ARGO WORKFLOWS
+# ------------------------------------------------------------------------------
+
+variable "argo_workflows_chart_version" {
+  description = "Version of the argo/argo-workflows Helm chart. Its appVersion must match the CRDs the platform installed (aws/eks-platform argo_workflows_version; 2.0.6 -> v4.1.3)." # renovate: chart=argo-workflows registryUrl=https://argoproj.github.io/argo-helm
+  type        = string
+  default     = "2.0.6"
+}
+
+variable "argo_workflows_repository" {
+  description = "Helm repository for the Argo Workflows chart"
+  type        = string
+  default     = "https://argoproj.github.io/argo-helm"
+}
+
+variable "enable_argo_workflow_archive" {
+  description = "Persist completed workflows to Postgres (the workflow archive), so they outlive their etcd objects and the UI keeps history. Requires argo_db_*."
+  type        = bool
+  default     = false
+
+  validation {
+    condition     = !var.enable_argo_workflow_archive || (var.argo_db_host != "" && var.argo_db_name != "" && var.argo_db_user != "")
+    error_message = "enable_argo_workflow_archive requires argo_db_host, argo_db_name and argo_db_user."
+  }
+}
+
+variable "argo_db_host" {
+  description = "Argo workflow-archive Postgres host"
+  type        = string
+  default     = ""
+}
+variable "argo_db_port" {
+  description = "Argo workflow-archive Postgres port"
+  type        = number
+  default     = 5432
+}
+variable "argo_db_name" {
+  description = "Argo workflow-archive Postgres database name"
+  type        = string
+  default     = ""
+}
+variable "argo_db_user" {
+  description = "Argo workflow-archive Postgres user"
+  type        = string
+  default     = ""
+}
+variable "argo_db_password" {
+  description = "Argo workflow-archive Postgres password"
+  type        = string
+  default     = ""
+  sensitive   = true
+}
+variable "argo_db_ssl_mode" {
+  description = "libpq sslmode for the archive connection: require (Neon, RDS) or disable (an in-cluster Postgres)"
+  type        = string
+  default     = "require"
+
+  validation {
+    condition     = contains(["disable", "require", "verify-ca", "verify-full"], var.argo_db_ssl_mode)
+    error_message = "argo_db_ssl_mode must be one of disable, require, verify-ca, verify-full."
   }
 }
 

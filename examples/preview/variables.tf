@@ -15,6 +15,45 @@ variable "preview_name" {
 }
 
 # ------------------------------------------------------------------------------
+# PREVIEW PROFILE: stamp the pipelines, or share prod's
+# ------------------------------------------------------------------------------
+
+variable "preview_profile" {
+  description = <<-EOT
+    What this preview stamps (see modules/workloads README "Stamp or share"):
+      full  the whole set -- webapp, Dagster, a Ray cluster, MLflow -- each
+            isolated in the preview's namespaces, on the preview's database
+            branches and bucket. Tests app AND pipeline changes.
+      app   only the webapp (still on its own database branch); Dagster and
+            MLflow are prod's, reached through shared_service_urls. Up in a
+            couple of minutes, but runs the app triggers execute PROD's code
+            location on PROD's data -- use only when the change is confined to
+            the app (frontend, API), never for a pipeline or schema change.
+  EOT
+  type        = string
+  default     = "full"
+
+  validation {
+    condition     = contains(["full", "app"], var.preview_profile)
+    error_message = "preview_profile must be \"full\" or \"app\"."
+  }
+}
+
+variable "shared_service_urls" {
+  description = "In-cluster URLs of the shared (prod) services an app-only preview points at: the prod workloads module's `in_cluster_urls` output. Required with preview_profile = \"app\"."
+  type = object({
+    dagster_webserver_url = optional(string, "")
+    mlflow_tracking_uri   = optional(string, "")
+  })
+  default = {}
+
+  validation {
+    condition     = var.preview_profile != "app" || (var.shared_service_urls.dagster_webserver_url != "" && var.shared_service_urls.mlflow_tracking_uri != "")
+    error_message = "preview_profile = \"app\" needs shared_service_urls.dagster_webserver_url and .mlflow_tracking_uri (prod's in_cluster_urls output)."
+  }
+}
+
+# ------------------------------------------------------------------------------
 # SHARED CLUSTER (created once by the prod platform stack / examples/complete)
 #
 # In real use these come from that stack's remote state -- see the commented

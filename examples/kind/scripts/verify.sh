@@ -21,6 +21,7 @@ rollout() {
 rollout "${P}webapp"
 rollout "${P}mlflow"
 rollout "${P}dagster"
+rollout "${P}argo"
 
 echo "-- ${P}ray: RayCluster ready"
 kubectl -n "${P}ray" wait "raycluster/${P}ray-cluster" --for=jsonpath='{.status.state}'=ready --timeout="$TIMEOUT"
@@ -43,5 +44,6 @@ probe() {
 probe "${P}webapp"  "http://webapp.${P}webapp.svc.cluster.local/"
 probe "${P}mlflow"  "http://${P}mlflow.${P}mlflow.svc.cluster.local/health"
 probe "${P}dagster" "http://${P}dagster-dagster-webserver.${P}dagster.svc.cluster.local/server_info"
+probe "${P}argo"    "http://${P}argo-server.${P}argo.svc.cluster.local:2746/api/v1/version"
 
 echo "== all workloads healthy"

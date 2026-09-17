@@ -1,7 +1,8 @@
 # kind: local compute + local data
 
-The whole workloads layer -- webapp, Dagster, a Ray cluster, MLflow, optionally
-JupyterHub -- on a [kind](https://kind.sigs.k8s.io/) cluster on your laptop,
+The whole workloads layer -- webapp, Dagster, a Ray cluster, MLflow, Argo
+Workflows (with its archive), optionally JupyterHub -- on a
+[kind](https://kind.sigs.k8s.io/) cluster on your laptop,
 with MinIO as the S3 API and Postgres as the database. **No cloud account, no
 adapters, no `aws` provider.** This is the same `modules/workloads` the AWS
 examples deploy; the four contract inputs are simply written by hand here,
@@ -27,9 +28,9 @@ scripts/down.sh          # tofu destroy + delete the cluster
 
 1. `kind create cluster` from [`kind-config.yaml`](kind-config.yaml);
 2. [`scripts/prereqs.sh`](scripts/prereqs.sh): what any cluster must provide
-   (KubeRay operator, metrics-server) plus the local data backend (MinIO with
-   `mlflow` and `data` buckets, Postgres with `app`/`dagster`/`mlflow`
-   databases). See the workloads README, "Cluster prerequisites";
+   (KubeRay operator, the Argo Workflows CRDs, metrics-server) plus the local
+   data backend (MinIO with `mlflow` and `data` buckets, Postgres with
+   `app`/`dagster`/`mlflow`/`argo` databases). See the workloads README, "Cluster prerequisites";
 3. `tofu apply` of [`main.tf`](main.tf);
 4. [`scripts/verify.sh`](scripts/verify.sh): every Deployment rolled out, the
    RayCluster `ready`, and MLflow / Dagster / the webapp answering their health

@@ -179,7 +179,7 @@ resource "helm_release" "dagster" {
     db_name                 = var.dagster_db_name
     chart_version           = var.dagster_chart_version
     user_code_image         = var.dagster_user_code_image
-    user_code_env           = merge(local.identity.dagster.env, var.dagster_user_code_env)
+    user_code_env           = merge(local.identity.dagster.env, local.service_urls_env, var.dagster_user_code_env)
     user_code_env_secret    = local.dagster_user_code_env_secret
     user_code_volumes       = jsonencode(local.dagster_user_code_volumes)
     user_code_volume_mounts = jsonencode(local.dagster_user_code_volume_mounts)

@@ -12,7 +12,7 @@
 
 locals {
   private_ingress_annotations = {
-    for svc in ["dagster", "mlflow", "webapp", "ray"] :
+    for svc in ["dagster", "mlflow", "webapp", "ray", "argo"] :
     svc => merge(
       lookup(var.private_ingress_annotations, "*", {}),
       lookup(var.private_ingress_annotations, svc, {}),
@@ -134,4 +134,33 @@ resource "kubernetes_ingress_v1" "ray_dashboard_private" {
   }
 
   depends_on = [kubernetes_service_v1.ray_dashboard]
+}
+
+resource "kubernetes_ingress_v1" "argo_private" {
+  count = var.enable_private_ingress && var.enable_argo_workflows ? 1 : 0
+
+  metadata {
+    name        = "argo-private"
+    namespace   = local.argo_namespace
+    annotations = local.private_ingress_annotations.argo
+  }
+
+  spec {
+    ingress_class_name = var.private_ingress_class_name
+
+    default_backend {
+      service {
+        name = local.argo_server_service
+        port {
+          number = 2746
+        }
+      }
+    }
+
+    tls {
+      hosts = [local.private_argo_host]
+    }
+  }
+
+  depends_on = [helm_release.argo_workflows]
 }

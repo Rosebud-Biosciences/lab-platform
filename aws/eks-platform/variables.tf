@@ -265,9 +265,20 @@ variable "enable_ray" {
 }
 
 variable "enable_argo_workflows" {
-  description = "Install the Argo Workflows controller (workflow templates/RBAC live in the workloads module)"
+  description = "Install the Argo Workflows CRDs (cluster-scoped, from the upstream release at argo_workflows_version). The controller, server, UI and optional archive are per environment in modules/workloads (enable_argo_workflows there)."
   type        = bool
   default     = false
+}
+
+variable "argo_workflows_version" {
+  description = "Argo Workflows release tag the CRDs are taken from. Keep equal to the appVersion of modules/workloads' argo_workflows_chart_version (chart 2.0.6 -> v4.1.3)." # renovate: github-releases argoproj/argo-workflows
+  type        = string
+  default     = "v4.1.3"
+
+  validation {
+    condition     = can(regex("^v[0-9]+\\.[0-9]+\\.[0-9]+", var.argo_workflows_version))
+    error_message = "argo_workflows_version must be a release tag like v4.1.3."
+  }
 }
 
 variable "enable_argo_events" {

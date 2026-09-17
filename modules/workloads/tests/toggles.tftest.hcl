@@ -420,3 +420,148 @@ run "identity_rejects_unknown_service" {
 
   expect_failures = [var.workload_identity]
 }
+
+# Argo is per environment like Dagster/MLflow: its own namespace, a
+# namespace-scoped release that installs no CRDs, the workflow SA as the
+# identity subject, an optional archive on the environment's database, and a
+# private Ingress on the same class as the other UIs.
+run "argo_per_environment_with_archive" {
+  command = plan
+
+  variables {
+    enable_argo_workflows        = true
+    enable_argo_workflow_archive = true
+    argo_db_host                 = "db.example.com"
+    argo_db_name                 = "argo"
+    argo_db_user                 = "argo"
+    argo_db_password             = "test"
+    name_prefix                  = "pr3-"
+    enable_private_ingress       = true
+    private_ingress_annotations  = { argo = { "tailscale.com/tags" = "tag:svc-argo" } }
+    workload_identity = {
+      argo = { service_account_annotations = { "eks.amazonaws.com/role-arn" = "arn:aws:iam::123456789012:role/argo" } }
+    }
+  }
+
+  assert {
+    condition     = output.argo_namespace == "pr3-argo" && output.service_accounts.argo.namespace == "pr3-argo" && output.service_accounts.argo.name == "argo-workflow"
+    error_message = "Argo gets its own prefixed namespace and the argo-workflow subject lives there"
+  }
+  assert {
+    condition     = strcontains(helm_release.argo_workflows[0].values[0], "singleNamespace: true") && strcontains(helm_release.argo_workflows[0].values[0], "install: false")
+    error_message = "the per-environment release must be namespace-scoped and must not install CRDs"
+  }
+  assert {
+    condition     = strcontains(helm_release.argo_workflows[0].values[0], "archive: true") && strcontains(helm_release.argo_workflows[0].values[0], "host: db.example.com") && strcontains(helm_release.argo_workflows[0].values[0], "sslMode: require")
+    error_message = "the workflow archive must point at the environment's database"
+  }
+  assert {
+    condition     = strcontains(helm_release.argo_workflows[0].values[0], "serviceType: ClusterIP")
+    error_message = "the Argo server must never be a LoadBalancer Service"
+  }
+  assert {
+    condition     = kubernetes_service_account_v1.argo_workflow[0].metadata[0].annotations["eks.amazonaws.com/role-arn"] == "arn:aws:iam::123456789012:role/argo"
+    error_message = "workload_identity.argo must annotate the workflow ServiceAccount"
+  }
+  assert {
+    condition     = kubernetes_ingress_v1.argo_private[0].metadata[0].annotations["tailscale.com/tags"] == "tag:svc-argo" && kubernetes_ingress_v1.argo_private[0].spec[0].default_backend[0].service[0].name == "pr3-argo-server"
+    error_message = "the Argo UI Ingress must carry the argo annotations and point at the release's server Service"
+  }
+  assert {
+    condition     = output.argo_private_url == "https://argo.<your-suffix>"
+    error_message = "argo_private_url follows the private hostname convention"
+  }
+}
+
+run "argo_archive_requires_db" {
+  command = plan
+
+  variables {
+    enable_argo_workflows        = true
+    enable_argo_workflow_archive = true
+  }
+
+  expect_failures = [var.enable_argo_workflow_archive]
+}
+
+run "argo_without_archive_or_ray" {
+  command = plan
+
+  variables {
+    enable_argo_workflows = true
+  }
+
+  assert {
+    condition     = output.argo_namespace == "argo" && !strcontains(helm_release.argo_workflows[0].values[0], "persistence:")
+    error_message = "Argo stands alone (no Ray, no archive) and renders without a persistence block"
+  }
+}
+
+# Stamp or share: with a service off, its URL override reaches every pod that
+# runs code; with it on, the in-cluster URL does, and the override is refused.
+run "app_only_preview_shares_prod_services" {
+  command = plan
+
+  variables {
+    name_prefix           = "pr9-"
+    enable_webapp         = true
+    webapp_image          = "public.ecr.aws/nginx/nginx:latest"
+    enable_ray            = true
+    enable_dagster        = false
+    dagster_webserver_url = "http://dagster-dagster-webserver.dagster.svc.cluster.local:80"
+    enable_mlflow         = false
+    mlflow_tracking_uri   = "http://mlflow.mlflow.svc.cluster.local:80"
+  }
+
+  assert {
+    condition     = { for e in kubernetes_deployment_v1.webapp[0].spec[0].template[0].spec[0].container[0].env : e.name => e.value }["DAGSTER_WEBSERVER_URL"] == "http://dagster-dagster-webserver.dagster.svc.cluster.local:80"
+    error_message = "the webapp must see the shared Dagster URL"
+  }
+  assert {
+    condition     = kubernetes_config_map_v1.analytics_config[0].data["MLFLOW_TRACKING_URI"] == "http://mlflow.mlflow.svc.cluster.local:80"
+    error_message = "pipeline pods must see the shared MLflow URL through analytics-config"
+  }
+  assert {
+    condition     = output.in_cluster_urls.dagster_webserver_url == null && output.in_cluster_urls.mlflow_tracking_uri == null && output.dagster_namespace == null
+    error_message = "a sharing environment creates nothing for the shared service and publishes no URL of its own"
+  }
+}
+
+run "stamped_services_publish_their_own_urls" {
+  command = plan
+
+  variables {
+    name_prefix         = "pr9-"
+    enable_ray          = true
+    enable_dagster      = true
+    dagster_db_host     = "db.example.com"
+    dagster_db_name     = "dagster"
+    dagster_db_user     = "dagster"
+    dagster_db_password = "test"
+    enable_mlflow       = true
+    mlflow_db_host      = "db.example.com"
+    mlflow_db_name      = "mlflow"
+    mlflow_db_user      = "mlflow"
+    mlflow_db_password  = "test"
+  }
+
+  assert {
+    condition     = output.in_cluster_urls.dagster_webserver_url == "http://pr9-dagster-dagster-webserver.pr9-dagster.svc.cluster.local:80" && output.in_cluster_urls.mlflow_tracking_uri == "http://pr9-mlflow.pr9-mlflow.svc.cluster.local:80"
+    error_message = "in_cluster_urls must name this environment's own, prefixed services"
+  }
+  assert {
+    condition     = kubernetes_config_map_v1.analytics_config[0].data["DAGSTER_WEBSERVER_URL"] == "http://pr9-dagster-dagster-webserver.pr9-dagster.svc.cluster.local:80"
+    error_message = "stamped services reach pipeline pods under the same variable names as shared ones"
+  }
+}
+
+run "override_refused_when_service_is_stamped" {
+  command = plan
+
+  variables {
+    enable_mlflow       = true
+    mlflow_tracking_uri = "http://mlflow.elsewhere.svc.cluster.local:80"
+  }
+
+  expect_failures = [var.mlflow_tracking_uri]
+}

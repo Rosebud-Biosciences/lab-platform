@@ -16,6 +16,7 @@ data:
     CREATE DATABASE app;
     CREATE DATABASE dagster;
     CREATE DATABASE mlflow;
+    CREATE DATABASE argo;
 ---
 apiVersion: apps/v1
 kind: Deployment

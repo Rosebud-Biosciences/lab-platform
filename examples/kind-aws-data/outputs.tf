@@ -35,5 +35,6 @@ output "namespaces" {
     dagster = module.workloads.dagster_namespace
     ray     = module.workloads.ray_namespace
     mlflow  = module.workloads.mlflow_namespace
+    argo    = module.workloads.argo_namespace
   }
 }

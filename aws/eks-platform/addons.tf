@@ -131,15 +131,6 @@ module "eks_blueprints_addons" {
     timeout       = "300"
   }
 
-  enable_argo_workflows = var.enable_argo_workflows
-  argo_workflows = {
-    name          = "argo-workflows"
-    namespace     = "argo-workflows"
-    repository    = "https://argoproj.github.io/argo-helm"
-    chart_version = "0.40.14"
-    values        = [templatefile("${path.module}/helm-defaults/argo/argo-workflows-values.yaml", {})]
-  }
-
   enable_argo_events = var.enable_argo_events
   argo_events = {
     name          = "argo-events"

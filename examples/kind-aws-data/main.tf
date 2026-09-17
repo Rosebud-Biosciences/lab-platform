@@ -34,7 +34,7 @@ locals {
   data_bucket_name = var.data_bucket_name != "" ? var.data_bucket_name : "lab-kind-data-${data.aws_caller_identity.current.account_id}"
   iceberg_enabled  = var.iceberg_table_bucket_arn != ""
 
-  services = ["webapp", "dagster", "ray", "mlflow"]
+  services = ["webapp", "dagster", "ray", "argo", "mlflow"]
 
   postgres_url = "postgresql://${var.postgres_user}:${var.postgres_password}@${var.postgres_host}:5432/app"
 }
@@ -95,10 +95,11 @@ module "data" {
   binding           = "projected"
   region            = var.region
 
-  enable_webapp  = true
-  enable_ray     = true
-  enable_dagster = true
-  enable_mlflow  = true
+  enable_webapp         = true
+  enable_ray            = true
+  enable_dagster        = true
+  enable_argo_workflows = true
+  enable_mlflow         = true
 
   webapp_policy_arns          = { data = module.data_bucket.aws_iam_policies.get_arn }
   dagster_policy_arns         = local.pipeline_policies
@@ -180,6 +181,14 @@ module "workloads" {
     { DATA_ROOT = "s3://${module.data_bucket.aws_s3_bucket.bucket}/data" },
     local.iceberg_enabled ? { ICEBERG_NAMESPACE = module.iceberg[0].namespace, ICEBERG_TABLE_BUCKET_ARN = var.iceberg_table_bucket_arn } : {},
   )
+
+  enable_argo_workflows        = true
+  enable_argo_workflow_archive = true
+  argo_db_host                 = var.postgres_host
+  argo_db_name                 = "argo"
+  argo_db_user                 = var.postgres_user
+  argo_db_password             = var.postgres_password
+  argo_db_ssl_mode             = "disable"
 
   enable_mlflow        = true
   mlflow_artifact_root = local.mlflow_artifact_root

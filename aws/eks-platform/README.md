@@ -11,14 +11,40 @@ a core managed node group, then layers on toggleable add-ons:
 - optional cost-drivers (off by default): **Prometheus/Grafana**, **Kubecost**,
   **FluentBit**;
 - optional accelerators/operators: **NVIDIA GPU operator**, **Neuron device
-  plugin**, **KubeRay**, **Argo Workflows/Events**;
+  plugin**, **KubeRay**, **Argo Events**, and the **Argo Workflows CRDs** (the
+  controllers themselves are per environment in `modules/workloads`, like
+  Dagster and MLflow, so each environment can keep its own workflow archive);
 - optional **Tailscale operator** (provides the `tailscale` IngressClass the
   workload module's private Ingresses use).
 
 Application workloads (webapp, JupyterHub, Dagster, MLflow, the Ray
-namespace/cluster, NodePools) live in the sibling [workloads](../workloads)
-module. Providers (`kubernetes`/`helm`/`kubectl` + the `aws.ecr_public_region`
-alias) are configured by the caller — see [examples/minimal](../../examples/minimal).
+namespace/cluster) live in the portable [modules/workloads](../../modules/workloads)
+module; the EKS-bound pieces they need (EFS, the ALB edge, NodePools) in
+[aws/compute-adapter](../compute-adapter). Providers (`kubernetes`/`helm`/`kubectl`
++ the `aws.ecr_public_region` alias) are configured by the caller — see
+[examples/minimal](../../examples/minimal).
+
+## Teardown is closed-loop
+
+Every network edge this module and its siblings create is a Terraform-owned
+Kubernetes Ingress -- the per-environment UIs (Dagster, MLflow, Argo, the
+webapp, Ray) in `modules/workloads`. No Helm chart is allowed to ask for a
+`Service` of type `LoadBalancer`. The reason is what a `LoadBalancer`
+Service does on EKS: the AWS Load Balancer Controller allocates a load
+balancer plus a frontend security group and the cluster-wide shared backend
+security group (`k8s-traffic-<cluster>-…`), none of which appear in Terraform
+state. When the release, the controller and the nodes go in the same
+`destroy`, Helm drops the Service without waiting for the controller's
+finalizer, the controller is gone before it can delete the AWS objects, and
+the orphaned security groups hold the VPC open. With Terraform-owned
+Ingresses the destroy order is right by construction: the Ingress (and its
+finalizer) is removed while the controller still runs, then the controller,
+then the cluster.
+
+If you add a chart, keep its Services `ClusterIP` and expose it the same way.
+(The Argo Workflows chart used to be installed here with `serviceType:
+LoadBalancer`; that is exactly the leak described above, and why Argo's
+server now lives in `workloads` behind a private Ingress.)
 
 ## Who can reach the cluster
 
@@ -69,6 +95,7 @@ operator-role half of this is written up in
 | <a name="requirement_terraform"></a> [terraform](#requirement\_terraform) | >= 1.12 |
 | <a name="requirement_aws"></a> [aws](#requirement\_aws) | >= 6.0 |
 | <a name="requirement_helm"></a> [helm](#requirement\_helm) | ~> 3.0 |
+| <a name="requirement_http"></a> [http](#requirement\_http) | >= 3.4 |
 | <a name="requirement_kubectl"></a> [kubectl](#requirement\_kubectl) | >= 1.14 |
 | <a name="requirement_kubernetes"></a> [kubernetes](#requirement\_kubernetes) | >= 2.12.1 |
 | <a name="requirement_random"></a> [random](#requirement\_random) | >= 3.1.0 |
@@ -79,6 +106,8 @@ operator-role half of this is written up in
 |------|---------|
 | <a name="provider_aws"></a> [aws](#provider\_aws) | >= 6.0 |
 | <a name="provider_helm"></a> [helm](#provider\_helm) | ~> 3.0 |
+| <a name="provider_http"></a> [http](#provider\_http) | >= 3.4 |
+| <a name="provider_kubectl"></a> [kubectl](#provider\_kubectl) | >= 1.14 |
 | <a name="provider_kubernetes"></a> [kubernetes](#provider\_kubernetes) | >= 2.12.1 |
 | <a name="provider_random"></a> [random](#provider\_random) | >= 3.1.0 |
 
@@ -104,9 +133,11 @@ operator-role half of this is written up in
 | [helm_release.kuberay_operator](https://registry.terraform.io/providers/hashicorp/helm/latest/docs/resources/release) | resource |
 | [helm_release.nvidia_gpu_operator](https://registry.terraform.io/providers/hashicorp/helm/latest/docs/resources/release) | resource |
 | [helm_release.tailscale_operator](https://registry.terraform.io/providers/hashicorp/helm/latest/docs/resources/release) | resource |
+| [kubectl_manifest.argo_workflows_crd](https://registry.terraform.io/providers/gavinbunney/kubectl/latest/docs/resources/manifest) | resource |
 | [kubernetes_namespace_v1.tailscale](https://registry.terraform.io/providers/hashicorp/kubernetes/latest/docs/resources/namespace_v1) | resource |
 | [random_password.grafana](https://registry.terraform.io/providers/hashicorp/random/latest/docs/resources/password) | resource |
 | [aws_secretsmanager_secret_version.admin_password_version](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/data-sources/secretsmanager_secret_version) | data source |
+| [http_http.argo_workflows_crd](https://registry.terraform.io/providers/hashicorp/http/latest/docs/data-sources/http) | data source |
 
 ## Inputs
 
@@ -119,6 +150,7 @@ operator-role half of this is written up in
 | <a name="input_vpc_id"></a> [vpc\_id](#input\_vpc\_id) | VPC ID where the EKS cluster will be deployed | `string` | n/a | yes |
 | <a name="input_vpc_security_group_id"></a> [vpc\_security\_group\_id](#input\_vpc\_security\_group\_id) | Security group ID allowed to reach the cluster/nodes from within the VPC (e.g. the Tailscale relay SG for private admin access) | `string` | n/a | yes |
 | <a name="input_access_entries"></a> [access\_entries](#input\_access\_entries) | Additional EKS access entries, keyed by a stable label. Same shape as the<br/>upstream terraform-aws-modules/eks input: each entry names a principal and<br/>zero or more policy associations. Use it for every non-creator identity<br/>that runs tofu or kubectl here -- an MFA-gated operator role (see<br/>docs/operator-access.md), a CI role that deploys workloads, an SSO<br/>permission set. Policy ARNs are the AWS-managed cluster access policies,<br/>e.g. arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy. | <pre>map(object({<br/>    principal_arn     = string<br/>    type              = optional(string, "STANDARD")<br/>    kubernetes_groups = optional(list(string))<br/>    user_name         = optional(string)<br/>    tags              = optional(map(string), {})<br/>    policy_associations = optional(map(object({<br/>      policy_arn = string<br/>      access_scope = object({<br/>        type       = string<br/>        namespaces = optional(list(string))<br/>      })<br/>    })), {})<br/>  }))</pre> | `{}` | no |
+| <a name="input_argo_workflows_version"></a> [argo\_workflows\_version](#input\_argo\_workflows\_version) | Argo Workflows release tag the CRDs are taken from. Keep equal to the appVersion of modules/workloads' argo\_workflows\_chart\_version (chart 2.0.6 -> v4.1.3). | `string` | `"v4.1.3"` | no |
 | <a name="input_cluster_endpoint_private_access"></a> [cluster\_endpoint\_private\_access](#input\_cluster\_endpoint\_private\_access) | Whether the EKS cluster endpoint is privately accessible | `bool` | `true` | no |
 | <a name="input_cluster_endpoint_public_access"></a> [cluster\_endpoint\_public\_access](#input\_cluster\_endpoint\_public\_access) | Whether the EKS cluster endpoint is publicly accessible | `bool` | `false` | no |
 | <a name="input_cluster_suffix"></a> [cluster\_suffix](#input\_cluster\_suffix) | Optional suffix for the cluster name (e.g. 'pr123' -> 'eks-dev-pr123') | `string` | `""` | no |
@@ -128,7 +160,7 @@ operator-role half of this is written up in
 | <a name="input_core_node_group_min_size"></a> [core\_node\_group\_min\_size](#input\_core\_node\_group\_min\_size) | Minimum number of nodes in the core node group | `number` | `1` | no |
 | <a name="input_eks_cluster_version"></a> [eks\_cluster\_version](#input\_eks\_cluster\_version) | Kubernetes version for the EKS cluster. Hold at 1.35 (or disable cluster-autoscaler) before moving to 1.36: the autoscaler chart has no 1.36 image yet. | `string` | `"1.35"` | no |
 | <a name="input_enable_argo_events"></a> [enable\_argo\_events](#input\_enable\_argo\_events) | Enable Argo Events | `bool` | `false` | no |
-| <a name="input_enable_argo_workflows"></a> [enable\_argo\_workflows](#input\_enable\_argo\_workflows) | Install the Argo Workflows controller (workflow templates/RBAC live in the workloads module) | `bool` | `false` | no |
+| <a name="input_enable_argo_workflows"></a> [enable\_argo\_workflows](#input\_enable\_argo\_workflows) | Install the Argo Workflows CRDs (cluster-scoped, from the upstream release at argo\_workflows\_version). The controller, server, UI and optional archive are per environment in modules/workloads (enable\_argo\_workflows there). | `bool` | `false` | no |
 | <a name="input_enable_aws_fluentbit"></a> [enable\_aws\_fluentbit](#input\_enable\_aws\_fluentbit) | Enable AWS FluentBit -> CloudWatch logging | `bool` | `false` | no |
 | <a name="input_enable_aws_load_balancer_controller"></a> [enable\_aws\_load\_balancer\_controller](#input\_enable\_aws\_load\_balancer\_controller) | Enable AWS Load Balancer Controller | `bool` | `true` | no |
 | <a name="input_enable_cluster_autoscaler"></a> [enable\_cluster\_autoscaler](#input\_enable\_cluster\_autoscaler) | Enable Cluster Autoscaler (leave off when using Karpenter for burst) | `bool` | `false` | no |

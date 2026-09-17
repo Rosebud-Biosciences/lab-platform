@@ -24,7 +24,7 @@ locals {
     AWS_SECRET_ACCESS_KEY = var.minio_root_password
   }
 
-  services = ["webapp", "dagster", "ray", "mlflow", "jupyterhub"]
+  services = ["webapp", "dagster", "ray", "argo", "mlflow", "jupyterhub"]
 
   database_url = "postgresql://${var.postgres_user}:${var.postgres_password}@${var.postgres_host}:5432/app"
 }
@@ -68,6 +68,16 @@ module "workloads" {
   dagster_db_password = var.postgres_password
   # Where pipeline code finds its data: the MinIO bucket prereqs.sh created.
   dagster_user_code_env = { DATA_ROOT = "s3://data" }
+
+  # Argo per environment with the workflow archive on the local Postgres (no
+  # TLS in-cluster); the CRDs came from prereqs.sh.
+  enable_argo_workflows        = true
+  enable_argo_workflow_archive = true
+  argo_db_host                 = var.postgres_host
+  argo_db_name                 = "argo"
+  argo_db_user                 = var.postgres_user
+  argo_db_password             = var.postgres_password
+  argo_db_ssl_mode             = "disable"
 
   enable_mlflow        = true
   mlflow_artifact_root = "s3://mlflow/artifacts"

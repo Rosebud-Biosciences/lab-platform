@@ -15,6 +15,7 @@ locals {
   dagster_namespace    = "${local.prefix}dagster"
   mlflow_namespace     = "${local.prefix}mlflow"
   ray_namespace        = "${local.prefix}ray"
+  argo_namespace       = "${local.prefix}argo"
   jupyterhub_namespace = "${local.prefix}jupyterhub"
 
   # ServiceAccount names: the identity contract. A backend adapter trusts
@@ -42,14 +43,31 @@ locals {
   ray_image_tag     = var.ray_image_tag != "" ? var.ray_image_tag : var.ray_version
   ray_gpu_image_tag = var.ray_gpu_image_tag != "" ? var.ray_gpu_image_tag : "${var.ray_version}-gpu"
 
-  # In-cluster MLflow tracking URI (namespaced so previews don't hit prod).
-  mlflow_tracking_uri = var.enable_mlflow ? "http://${local.mlflow_service}.${local.mlflow_namespace}.svc.cluster.local:80" : ""
+  # Stamp or share: each stateful service is either created here (in-cluster
+  # URL, namespaced so previews never hit another environment's) or, with
+  # enable_x = false, pointed at another environment's instance through the
+  # *_url / *_uri override. Empty when neither. See README "Stamp or share".
+  mlflow_tracking_uri   = var.enable_mlflow ? "http://${local.mlflow_service}.${local.mlflow_namespace}.svc.cluster.local:80" : var.mlflow_tracking_uri
+  dagster_webserver_url = local.enable_dagster ? "http://${local.dagster_webserver_service}.${local.dagster_namespace}.svc.cluster.local:80" : var.dagster_webserver_url
+  argo_server_url       = var.enable_argo_workflows ? "http://${local.argo_server_service}.${local.argo_namespace}.svc.cluster.local:2746" : var.argo_server_url
+
+  # Published to every pod that runs code (webapp, Dagster user code and runs,
+  # Ray pipelines via analytics-config, notebooks) so the code finds its
+  # services the same way whether they were stamped or shared.
+  service_urls_env = {
+    for k, v in {
+      MLFLOW_TRACKING_URI   = local.mlflow_tracking_uri
+      DAGSTER_WEBSERVER_URL = local.dagster_webserver_url
+      ARGO_SERVER_URL       = local.argo_server_url
+    } : k => v if v != ""
+  }
 
   # Private hostnames (unique per env via the prefix).
   private_dagster_host = "${var.private_ingress_hostname_prefix}dagster"
   private_mlflow_host  = "${var.private_ingress_hostname_prefix}mlflow"
   private_webapp_host  = "${var.private_ingress_hostname_prefix}webapp"
   private_ray_host     = "${var.private_ingress_hostname_prefix}ray"
+  private_argo_host    = "${var.private_ingress_hostname_prefix}argo"
 }
 
 # ------------------------------------------------------------------------------
@@ -126,7 +144,7 @@ locals {
 # ------------------------------------------------------------------------------
 
 locals {
-  scheduling_roles = ["webapp", "dagster", "mlflow", "jupyterhub", "jupyterhub_singleuser", "ray_head", "ray_worker"]
+  scheduling_roles = ["webapp", "dagster", "mlflow", "argo", "jupyterhub", "jupyterhub_singleuser", "ray_head", "ray_worker"]
 
   empty_scheduling = { node_selector = {}, tolerations = [] }
 

@@ -78,6 +78,23 @@ variable "app_database_url" {
   sensitive   = true
 }
 
+variable "argo_db" {
+  description = "Argo Workflows archive Postgres connection (empty host disables the archive)"
+  type = object({
+    host     = string
+    name     = string
+    user     = string
+    password = string
+  })
+  default = {
+    host     = ""
+    name     = ""
+    user     = ""
+    password = ""
+  }
+  sensitive = true
+}
+
 variable "dagster_db" {
   description = "Dagster metadata Postgres connection"
   type = object({

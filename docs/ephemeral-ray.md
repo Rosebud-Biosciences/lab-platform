@@ -113,13 +113,14 @@ rest of the workload already lives rather than by Ray considerations:
 With `enable_ray = true` (plus `enable_argo_workflows` and/or `enable_dagster`),
 the modules provision the substrate these examples assume:
 
-- `eks-platform` installs the **KubeRay operator** (and the Argo Workflows
-  controller when `enable_argo_workflows = true`).
+- `aws/eks-platform` installs the **KubeRay operator** (and the Argo Workflows
+  CRDs when `enable_argo_workflows = true`).
 - `workloads` creates the **`<name_prefix>ray` namespace** and the
   **`ray-s3-sa`** service account (IRSA → S3) that the Ray pods run as.
 - `workloads` grants each orchestrator's service account a ClusterRole that can
-  manage `rayjobs`/`rayclusters` in the Ray namespace:
-  - Argo → service account `argo-workflow`, ClusterRole `<prefix>argo-workflow-role`
+  manage `rayjobs`/`rayclusters` in the Ray namespace (cross-namespace, since
+  each orchestrator runs in its own):
+  - Argo → namespace `<prefix>argo`, service account `argo-workflow`, ClusterRole `<prefix>argo-workflow-role`
   - Dagster → service account `dagster`, ClusterRole `<prefix>dagster-ray-cluster-ops`
 
 > The RBAC intentionally grants **both** `rayjobs` and `rayclusters`. `rayjobs`

@@ -24,7 +24,7 @@ Portable (any Kubernetes cluster, any data backend):
 
 | Module | What it is |
 | ------ | ---------- |
-| [`modules/workloads`](modules/workloads) | webapp / JupyterHub / Dagster / MLflow / Ray, `name_prefix`-stamped and toggleable; consumes the identity / scheduling / storage / public-ingress contract inputs |
+| [`modules/workloads`](modules/workloads) | webapp / JupyterHub / Dagster / MLflow / Argo Workflows / Ray, `name_prefix`-stamped and toggleable; consumes the identity / scheduling / storage / public-ingress contract inputs |
 | [`modules/neon-branches`](modules/neon-branches) | Copy-on-write Neon Postgres branches per preview |
 
 AWS backend, data axis (usable from any compute):
@@ -44,7 +44,7 @@ AWS backend, compute axis (an EKS cluster):
 | ------ | ---------- |
 | [`aws/bootstrap`](aws/bootstrap) | State bucket + lock table + GitHub OIDC CI/preview roles (least-privilege) + optional MFA-gated operator role with guardrails |
 | [`aws/network`](aws/network) | VPC (pod secondary CIDR, VPC endpoints) + optional Tailscale subnet router |
-| [`aws/eks-platform`](aws/eks-platform) | EKS cluster + cluster-wide operators (Karpenter, LB controller, external-dns, monitoring, GPU, KubeRay, Argo, Tailscale) |
+| [`aws/eks-platform`](aws/eks-platform) | EKS cluster + cluster-wide operators and CRDs (Karpenter, LB controller, external-dns, monitoring, GPU, KubeRay, Argo CRDs, Tailscale) |
 | [`aws/compute-adapter`](aws/compute-adapter) | EFS for JupyterHub, ALB/ACM/WAF edge annotations, Karpenter NodePools; emits `jupyterhub_shared_storage`, public-ingress inputs and `scheduling` |
 
 ## Architecture

@@ -22,6 +22,11 @@ output "ray_namespace" {
   value       = var.enable_ray ? kubernetes_namespace_v1.ray[0].metadata[0].name : null
 }
 
+output "argo_namespace" {
+  description = "Argo Workflows namespace (if enabled)"
+  value       = var.enable_argo_workflows ? kubernetes_namespace_v1.argo[0].metadata[0].name : null
+}
+
 output "jupyterhub_namespace" {
   description = "JupyterHub namespace (if enabled)"
   value       = var.enable_jupyterhub ? kubernetes_namespace_v1.jupyterhub[0].metadata[0].name : null
@@ -39,7 +44,7 @@ output "service_accounts" {
     webapp     = var.enable_webapp ? { namespace = local.webapp_namespace, name = local.webapp_service_account_name } : null
     dagster    = local.enable_dagster ? { namespace = local.dagster_namespace, name = local.dagster_service_account } : null
     ray        = var.enable_ray ? { namespace = local.ray_namespace, name = local.ray_service_account_name } : null
-    argo       = var.enable_argo_workflows && var.enable_ray ? { namespace = local.ray_namespace, name = local.argo_service_account_name } : null
+    argo       = var.enable_argo_workflows ? { namespace = local.argo_namespace, name = local.argo_service_account_name } : null
     mlflow     = var.enable_mlflow ? { namespace = local.mlflow_namespace, name = local.mlflow_service_account_name } : null
     jupyterhub = var.enable_jupyterhub ? { namespace = local.jupyterhub_namespace, name = local.jupyterhub_single_user_sa } : null
   }
@@ -48,6 +53,15 @@ output "service_accounts" {
 output "identity_secret_names" {
   description = "Per-service name of the <service>-identity-env Secret (in that service's namespace) carrying workload_identity_secret_env; RayJobs launched by user code can envFrom the ray one."
   value       = local.identity_secret_name
+}
+
+output "in_cluster_urls" {
+  description = "In-cluster URLs of the services THIS environment runs (null when a service is off). Another environment shares them by passing them as its mlflow_tracking_uri / dagster_webserver_url / argo_server_url with the matching enable_* off -- see README \"Stamp or share\"."
+  value = {
+    mlflow_tracking_uri   = var.enable_mlflow ? local.mlflow_tracking_uri : null
+    dagster_webserver_url = local.enable_dagster ? local.dagster_webserver_url : null
+    argo_server_url       = var.enable_argo_workflows ? local.argo_server_url : null
+  }
 }
 
 output "dagster_private_url" {
@@ -68,6 +82,11 @@ output "webapp_private_url" {
 output "ray_dashboard_private_url" {
   description = "Private URL for the Ray dashboard (502s while no Ray cluster is running)"
   value       = var.enable_private_ingress && var.enable_ray ? "https://${local.private_ray_host}.${local.private_dns_suffix}" : null
+}
+
+output "argo_private_url" {
+  description = "Private URL for the Argo Workflows UI"
+  value       = var.enable_private_ingress && var.enable_argo_workflows ? "https://${local.private_argo_host}.${local.private_dns_suffix}" : null
 }
 
 output "webapp_public_url" {

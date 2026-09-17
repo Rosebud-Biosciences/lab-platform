@@ -8,18 +8,21 @@
 #
 # Prereqs (workloads module): enable_ray = true AND enable_argo_workflows = true.
 # That provisions:
-#   - namespace       "<name_prefix>ray"
-#   - serviceAccount  "argo-workflow"  (bound to a ClusterRole with rayjobs perms)
+#   - namespace       "<name_prefix>argo"  (this environment's Argo controller
+#                                           watches only this namespace)
+#   - serviceAccount  "argo-workflow"       (bound to a ClusterRole with rayjobs
+#                                           perms in the Ray namespace)
+#   - namespace       "<name_prefix>ray"    (where the RayJob below is created)
 #
-# Submit:
-#   argo submit -n ray argo/workflow.yaml --watch
+# Submit into the ARGO namespace; the RayJob lands in the Ray namespace:
+#   argo submit -n argo argo/workflow.yaml --watch
 # or, without the Argo CLI:
-#   kubectl create -n ray -f argo/workflow.yaml
+#   kubectl create -n argo -f argo/workflow.yaml
 apiVersion: argoproj.io/v1alpha1
 kind: Workflow
 metadata:
   generateName: ephemeral-ray-
-  namespace: ray
+  namespace: argo
 spec:
   serviceAccountName: argo-workflow
   entrypoint: run-ray-job
@@ -39,6 +42,9 @@ spec:
           kind: RayJob
           metadata:
             generateName: ephemeral-argo-
+            # Cross-namespace: the workflow runs in <prefix>argo, the Ray work
+            # in <prefix>ray, where ray-s3-sa and the Ray identity live.
+            namespace: ray
           spec:
             shutdownAfterJobFinishes: true
             ttlSecondsAfterFinished: 120

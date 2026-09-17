@@ -21,7 +21,7 @@ locals {
     webapp     = { namespace = "${local.prefix}${var.webapp_app_name}", name = var.webapp_app_name }
     dagster    = { namespace = "${local.prefix}dagster", name = "dagster" }
     ray        = { namespace = "${local.prefix}ray", name = "ray-s3-sa" }
-    argo       = { namespace = "${local.prefix}ray", name = "argo-workflow" }
+    argo       = { namespace = "${local.prefix}argo", name = "argo-workflow" }
     mlflow     = { namespace = "${local.prefix}mlflow", name = "mlflow" }
     jupyterhub = { namespace = "${local.prefix}jupyterhub", name = "jupyterhub-single-user" }
   }
@@ -30,7 +30,7 @@ locals {
     webapp     = var.enable_webapp
     dagster    = var.enable_dagster
     ray        = var.enable_ray
-    argo       = var.enable_argo_workflows && var.enable_ray
+    argo       = var.enable_argo_workflows
     mlflow     = var.enable_mlflow
     jupyterhub = var.enable_jupyterhub
   }

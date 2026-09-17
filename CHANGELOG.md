@@ -85,6 +85,39 @@ update paths and wiring; tag the first release carrying this as **0.2.0**.
   compute + AWS data: hosted issuer + projected-token roles, no static keys).
   New `kind-smoke` workflow runs the first on every PR touching the module and
   the second when `ENABLE_KIND_AWS_DATA` is set.
+- `modules/neon-branches` branches per **(project, parent branch)** instead
+  of per source: databases that live in one project now share one branch and
+  one compute per preview (the same snapshot for all of them) instead of one
+  branch each; sources in separate projects are unchanged, including branch
+  names. New `branches` output; `branch_names` stays keyed by source. A live
+  preview whose sources share a project is recreated once on upgrade (its
+  branches are ephemeral anyway).
+- **Stamp or share**: each stateful service is either stamped into an
+  environment (`enable_x`) or shared from another one through a new override
+  -- `mlflow_tracking_uri`, `dagster_webserver_url`, `argo_server_url` -- fed
+  from that environment's new `in_cluster_urls` output. Either way pods see
+  `MLFLOW_TRACKING_URI` / `DAGSTER_WEBSERVER_URL` / `ARGO_SERVER_URL`.
+  `examples/preview` exposes it as `preview_profile = "full" | "app"`
+  (app-only previews: the webapp on its own database branch, prod's
+  pipelines); the consequences are documented in the workloads README and
+  docs/preview-environments.md.
+- Argo Workflows is now **per environment**, like Dagster and MLflow:
+  `modules/workloads` `enable_argo_workflows` deploys a namespace-scoped
+  controller + server (chart 2.0.6 / Argo v4.1.3) in `<prefix>argo`, the
+  `argo-workflow` ServiceAccount (identity contract key `argo`, now in that
+  namespace rather than the Ray namespace), an optional **workflow archive**
+  on the environment's Postgres (`enable_argo_workflow_archive` + `argo_db_*`;
+  a Neon branch for a preview), a `scheduling` role `argo`, and a private
+  Ingress at `<prefix>argo` (`argo_private_url`). `aws/eks-platform`
+  `enable_argo_workflows` now installs only the cluster-scoped CRDs, from the
+  upstream release at `argo_workflows_version` (keep it equal to the chart's
+  appVersion). The server Service is `ClusterIP` in `server` auth mode; the
+  previous platform-level install had `serviceType: LoadBalancer`, which made
+  the AWS Load Balancer Controller allocate an NLB and security groups outside
+  Terraform state that orphaned on destroy and held the VPC open. No chart in
+  the family asks for a `LoadBalancer` Service any more (eks-platform README,
+  "Teardown is closed-loop"). Submit workflows into the argo namespace; the
+  example workflow creates its RayJob in the Ray namespace cross-namespace.
 
 Migration for an existing deployment (`examples/*` show the wiring):
 

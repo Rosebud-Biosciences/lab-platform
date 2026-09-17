@@ -36,6 +36,7 @@ locals {
   # user before dropping privileges -- the docker-stacks start script does it.
   jupyterhub_singleuser_env = merge(
     local.identity.jupyterhub.env,
+    local.service_urls_env,
     {
       CHOWN_HOME      = "yes"
       CHOWN_HOME_OPTS = "-R"
