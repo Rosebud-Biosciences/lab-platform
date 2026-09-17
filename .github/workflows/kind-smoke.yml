@@ -1,0 +1,163 @@
+name: kind smoke
+
+# The workloads module's live integration test, in two legs.
+#
+# local (free, runs on every PR that touches the module or the kind examples):
+#   a kind cluster on the runner, MinIO + Postgres as the data backend,
+#   `tofu apply examples/kind`, every Deployment rolled out, the RayCluster
+#   ready, MLflow/Dagster/webapp answering health checks, then `tofu destroy`.
+#   No cloud account involved. This is the first non-mocked test of
+#   modules/workloads and it costs nothing.
+#
+# aws-data (gated): the "local compute, AWS data" cell. kind again, but the
+#   data is a real S3 bucket and the pods reach it through per-service IAM
+#   roles via web-identity federation (aws/oidc-provider hosts the issuer,
+#   aws/data-adapter binding = "projected"). Asserts a pod running as the
+#   Dagster ServiceAccount can `aws sts get-caller-identity` and list the
+#   bucket. Needs an AWS account, so it runs only when configured:
+#     vars.ENABLE_KIND_AWS_DATA     = "true"
+#     vars.KIND_AWS_DATA_REGION     e.g. us-west-2
+#     vars.KIND_OIDC_BUCKET         globally unique, DNS-safe, no dots
+#                                   (e.g. lab-kind-oidc-<account id>)
+#     secrets.KIND_AWS_DATA_ROLE_ARN  a role the runner assumes via GitHub OIDC,
+#                                   able to manage: the two S3 buckets and
+#                                   their objects/policies, one KMS key,
+#                                   IAM roles/policies named kind-*, and one
+#                                   IAM OIDC provider.
+#   Dispatch it by hand or let the weekly schedule catch regressions.
+
+on:
+  pull_request:
+    paths:
+      - "modules/workloads/**"
+      - "examples/kind/**"
+      - "examples/kind-aws-data/**"
+      - "aws/data-adapter/**"
+      - "aws/oidc-provider/**"
+      - ".github/workflows/kind-smoke.yml"
+  schedule:
+    # Weekly, Monday 14:00 UTC: charts and images drift under the pins.
+    - cron: "0 14 * * 1"
+  workflow_dispatch:
+    inputs:
+      with_jupyterhub:
+        description: "Also deploy JupyterHub in the local leg (heavier)"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  id-token: write # aws-actions/configure-aws-credentials in the gated leg
+
+env:
+  TOFU_VERSION: "1.12.6"
+  KIND_VERSION: "v0.33.0"
+  KUBERNETES_VERSION: "v1.36.4"
+
+jobs:
+  local:
+    name: kind + MinIO + Postgres
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v7
+      - uses: opentofu/setup-opentofu@v2
+        with:
+          tofu_version: ${{ env.TOFU_VERSION }}
+          tofu_wrapper: false
+      - uses: azure/setup-helm@v4
+      - name: Create kind cluster
+        uses: helm/kind-action@v1
+        with:
+          version: ${{ env.KIND_VERSION }}
+          node_image: kindest/node:${{ env.KUBERNETES_VERSION }}
+          cluster_name: lab-platform
+          config: examples/kind/kind-config.yaml
+
+      - name: Cluster prerequisites + local data backend
+        run: examples/kind/scripts/prereqs.sh
+
+      - name: tofu apply examples/kind
+        working-directory: examples/kind
+        env:
+          TF_VAR_enable_jupyterhub: ${{ github.event.inputs.with_jupyterhub || 'false' }}
+        run: |
+          tofu init -input=false
+          tofu apply -input=false -auto-approve
+
+      - name: Verify
+        env:
+          WITH_JUPYTERHUB: ${{ github.event.inputs.with_jupyterhub == 'true' && '1' || '0' }}
+        run: examples/kind/scripts/verify.sh
+
+      - name: Diagnostics on failure
+        if: failure()
+        run: |
+          kubectl get pods -A -o wide
+          kubectl get events -A --sort-by=.lastTimestamp | tail -60
+          for ns in webapp dagster mlflow ray; do
+            echo "== $ns"; kubectl -n "$ns" describe pods | rg -A6 'Events:' || true
+          done
+
+      - name: tofu destroy (the module must clean up after itself)
+        if: always()
+        working-directory: examples/kind
+        run: tofu destroy -input=false -auto-approve
+
+  aws-data:
+    name: kind + AWS data (web identity)
+    if: vars.ENABLE_KIND_AWS_DATA == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      AWS_REGION: ${{ vars.KIND_AWS_DATA_REGION }}
+      OIDC_BUCKET: ${{ vars.KIND_OIDC_BUCKET }}
+      CLUSTER: lab-platform-aws
+    steps:
+      - uses: actions/checkout@v7
+      - uses: opentofu/setup-opentofu@v2
+        with:
+          tofu_version: ${{ env.TOFU_VERSION }}
+          tofu_wrapper: false
+      - uses: azure/setup-helm@v4
+      - name: Install kind
+        run: |
+          curl -fsSLo /usr/local/bin/kind "https://kind.sigs.k8s.io/dl/${KIND_VERSION}/kind-linux-amd64"
+          chmod +x /usr/local/bin/kind
+      - uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ secrets.KIND_AWS_DATA_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      # The issuer URL is baked into the API server here, before any token is
+      # minted; the JWKS it exports is what aws/oidc-provider publishes.
+      - name: Create kind cluster with a hosted issuer
+        run: examples/kind-aws-data/scripts/kind-up.sh
+
+      - name: Cluster prerequisites (no MinIO; the data is in S3)
+        run: WITH_MINIO=0 examples/kind/scripts/prereqs.sh
+
+      - name: tofu apply examples/kind-aws-data
+        working-directory: examples/kind-aws-data
+        run: |
+          tofu init -input=false
+          tofu apply -input=false -auto-approve \
+            -var "oidc_bucket_name=$OIDC_BUCKET" -var "cluster_name=$CLUSTER" -var "region=$AWS_REGION" \
+            -var "jwks_json=$(cat jwks.json)"
+
+      - name: Verify (health + a pod assumes its role via web identity)
+        run: examples/kind-aws-data/scripts/verify.sh
+
+      - name: Diagnostics on failure
+        if: failure()
+        run: |
+          kubectl get pods -A -o wide
+          kubectl get events -A --sort-by=.lastTimestamp | tail -60
+
+      - name: tofu destroy
+        if: always()
+        working-directory: examples/kind-aws-data
+        run: |
+          tofu destroy -input=false -auto-approve \
+            -var "oidc_bucket_name=$OIDC_BUCKET" -var "cluster_name=$CLUSTER" -var "region=$AWS_REGION" \
+            -var "jwks_json=$(cat jwks.json)"

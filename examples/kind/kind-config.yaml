@@ -1,0 +1,8 @@
+# kind cluster for examples/kind. One node is enough: the example is sized for
+# a laptop or a 4-vCPU GitHub runner, and kind's local-path StorageClass
+# serves the RWX claims fine on a single node.
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+name: lab-platform
+nodes:
+  - role: control-plane
