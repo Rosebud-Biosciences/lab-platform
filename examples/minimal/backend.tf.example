@@ -1,4 +1,4 @@
-# Rename to backend.tf and fill in the bucket/table created by modules/bootstrap.
+# Rename to backend.tf and fill in the bucket/table created by aws/bootstrap.
 # Left as a template so the example applies out-of-the-box with local state.
 #
 # terraform {

@@ -62,7 +62,7 @@ variable "webapp_acm_certificate_arn" {
 }
 
 variable "webapp_route53_zone_id" {
-  description = "Route53 hosted zone id for webapp_public_host (empty skips the alias record)"
+  description = "Route53 hosted zone id for webapp_public_host; enables external-dns on the platform scoped to that zone (empty publishes no DNS)"
   type        = string
   default     = ""
 }

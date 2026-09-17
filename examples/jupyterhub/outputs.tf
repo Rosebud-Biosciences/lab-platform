@@ -15,7 +15,7 @@ output "jupyterhub_namespace" {
 
 output "jupyterhub_efs_id" {
   description = "EFS filesystem holding user home + shared directories (destroy-protected; point AWS Backup here)"
-  value       = module.workloads.jupyterhub_efs_id
+  value       = module.compute.jupyterhub_efs_id
 }
 
 output "kubeconfig_command" {

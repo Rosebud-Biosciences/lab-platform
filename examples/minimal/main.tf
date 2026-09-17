@@ -8,7 +8,7 @@
 # ------------------------------------------------------------------------------
 
 module "network" {
-  source = "../../modules/network"
+  source = "../../aws/network"
 
   name        = "vpc-${var.environment}"
   environment = var.environment
@@ -21,7 +21,7 @@ module "network" {
 }
 
 module "platform" {
-  source = "../../modules/eks-platform"
+  source = "../../aws/eks-platform"
 
   providers = {
     aws                   = aws
@@ -46,25 +46,23 @@ module "platform" {
   tags = var.tags
 }
 
+# The workloads layer needs nothing from AWS to run a webapp: no adapters, no
+# aws provider. Add aws/data-adapter when the app must reach S3, and
+# aws/compute-adapter for EFS / a public ALB / Karpenter pools (see
+# examples/complete).
 module "workloads" {
   source = "../../modules/workloads"
 
   providers = {
-    aws        = aws
     kubernetes = kubernetes
     helm       = helm
     kubectl    = kubectl
   }
 
-  cluster_name                 = module.platform.cluster_name
-  oidc_provider_arn            = module.platform.oidc_provider_arn
-  region                       = var.region
-  vpc_name                     = module.platform.vpc_name
-  karpenter_node_iam_role_name = module.platform.karpenter_node_iam_role_name
-  environment                  = var.environment
+  environment = var.environment
 
   enable_webapp = true
   webapp_image  = var.webapp_image
 
-  tags = var.tags
+  depends_on = [module.platform]
 }

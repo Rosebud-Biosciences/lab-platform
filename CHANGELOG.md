@@ -6,6 +6,106 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed (breaking): portable workloads, `aws/` split along data and compute
+
+Consumers pinned to the pre-split layout (`//modules/bootstrap`, ...) must
+update paths and wiring; tag the first release carrying this as **0.2.0**.
+
+- `modules/workloads` is now cloud-agnostic: it requires only the
+  `kubernetes`/`helm`/`kubectl` providers and runs on EKS, kind, GKE, AKS or
+  bare metal. Every AWS specific left it and comes back through four
+  **contract inputs**:
+  - `workload_identity` + `workload_identity_secret_env` (per service:
+    ServiceAccount annotations for webhook identity, `env` +
+    `projected_token` for web-identity federation, static `secret_env`);
+  - `scheduling` (nodeSelector + tolerations per pod role);
+  - `jupyterhub_shared_storage` (`nfs_server` for a static NFS PV, or
+    `storage_class_name` for a dynamic RWX claim);
+  - `webapp_public_ingress_class_name` / `_annotations` /
+    `_tls_secret_name` (+ the `jupyterhub_public_*` twins) for the public edge.
+  Removed inputs: `cluster_name`, `oidc_provider_arn`, `region`, `vpc_name`,
+  `karpenter_node_iam_role_name`, `karpenter_node_pools`, `tags`,
+  `*_bucket_policies`, `mlflow_artifact_bucket(_arn)` (now
+  `mlflow_artifact_root`, an `s3://` URI), `webapp_acm_certificate_arn`,
+  `*_route53_zone_id`, `enable_webapp_waf`, `webapp_waf_rate_limit`,
+  `jupyterhub_ingress_scheme`, `jupyterhub_efs_prevent_destroy`, `vpc_id`,
+  `private_subnets*`, `efs_subnet_cidr_octet_prefix`,
+  `vpc_secondary_cidr_blocks`. Removed output: `jupyterhub_efs_id`. New
+  outputs: `service_accounts`, `identity_secret_names`,
+  `webapp_public_ingress`. New inputs: `ray_head_resources`,
+  `ray_worker_resources`, `ray_worker_max_replicas`,
+  `webapp_public_wait_for_load_balancer`.
+- Public DNS records are no longer written by the module. Public Ingresses
+  carry `external-dns.alpha.kubernetes.io/hostname`; `aws/eks-platform` gains
+  `enable_external_dns` + `external_dns_route53_zone_arns` (+
+  `external_dns_domain_filters`) to publish them.
+- The JupyterHub single-user ServiceAccount is now `jupyterhub-single-user`
+  (was `<cluster>-<prefix>jupyterhub-single-user`); the shared-volume claims
+  are `jupyterhub-home` / `jupyterhub-shared` (were `efs-persist` /
+  `efs-persist-shared`), and their PersistentVolumes are namespaced so two
+  environments on one cluster can each bind their own. Data on an NFS export
+  is untouched by the rename (both claims mount the same export root).
+- MLflow's Postgres credentials are passed to the chart directly (its
+  `backendStore` has no existing-secret hook; the previous `existingSecret`
+  keys were silently ignored and the chart failed to render), and the invalid
+  `runLauncher.config.k8sRunLauncher.serviceAccountName` was dropped from the
+  Dagster values (run pods use `global.serviceAccountName`). Both were latent
+  apply-time failures found by rendering the module's values against the
+  charts' schemas.
+- Chart defaults bumped from a live run on kind: `mlflow_chart_version`
+  0.7.19 -> 1.11.7 (MLflow 3; the 0.7 image's libpq predates SCRAM, so it
+  could not authenticate to Postgres 14+ or Neon) and `dagster_chart_version`
+  1.13.14 -> 1.13.23 (first release with arm64 images; earlier ones cannot
+  run on Apple Silicon kind or Graviton nodes).
+- With no `dagster_user_code_image`, the module now deploys its own
+  hello-world code location (`helm-defaults/dagster/hello_repo.py`, mounted
+  from a ConfigMap into the stock `dagster-k8s` image) instead of the chart's
+  example deployment, whose image no longer ships the file it points at.
+- The persistent RayCluster is now named `<name_prefix><ray_cluster_release_name>`
+  (`fullnameOverride`); the chart used to append `-kuberay`, so the module's
+  Ray dashboard Service selector never matched the head pod. Existing
+  clusters are recreated under the new name.
+- AWS-only modules moved from `modules/` to `aws/`: `bootstrap`, `network`,
+  `eks-platform`, `s3-bucket`, `preview-storage`, `iceberg-branches`,
+  `data-access`. `modules/` keeps `workloads` and `neon-branches`.
+- New `aws/data-adapter` (data axis): per-service IAM roles trusting any IAM
+  OIDC provider (the EKS cluster's, or a foreign cluster's), attaching bucket /
+  S3 Tables / ECR policies, emitted as `workload_identity` with `binding =
+  "webhook"` (IRSA) or `"projected"` (web identity from any cluster). Role
+  names keep the old pattern so existing roles can be state-moved.
+- New `aws/oidc-provider`: registers a non-EKS cluster's issuer with IAM;
+  `host_discovery` publishes the discovery document + JWKS to S3 for clusters
+  AWS cannot reach (kind, on-prem).
+- New `aws/compute-adapter` (compute axis): the EFS filesystem behind
+  JupyterHub (guarded), the ALB/ACM/WAF annotation set, and the Karpenter
+  NodePools (moved here from `workloads`) with `node_pool_roles` turning them
+  into the `scheduling` contract.
+- New examples: `examples/kind` (local compute + local data: MinIO +
+  Postgres, static credentials, free) and `examples/kind-aws-data` (local
+  compute + AWS data: hosted issuer + projected-token roles, no static keys).
+  New `kind-smoke` workflow runs the first on every PR touching the module and
+  the second when `ENABLE_KIND_AWS_DATA` is set.
+
+Migration for an existing deployment (`examples/*` show the wiring):
+
+1. Update module sources (`//modules/x` -> `//aws/x` for the moved modules)
+   and add `aws/data-adapter` + `aws/compute-adapter` next to `workloads`,
+   feeding their outputs to the contract inputs.
+2. `tofu state mv` the resources that changed owner so nothing is recreated:
+   IRSA roles `module.workloads.module.<svc>_irsa[0]` ->
+   `module.<data>.module.role["<svc>"]`; `aws_iam_policy.ecr_read` /
+   `mlflow_s3` -> the data adapter; `aws_efs_file_system.jupyterhub`,
+   `aws_security_group.efs`, `aws_efs_mount_target.jupyterhub`,
+   `aws_wafv2_web_acl.webapp` and its log group / logging config,
+   `helm_release.karpenter_node_pools` -> the compute adapter. Roles and the
+   WAF ACL may also simply be recreated (no data); the EFS filesystem holds
+   home directories and its `prevent_destroy` guard refuses to recreate it,
+   so move it.
+3. `aws_route53_record.*` and `data.aws_lb.*` are removed; enable
+   `external_dns` on the platform (or keep your own record) before applying.
+4. The JupyterHub SA rename and claim renames recreate those Kubernetes
+   objects; do it while no notebook servers are running.
+
 ### Added
 
 - Initial open-source release extracted from a private research-platform IaC repo.

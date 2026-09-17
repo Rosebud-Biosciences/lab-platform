@@ -111,3 +111,8 @@ output "tailscale_operator_enabled" {
   # client id, but the flag itself leaks nothing.
   value = nonsensitive(local.enable_tailscale_operator)
 }
+
+output "external_dns_enabled" {
+  description = "Whether external-dns runs on this cluster (public Ingress hostnames then resolve without tofu-managed records)"
+  value       = var.enable_external_dns
+}

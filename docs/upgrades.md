@@ -18,7 +18,7 @@ Three things are invisible to it:
 | --- | --- | --- |
 | Helm chart versions in variable defaults (`*_chart_version`, `karpenter_version`, ...) | `modules/*/variables.tf` | [`chart-drift`](../.github/workflows/chart-drift.yml), monthly |
 | EKS add-on builds and the Kubernetes support calendar | the AWS API, per live cluster | your stack (see below) |
-| The Tailscale relay's AMI | `var.ts_relay_ami` in `modules/network`, or Canonical's SSM parameter when unpinned | you, deliberately (see below) |
+| The Tailscale relay's AMI | `var.ts_relay_ami` in `aws/network`, or Canonical's SSM parameter when unpinned | you, deliberately (see below) |
 
 Renovate can reach the chart pins with regex managers if you run it; nothing
 here assumes you do.
@@ -51,7 +51,7 @@ Every Tailscale release can carry a CVE fix, and a tailnet is only as patched as
 its oldest node. The platform runs Tailscale in three places, and each updates
 differently.
 
-**Containers — the operator and its Ingress proxies (`modules/eks-platform`).**
+**Containers — the operator and its Ingress proxies (`aws/eks-platform`).**
 One pin, `tailscale_operator_chart_version`, is the Tailscale version of the
 operator *and* of every proxy it runs for a private UI; the proxies follow the
 operator's image. Containers never self-update, so bumping that pin is how a
@@ -60,7 +60,7 @@ image — node identity persists in the proxy's state Secret, so the MagicDNS
 names and ACL tags are unchanged; expect a pod-restart blip per UI. This is
 the pin `chart-drift` holds to "any newer release".
 
-**The relay — an EC2 subnet router (`modules/network`).** It keeps itself
+**The relay — an EC2 subnet router (`aws/network`).** It keeps itself
 current: `tailscale-init.sh` runs `tailscale set --auto-update`, so client
 releases land on the running instance without a rebuild. Its AMI is therefore
 a hygiene clock, not an exposure clock — the client on the box is newer than

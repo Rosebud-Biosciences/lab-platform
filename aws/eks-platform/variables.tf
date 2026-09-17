@@ -176,7 +176,7 @@ variable "core_node_group_desired_size" {
 # ------------------------------------------------------------------------------
 
 variable "enable_karpenter" {
-  description = "Enable the Karpenter controller + CRDs (NodePools are defined in the workloads module)"
+  description = "Enable the Karpenter controller + CRDs (NodePools are defined per environment by aws/compute-adapter)"
   type        = bool
   default     = true
 }
@@ -209,6 +209,29 @@ variable "kube_prometheus_helm_values_override" {
   description = "Extra YAML (raw string) deep-merged over the kube-prometheus-stack defaults by Helm (later wins)"
   type        = string
   default     = ""
+}
+
+variable "enable_external_dns" {
+  description = "Enable external-dns so public hostnames follow the Ingresses modules/workloads creates (it stamps external-dns.alpha.kubernetes.io/hostname). Requires external_dns_route53_zone_arns."
+  type        = bool
+  default     = false
+}
+
+variable "external_dns_route53_zone_arns" {
+  description = "Route53 hosted zone ARNs external-dns may write to (its IRSA policy is scoped to these)"
+  type        = list(string)
+  default     = []
+
+  validation {
+    condition     = !var.enable_external_dns || length(var.external_dns_route53_zone_arns) > 0
+    error_message = "external_dns_route53_zone_arns is required when enable_external_dns is true."
+  }
+}
+
+variable "external_dns_domain_filters" {
+  description = "Domains external-dns manages records for (e.g. [\"example.com\"]); empty means every zone it can reach"
+  type        = list(string)
+  default     = []
 }
 
 variable "enable_aws_fluentbit" {

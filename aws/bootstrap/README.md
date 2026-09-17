@@ -24,7 +24,7 @@ creates.
 
 ```hcl
 module "bootstrap" {
-  source = "github.com/Rosebud-Biosciences/terraform-aws-lab-platform//modules/bootstrap?ref=main"
+  source = "github.com/Rosebud-Biosciences/terraform-aws-lab-platform//aws/bootstrap?ref=main"
 
   state_bucket_name = "my-org-terraform-state"
   github_owner      = "my-org"
@@ -120,7 +120,7 @@ resource "aws_iam_user_policy_attachment" "alice_guardrails" {
 | <a name="input_preview_resource_tag_key"></a> [preview\_resource\_tag\_key](#input\_preview\_resource\_tag\_key) | Tag key gating the preview role's KMS key mutations (defence-in-depth) | `string` | `"Environment"` | no |
 | <a name="input_preview_resource_tag_value"></a> [preview\_resource\_tag\_value](#input\_preview\_resource\_tag\_value) | Tag value gating the preview role's KMS key mutations | `string` | `"preview"` | no |
 | <a name="input_preview_state_key_prefix"></a> [preview\_state\_key\_prefix](#input\_preview\_state\_key\_prefix) | State object key prefix the preview role may write (least-privilege state scoping) | `string` | `"preview/*"` | no |
-| <a name="input_preview_table_bucket_arns"></a> [preview\_table\_bucket\_arns](#input\_preview\_table\_bucket\_arns) | S3 Tables table-bucket ARNs in which the preview role may create/destroy per-preview Iceberg namespaces (modules/iceberg-branches). Empty skips the s3tables statements. | `list(string)` | `[]` | no |
+| <a name="input_preview_table_bucket_arns"></a> [preview\_table\_bucket\_arns](#input\_preview\_table\_bucket\_arns) | S3 Tables table-bucket ARNs in which the preview role may create/destroy per-preview Iceberg namespaces (aws/iceberg-branches). Empty skips the s3tables statements. | `list(string)` | `[]` | no |
 | <a name="input_state_bucket_prevent_destroy"></a> [state\_bucket\_prevent\_destroy](#input\_state\_bucket\_prevent\_destroy) | Attach a Deny s3:DeleteBucket policy to the state bucket so no principal can delete it without first removing the policy | `bool` | `true` | no |
 | <a name="input_state_noncurrent_expiration_days"></a> [state\_noncurrent\_expiration\_days](#input\_state\_noncurrent\_expiration\_days) | Days after which noncurrent state versions are expired | `number` | `180` | no |
 | <a name="input_tags"></a> [tags](#input\_tags) | Tags applied to created resources | `map(string)` | `{}` | no |

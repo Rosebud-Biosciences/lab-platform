@@ -15,7 +15,7 @@
 #
 # Required repo/org configuration when you enable it:
 #   secrets.INTEGRATION_AWS_ROLE_ARN  - IAM role to assume via GitHub OIDC
-#                                        (the `ci` role from modules/bootstrap,
+#                                        (the `ci` role from aws/bootstrap,
 #                                        or a dedicated integration role).
 #   vars.INTEGRATION_AWS_REGION       - region to deploy into (e.g. us-west-2).
 name: integration-apply

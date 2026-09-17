@@ -33,7 +33,7 @@ Subsequent applies are just `tofu apply` — the cluster already exists.
 
 This example ships with local state so it runs out of the box. For real use,
 copy `backend.tf.example` to `backend.tf`, point it at the bucket/table from
-`modules/bootstrap`, and re-run `tofu init`.
+`aws/bootstrap`, and re-run `tofu init`.
 
 ## Cost
 

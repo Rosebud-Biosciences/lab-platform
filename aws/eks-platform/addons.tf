@@ -164,6 +164,23 @@ module "eks_blueprints_addons" {
     ] : []
   }
 
+  # external-dns: public hostnames follow the Ingress. modules/workloads stamps
+  # external-dns.alpha.kubernetes.io/hostname on its public Ingresses (webapp,
+  # JupyterHub); this publishes the matching Route53 records, scoped to the
+  # listed zones. upsert-only never deletes a record it did not create;
+  # txtOwnerId keeps two clusters sharing a zone from fighting over names.
+  enable_external_dns            = var.enable_external_dns
+  external_dns_route53_zone_arns = var.external_dns_route53_zone_arns
+  external_dns = {
+    chart_version = "1.22.0"
+    values = [yamlencode({
+      policy        = "upsert-only"
+      txtOwnerId    = module.eks.cluster_name
+      domainFilters = var.external_dns_domain_filters
+      sources       = ["ingress"]
+    })]
+  }
+
   enable_aws_for_fluentbit = var.enable_aws_fluentbit
   aws_for_fluentbit_cw_log_group = {
     use_name_prefix   = false

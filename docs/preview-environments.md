@@ -63,7 +63,7 @@ s3://my-org-terraform-state/preview/pr123/terraform.tfstate
 s3://my-org-terraform-state/preview/pr456/terraform.tfstate
 ```
 
-The [`bootstrap`](../modules/bootstrap) preview role scopes state **writes** to
+The [`bootstrap`](../aws/bootstrap) preview role scopes state **writes** to
 `preview/*`, so a preview apply can never mutate prod's state object. See
 [`examples/preview/backend.tf.example`](../examples/preview/backend.tf.example)
 for the `workspace_key_prefix` wiring.
@@ -95,7 +95,7 @@ step; an Aurora fast-clone is the equivalent copy-on-write option on RDS.
 
 ## Storage strategy: ephemeral bucket
 
-[`preview-storage`](../modules/preview-storage) creates one throwaway,
+[`preview-storage`](../aws/preview-storage) creates one throwaway,
 KMS-encrypted bucket per preview (`force_destroy = true`). The workloads route
 both their processed-data writes **and MLflow artifacts** to it, so nothing a
 preview produces is written into a prod bucket — a subtle but important
@@ -104,7 +104,7 @@ improvement over sharing the prod artifact store.
 ## Lakehouse strategy: ephemeral Iceberg namespace (optional)
 
 If the platform keeps Iceberg tables in an S3 Tables bucket,
-[`iceberg-branches`](../modules/iceberg-branches) gives each preview its own
+[`iceberg-branches`](../aws/iceberg-branches) gives each preview its own
 **namespace** in that shared bucket, with IAM that confines the preview's
 writes to its namespace and optionally allows read-only access to prod
 namespaces. Toggle it in `examples/preview` via `iceberg_table_bucket_arn`.
@@ -131,7 +131,7 @@ per deployment, not layers; the `lab-platform-template-app` shows both behind a
 | Iceberg | `iceberg-branches`: empty namespace, IAM-isolated | table branches on the prod tables |
 | Which prod state was tested | not recorded | a pinned dataset commit per preview |
 | Landing preview data on prod | not possible | `tether promote` for Icechunk / Iceberg (fast-forward); recompute for the rest |
-| Preview's access to prod data | none (writes are physically elsewhere) | write into prod buckets and commit to prod tables, no delete ([`data-access`](../modules/data-access)) |
+| Preview's access to prod data | none (writes are physically elsewhere) | write into prod buckets and commit to prod tables, no delete ([`data-access`](../aws/data-access)) |
 | Dependencies | none | `tether-vcs` (beta; Neon and Iceberg backends `experimental`) |
 | Teardown | `tofu destroy` | `tofu destroy`, then `tether gc --prune-bookmarks --force-prune` |
 
@@ -195,12 +195,13 @@ sequenceDiagram
 
 ## Adoption checklist
 
-1. Apply [`bootstrap`](../modules/bootstrap) (state backend + OIDC roles).
+1. Apply [`bootstrap`](../aws/bootstrap) (state backend + OIDC roles).
 2. Stand up the shared platform (`network` + `eks-platform`), e.g. via
    [`examples/complete`](../examples/complete).
 3. Copy [`examples/preview`](../examples/preview) into your app repo (or call it
    directly), wiring `cluster_name` / `oidc_provider_arn` / … from the platform
-   stack's remote state.
+   stack's remote state into `aws/data-adapter` + `aws/compute-adapter`, whose
+   outputs feed `modules/workloads`.
 4. Add caller workflows that invoke the reusable `preview-up`/`preview-down`
    workflows, passing your freshly built image tags. While this platform repo
    is private, also pass `modules_git_token` (a fine-grained PAT or App token

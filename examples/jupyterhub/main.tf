@@ -13,7 +13,7 @@
 # ------------------------------------------------------------------------------
 
 module "network" {
-  source = "../../modules/network"
+  source = "../../aws/network"
 
   name        = "vpc-${var.environment}"
   environment = var.environment
@@ -25,7 +25,7 @@ module "network" {
 }
 
 module "platform" {
-  source = "../../modules/eks-platform"
+  source = "../../aws/eks-platform"
 
   providers = {
     aws                   = aws
@@ -69,30 +69,56 @@ locals {
   })
 }
 
-module "workloads" {
-  source = "../../modules/workloads"
+# Compute axis: the EFS filesystem behind user homes (guarded), placed in the
+# VPC's pod-CIDR subnets.
+module "compute" {
+  source = "../../aws/compute-adapter"
 
-  providers = {
-    aws        = aws
-    kubernetes = kubernetes
-    helm       = helm
-    kubectl    = kubectl
-  }
+  providers = { aws = aws, helm = helm }
 
-  cluster_name                 = module.platform.cluster_name
-  oidc_provider_arn            = module.platform.oidc_provider_arn
-  region                       = var.region
-  vpc_name                     = module.platform.vpc_name
-  karpenter_node_iam_role_name = module.platform.karpenter_node_iam_role_name
-  environment                  = var.environment
+  cluster_name = module.platform.cluster_name
+  environment  = var.environment
 
-  # EFS placement for the user-data filesystem.
+  enable_jupyterhub           = true
   vpc_id                      = module.network.vpc_id
   private_subnets             = module.network.private_subnets
   private_subnets_cidr_blocks = module.network.private_subnets_cidr_blocks
   vpc_secondary_cidr_blocks   = module.network.vpc_secondary_cidr_blocks
 
+  # Keep the guard on: user home directories live on this filesystem.
+  jupyterhub_efs_prevent_destroy = true
+
+  tags = var.tags
+}
+
+# Data axis: a read-only S3 role for every notebook server (IRSA, since the
+# notebooks run on the EKS cluster itself).
+module "data" {
+  source = "../../aws/data-adapter"
+
+  cluster_name      = module.platform.cluster_name
+  oidc_provider_arn = module.platform.oidc_provider_arn
+  region            = var.region
+
   enable_jupyterhub = true
+
+  tags = var.tags
+}
+
+module "workloads" {
+  source = "../../modules/workloads"
+
+  providers = {
+    kubernetes = kubernetes
+    helm       = helm
+    kubectl    = kubectl
+  }
+
+  environment = var.environment
+
+  enable_jupyterhub         = true
+  jupyterhub_shared_storage = module.compute.jupyterhub_shared_storage
+  workload_identity         = module.data.workload_identity
 
   # Per-user logins without an IdP: first login sets the user's password.
   # Switch to "oidc" + the jupyterhub_oidc_* variables for real SSO identity
@@ -103,10 +129,5 @@ module "workloads" {
 
   jupyterhub_singleuser_image = var.jupyterhub_singleuser_image
 
-  # Keep the guard on: user home directories live on this filesystem.
-  jupyterhub_efs_prevent_destroy = true
-
   jupyterhub_extra_values = [local.marimo_values]
-
-  tags = var.tags
 }

@@ -1,10 +1,18 @@
 # terraform-aws-lab-platform
 
-A composable family of OpenTofu modules for running a data/ML platform on AWS
-EKS — JupyterHub, Ray, Dagster, MLflow, and a public webapp, each behind an
-`enable_*` toggle — with **first-class preview environments** that branch prod
-for testing, off prod. (The repo keeps the `terraform-aws-*` name because both
-registries require that naming convention.)
+A composable family of OpenTofu modules for running a data/ML platform on
+Kubernetes — JupyterHub, Ray, Dagster, MLflow, and a public webapp, each behind
+an `enable_*` toggle — with **first-class preview environments** that branch
+prod for testing, off prod.
+
+The application layer (`modules/workloads`) is cloud-agnostic: it needs only
+the kubernetes/helm providers and runs on EKS, kind, or any other cluster.
+Cloud specifics live in per-backend adapters, split along two axes because
+**data is harder to move than compute**: `aws/data-adapter` gives pods on *any*
+cluster identity to AWS data stores, `aws/compute-adapter` covers what is bound
+to an EKS cluster itself. AWS is the only backend today; the seam is
+documented so `gcp/`, `azure/` or `metal/` can follow. (The repo keeps the
+`terraform-aws-*` name because both registries require that naming convention.)
 
 > Status: extracted from a production stack and genericized for open source.
 > Wiring is validated (`tofu validate` + plan-only `tofu test`); a full apply
@@ -12,43 +20,75 @@ registries require that naming convention.)
 
 ## Modules
 
+Portable (any Kubernetes cluster, any data backend):
+
 | Module | What it is |
 | ------ | ---------- |
-| [`modules/bootstrap`](modules/bootstrap) | State bucket + lock table + GitHub OIDC CI/preview roles (least-privilege) + optional MFA-gated operator role with guardrails |
-| [`modules/network`](modules/network) | VPC (pod secondary CIDR, VPC endpoints) + optional Tailscale subnet router |
-| [`modules/eks-platform`](modules/eks-platform) | EKS cluster + cluster-wide operators (Karpenter, LB controller, monitoring, GPU, KubeRay, Argo, Tailscale) |
-| [`modules/workloads`](modules/workloads) | webapp / JupyterHub / Dagster / MLflow / Ray, `name_prefix`-stamped and toggleable |
-| [`modules/s3-bucket`](modules/s3-bucket) | Hardened, KMS-encrypted bucket + ready-made IAM policies |
-| [`modules/preview-storage`](modules/preview-storage) | Ephemeral per-preview bucket |
+| [`modules/workloads`](modules/workloads) | webapp / JupyterHub / Dagster / MLflow / Ray, `name_prefix`-stamped and toggleable; consumes the identity / scheduling / storage / public-ingress contract inputs |
 | [`modules/neon-branches`](modules/neon-branches) | Copy-on-write Neon Postgres branches per preview |
-| [`modules/iceberg-branches`](modules/iceberg-branches) | Ephemeral per-preview Iceberg (S3 Tables) namespace with namespace-scoped IAM |
-| [`modules/data-access`](modules/data-access) | Read/write-no-delete IAM on prod store prefixes and Iceberg tables, for previews whose data is forked by a dataset tool (tether mode) |
+
+AWS backend, data axis (usable from any compute):
+
+| Module | What it is |
+| ------ | ---------- |
+| [`aws/data-adapter`](aws/data-adapter) | Per-service IAM roles for S3 / S3 Tables / ECR trusting any OIDC issuer; emits `workload_identity` (IRSA on EKS, projected token elsewhere) |
+| [`aws/oidc-provider`](aws/oidc-provider) | Registers a non-EKS cluster's issuer with IAM; can host the discovery doc + JWKS on S3 for kind/on-prem |
+| [`aws/s3-bucket`](aws/s3-bucket) | Hardened, KMS-encrypted bucket + ready-made IAM policies |
+| [`aws/preview-storage`](aws/preview-storage) | Ephemeral per-preview bucket |
+| [`aws/iceberg-branches`](aws/iceberg-branches) | Ephemeral per-preview Iceberg (S3 Tables) namespace with namespace-scoped IAM |
+| [`aws/data-access`](aws/data-access) | Read/write-no-delete IAM on prod store prefixes and Iceberg tables, for previews whose data is forked by a dataset tool (tether mode) |
+
+AWS backend, compute axis (an EKS cluster):
+
+| Module | What it is |
+| ------ | ---------- |
+| [`aws/bootstrap`](aws/bootstrap) | State bucket + lock table + GitHub OIDC CI/preview roles (least-privilege) + optional MFA-gated operator role with guardrails |
+| [`aws/network`](aws/network) | VPC (pod secondary CIDR, VPC endpoints) + optional Tailscale subnet router |
+| [`aws/eks-platform`](aws/eks-platform) | EKS cluster + cluster-wide operators (Karpenter, LB controller, external-dns, monitoring, GPU, KubeRay, Argo, Tailscale) |
+| [`aws/compute-adapter`](aws/compute-adapter) | EFS for JupyterHub, ALB/ACM/WAF edge annotations, Karpenter NodePools; emits `jupyterhub_shared_storage`, public-ingress inputs and `scheduling` |
 
 ## Architecture
 
 ```mermaid
 flowchart LR
-  subgraph shared [Applied once]
-    bootstrap[bootstrap<br/>state + CI OIDC]
+  subgraph dataAxis [aws/ data axis]
+    buckets[s3-bucket, preview-storage,<br/>iceberg-branches, data-access]
+    oidc[oidc-provider<br/>trust a foreign cluster]
+    dataAdapter[data-adapter<br/>per-service IAM roles]
+  end
+  subgraph computeAxis [aws/ compute axis]
+    bootstrap[bootstrap]
     network[network<br/>VPC + Tailscale]
     platform[eks-platform<br/>cluster + operators]
+    computeAdapter[compute-adapter<br/>EFS, ALB/WAF, NodePools]
   end
-  subgraph stamped [Applied per environment]
+  subgraph portable [modules/]
     workloads[workloads<br/>enable_* toggles]
-    prevs3[preview-storage<br/>ephemeral bucket]
-    neon[neon-branches<br/>branched DBs]
-    iceberg[iceberg-branches<br/>ephemeral lakehouse ns]
+    neon[neon-branches]
   end
-  network --> platform --> workloads
-  prevs3 --> workloads
+  buckets --> dataAdapter
+  oidc --> dataAdapter
+  platform -. EKS issuer .-> dataAdapter
+  dataAdapter -- workload_identity --> workloads
+  network --> platform --> computeAdapter
+  computeAdapter -- scheduling, storage, edge --> workloads
   neon --> workloads
-  iceberg --> workloads
+  kindCluster[kind / GKE / on-prem] -. compute .-> workloads
 ```
 
+Pick a cell of the data x compute matrix and wire the adapters for it:
+
+| | AWS data (S3, S3 Tables, Neon) | Local data (MinIO, Postgres) |
+| --- | --- | --- |
+| **EKS compute** | `examples/complete`, `minimal`, `jupyterhub`, `preview` -- `data-adapter` (`binding = "webhook"`) + `compute-adapter` | (not a useful cell) |
+| **kind / GKE / on-prem compute** | [`examples/kind-aws-data`](examples/kind-aws-data) -- `oidc-provider` + `data-adapter` (`binding = "projected"`); the pods reach prod-shaped data with per-service roles and no static keys | [`examples/kind`](examples/kind) -- static credentials, everything on a laptop or a free CI runner |
+
 `bootstrap`, `network`, and `eks-platform` are applied once to stand up the
-shared cluster. `workloads` (plus `preview-storage` + `neon-branches` for
-previews) is applied once per environment against that shared cluster, each with
-its own `name_prefix`.
+shared cluster. `workloads` with its two adapters (plus `preview-storage` +
+`neon-branches` for previews) is applied once per environment against that
+shared cluster, each with its own `name_prefix`. Data gravity still applies:
+S3 egress and latency mean heavy jobs belong next to the data; local compute
+is for development, cheap GPU bursts on subsets, and hardware AWS does not have.
 
 ## Quickstart
 
@@ -80,14 +120,14 @@ Each PR gets a full, isolated copy of the workloads on the **shared** cluster:
 name-prefixed namespaces/IAM/NodePools, its own copy-on-write database branches,
 and an ephemeral S3 bucket — then it all disappears on teardown, prod untouched.
 The reusable [`preview-up`/`preview-down`/`nightly-sweep`](.github/workflows)
-workflows and the least-privilege preview role in `modules/bootstrap` make it
+workflows and the least-privilege preview role in `aws/bootstrap` make it
 runnable from CI.
 
 The preview's *data* has two providers. Terraform (the modules above) stamps
 isolated, mostly empty copies; [tether](https://github.com/elyall/tether) forks
 the production stores themselves — a branch per preview in Neon, Icechunk,
 Iceberg and Lance, a pinned baseline, and `promote` back to prod — with
-[`modules/data-access`](modules/data-access) as its IAM. Both hand pods the same
+[`aws/data-access`](aws/data-access) as its IAM. Both hand pods the same
 `DATABASE_URL` + `DATA_REFS` contract; the template app shows them side by side
 behind a `fork_provider` toggle.
 
@@ -121,10 +161,10 @@ accidental `destroy`:
 
 | Data | Where | Guard |
 | --- | --- | --- |
-| Terraform state | `modules/bootstrap` S3 bucket | Versioning + a Deny `s3:DeleteBucket` bucket policy (`state_bucket_prevent_destroy`, default on); with the operator role on, an identity Deny on `DeleteObjectVersion` and on removing the bucket policy from a non-MFA key |
-| State locks | `modules/bootstrap` DynamoDB table | Native deletion protection (`lock_table_deletion_protection`, default on); with the operator role on, an identity Deny on `DeleteTable` and on flipping the flag from a non-MFA key |
-| JupyterHub user homes + shared dir | `modules/workloads` EFS filesystem | `lifecycle.prevent_destroy` (`jupyterhub_efs_prevent_destroy`, default on); back up via the `jupyterhub_efs_id` output |
-| Durable object data | `modules/s3-bucket` | Deny `s3:DeleteBucket` policy + a KMS key policy denying `kms:ScheduleKeyDeletion` (`prevent_destroy`), `force_destroy = false`, versioning |
+| Terraform state | `aws/bootstrap` S3 bucket | Versioning + a Deny `s3:DeleteBucket` bucket policy (`state_bucket_prevent_destroy`, default on); with the operator role on, an identity Deny on `DeleteObjectVersion` and on removing the bucket policy from a non-MFA key |
+| State locks | `aws/bootstrap` DynamoDB table | Native deletion protection (`lock_table_deletion_protection`, default on); with the operator role on, an identity Deny on `DeleteTable` and on flipping the flag from a non-MFA key |
+| JupyterHub user homes + shared dir | `aws/compute-adapter` EFS filesystem (`modules/workloads` only binds to it, so destroying the workloads never deletes homes) | `lifecycle.prevent_destroy` (`jupyterhub_efs_prevent_destroy`, default on); back up via the `jupyterhub_efs_id` output |
+| Durable object data | `aws/s3-bucket` | Deny `s3:DeleteBucket` policy + a KMS key policy denying `kms:ScheduleKeyDeletion` (`prevent_destroy`), `force_destroy = false`, versioning |
 | Databases | External (Neon/RDS — never module-managed) | Provider-side (e.g. Neon retains parents; previews only ever touch child branches) |
 
 Everything else — preview buckets, Neon branches, namespaces, Helm releases,

@@ -37,7 +37,7 @@ tofu workspace delete pr123
 
 The reusable GitHub workflows in [`.github/workflows`](../../.github/workflows)
 (`preview-up`, `preview-down`, `nightly-sweep`) wrap exactly this loop, using the
-least-privilege preview role from `modules/bootstrap`.
+least-privilege preview role from `aws/bootstrap`.
 
 ## Notes
 
@@ -54,7 +54,7 @@ least-privilege preview role from `modules/bootstrap`.
   writes to that namespace (and optional read-only access to prod namespaces via
   `iceberg_read_namespaces`). Teardown caveat: tables inside the namespace must
   be dropped before `destroy` — see
-  [`modules/iceberg-branches`](../../modules/iceberg-branches) for the CI
+  [`aws/iceberg-branches`](../../aws/iceberg-branches) for the CI
   snippet and for cutting true copy-on-write Iceberg branch refs engine-side.
 
 See [`docs/preview-environments.md`](../../docs/preview-environments.md) for the

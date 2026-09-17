@@ -1,5 +1,5 @@
 # Shared terraform-docs config. Run per module, e.g.:
-#   terraform-docs -c .terraform-docs.yml modules/network
+#   terraform-docs -c .terraform-docs.yml aws/network
 formatter: markdown table
 
 output:
@@ -18,6 +18,10 @@ settings:
   anchor: true
   color: true
   description: true
+  # Never read .terraform.lock.hcl: a locally inited module would otherwise
+  # render resolved provider versions where CI (no lock files, gitignored)
+  # renders the constraints, and the docs check would fail on the diff.
+  lockfile: false
   hide-empty: true
   required: true
   sensitive: true

@@ -5,8 +5,8 @@
 # unique `name_prefix` onto a full workload set that lands on the SHARED cluster,
 # with its own copy-on-write Neon DB branches and an ephemeral S3 bucket. On
 # `tofu destroy` (or the nightly sweep) every stamped resource -- namespaces,
-# releases, IAM roles, NodePools, DB branches, bucket -- disappears; prod is
-# untouched the whole time.
+# releases, IAM roles (aws/data-adapter), NodePools (aws/compute-adapter), DB
+# branches, bucket -- disappears; prod is untouched the whole time.
 #
 # Run one Terraform WORKSPACE per PR so each preview keeps isolated state:
 #   tofu workspace new pr123
@@ -62,7 +62,7 @@ locals {
 # ------------------------------------------------------------------------------
 
 module "storage" {
-  source = "../../modules/preview-storage"
+  source = "../../aws/preview-storage"
 
   name_prefix = var.preview_name
   tags        = local.preview_tags
@@ -81,11 +81,11 @@ module "neon" {
 # analogue of the Neon branches): the preview's jobs write tables only inside
 # their own namespace and may read the listed prod namespaces, so no preview
 # write can ever land in a prod table. Destroyed with the rest of the stamp;
-# see modules/iceberg-branches for the teardown caveat (tables must be dropped
+# see aws/iceberg-branches for the teardown caveat (tables must be dropped
 # before the namespace).
 module "iceberg" {
   count  = local.iceberg_enabled ? 1 : 0
-  source = "../../modules/iceberg-branches"
+  source = "../../aws/iceberg-branches"
 
   name_prefix      = var.preview_name
   table_bucket_arn = var.iceberg_table_bucket_arn
@@ -93,35 +93,115 @@ module "iceberg" {
   tags             = local.preview_tags
 }
 
+# ------------------------------------------------------------------------------
+# Backend adapters, stamped with the same prefix as the workloads.
+# ------------------------------------------------------------------------------
+
+# Data axis: per-service roles (IRSA on the shared EKS cluster). MLflow
+# artifacts and the webapp's readable data both point at the ephemeral bucket,
+# so nothing a preview produces lands in a prod bucket. Ray/Dagster
+# additionally get the Iceberg policies when Iceberg is on: read/write confined
+# to the preview's namespace, read-only on prod's.
+locals {
+  pipeline_policies = merge(
+    { processeddata = module.storage.putget_policy_arn },
+    local.iceberg_enabled ? { iceberg_rw = module.iceberg[0].readwrite_policy_arn } : {},
+    local.iceberg_enabled && length(var.iceberg_read_namespaces) > 0
+    ? { iceberg_read = module.iceberg[0].read_policy_arn } : {},
+  )
+}
+
+module "data" {
+  source = "../../aws/data-adapter"
+
+  cluster_name      = var.cluster_name
+  name_prefix       = local.name_prefix
+  oidc_provider_arn = var.oidc_provider_arn
+  region            = var.region
+
+  enable_webapp  = true
+  enable_dagster = true
+  enable_ray     = true
+  enable_mlflow  = true
+
+  webapp_policy_arns          = { processeddata = module.storage.get_policy_arn }
+  dagster_policy_arns         = local.pipeline_policies
+  ray_policy_arns             = local.pipeline_policies
+  mlflow_artifact_bucket      = module.storage.bucket_name
+  mlflow_artifact_bucket_arn  = module.storage.bucket_arn
+  mlflow_artifact_kms_key_arn = module.storage.kms_key_arn
+
+  tags = local.preview_tags
+}
+
+# Compute axis: preview-scoped Karpenter NodePools (name-prefixed; scale to
+# zero when idle, torn down on destroy). Modest caps so a preview can't
+# balloon cost. Pipeline pods are pinned to the preview's own default pool;
+# the GPU pool is prefixed too, so RayJobs that select
+# module.compute.node_pool_names["ray-gpu-worker"] get isolated GPU capacity
+# instead of sharing prod's.
+module "compute" {
+  source = "../../aws/compute-adapter"
+
+  providers = { aws = aws, helm = helm }
+
+  cluster_name                 = var.cluster_name
+  name_prefix                  = local.name_prefix
+  environment                  = "preview"
+  vpc_name                     = var.vpc_name
+  karpenter_node_iam_role_name = var.karpenter_node_iam_role_name
+
+  karpenter_node_pools = {
+    default = {
+      instance_families = ["m7i"]
+      instance_sizes    = ["large", "xlarge"]
+      capacity_types    = ["spot", "on-demand"]
+      limits            = { cpu = "16", memory = "64Gi" }
+    }
+    ray-gpu-worker = {
+      instance_families      = ["g6"]
+      instance_sizes         = ["xlarge", "2xlarge"]
+      instance_architectures = ["amd64"]
+      capacity_types         = ["on-demand"]
+      labels                 = { "nvidia.com/gpu" = "true" }
+      limits                 = { "nvidia.com/gpu" = "4" }
+      taints = [{
+        key    = "nvidia.com/gpu"
+        value  = "true"
+        effect = "NoSchedule"
+      }]
+    }
+  }
+  node_pool_roles = {
+    default = ["dagster", "ray_head", "ray_worker"]
+  }
+
+  tags = local.preview_tags
+}
+
 module "workloads" {
   source = "../../modules/workloads"
 
   providers = {
-    aws        = aws
     kubernetes = kubernetes
     helm       = helm
     kubectl    = kubectl
   }
 
   environment = "preview"
-  region      = var.region
-
-  # Target the existing shared cluster.
-  cluster_name                 = var.cluster_name
-  oidc_provider_arn            = var.oidc_provider_arn
-  vpc_name                     = var.vpc_name
-  karpenter_node_iam_role_name = var.karpenter_node_iam_role_name
 
   # Everything is prefixed so it never collides with prod or other previews.
   name_prefix = local.name_prefix
+
+  # Contract inputs from the two adapters.
+  workload_identity = module.data.workload_identity
+  scheduling        = module.compute.scheduling
 
   # Private Ingresses on the shared Tailscale operator, hostnames prefixed.
   enable_private_ingress          = var.private_ingress_dns_suffix != ""
   private_ingress_class_name      = "tailscale"
   private_ingress_hostname_prefix = local.name_prefix
   private_ingress_dns_suffix      = var.private_ingress_dns_suffix
-
-  tags = local.preview_tags
 
   # Full workload set with a dedicated persistent Ray cluster for the preview.
   enable_webapp      = true
@@ -147,45 +227,5 @@ module "workloads" {
   mlflow_db_user     = local.neon_enabled ? module.neon.connections["mlflow"].user : ""
   mlflow_db_password = local.neon_enabled ? module.neon.connections["mlflow"].password : ""
 
-  # Storage: MLflow artifacts and the webapp's readable data both point at the
-  # ephemeral bucket, so nothing a preview produces lands in a prod bucket.
-  # Ray/Dagster additionally get the Iceberg policies when Iceberg is on:
-  # read/write confined to the preview's namespace, read-only on prod's.
-  mlflow_artifact_bucket     = module.storage.bucket_name
-  mlflow_artifact_bucket_arn = module.storage.bucket_arn
-  webapp_bucket_policies     = { processeddata = module.storage.get_policy_arn }
-  ray_storage_bucket_policies = merge(
-    { processeddata = module.storage.putget_policy_arn },
-    local.iceberg_enabled ? { iceberg_rw = module.iceberg[0].readwrite_policy_arn } : {},
-    local.iceberg_enabled && length(var.iceberg_read_namespaces) > 0
-    ? { iceberg_read = module.iceberg[0].read_policy_arn } : {},
-  )
-
-  # Preview-scoped Karpenter NodePools (name-prefixed; scale to zero when idle,
-  # torn down on destroy). Modest caps so a preview can't balloon cost.
-  #
-  # Unlike the source repo, the GPU pool is prefixed too: the Ray Helm values
-  # select GPU workers by the name-prefixed NodePool, so each preview gets its
-  # own isolated GPU capacity instead of sharing prod's.
-  karpenter_node_pools = {
-    default = {
-      instance_families = ["m7i"]
-      instance_sizes    = ["large", "xlarge"]
-      capacity_types    = ["spot", "on-demand"]
-      limits            = { cpu = "16", memory = "64Gi" }
-    }
-    ray-gpu-worker = {
-      instance_families      = ["g6"]
-      instance_sizes         = ["xlarge", "2xlarge"]
-      instance_architectures = ["amd64"]
-      capacity_types         = ["on-demand"]
-      labels                 = { "nvidia.com/gpu" = "true" }
-      limits                 = { "nvidia.com/gpu" = "4" }
-      taints = [{
-        key    = "nvidia.com/gpu"
-        value  = "true"
-        effect = "NoSchedule"
-      }]
-    }
-  }
+  mlflow_artifact_root = module.data.mlflow_artifact_root
 }

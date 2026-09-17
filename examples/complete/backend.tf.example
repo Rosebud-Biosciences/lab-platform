@@ -1,4 +1,4 @@
-# Rename to backend.tf and fill in the bucket/table created by modules/bootstrap.
+# Rename to backend.tf and fill in the bucket/table created by aws/bootstrap.
 #
 # terraform {
 #   backend "s3" {

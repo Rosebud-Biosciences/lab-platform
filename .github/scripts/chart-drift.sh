@@ -45,8 +45,8 @@ repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
 # Keep in step with the helm_release blocks: the repository here must be the
 # one the module installs from, or the comparison is against the wrong index.
 pins="
-modules/eks-platform/variables.tf|tailscale_operator_chart_version|https://pkgs.tailscale.com/helmcharts|tailscale-operator|$tailscale_warn_behind
-modules/eks-platform/variables.tf|kuberay_operator_version|https://ray-project.github.io/kuberay-helm/|kuberay-operator|$chart_warn_behind
+aws/eks-platform/variables.tf|tailscale_operator_chart_version|https://pkgs.tailscale.com/helmcharts|tailscale-operator|$tailscale_warn_behind
+aws/eks-platform/variables.tf|kuberay_operator_version|https://ray-project.github.io/kuberay-helm/|kuberay-operator|$chart_warn_behind
 modules/workloads/variables.tf|ray_cluster_chart_version|https://ray-project.github.io/kuberay-helm/|ray-cluster|$chart_warn_behind
 modules/workloads/variables.tf|jupyterhub_chart_version|https://hub.jupyter.org/helm-chart/|jupyterhub|$chart_warn_behind
 modules/workloads/variables.tf|dagster_chart_version|https://dagster-io.github.io/helm|dagster|$chart_warn_behind

@@ -46,7 +46,7 @@ on:
         type: string
         default: examples/preview
       role_to_assume:
-        description: "IAM role ARN for GitHub OIDC (the preview deployer role from modules/bootstrap)"
+        description: "IAM role ARN for GitHub OIDC (the preview deployer role from aws/bootstrap)"
         type: string
         required: true
       cluster_name:

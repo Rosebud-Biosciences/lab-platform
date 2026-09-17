@@ -31,19 +31,24 @@ jobs:
       fail-fast: false
       matrix:
         dir:
-          - modules/bootstrap
-          - modules/network
-          - modules/eks-platform
           - modules/workloads
-          - modules/s3-bucket
-          - modules/preview-storage
           - modules/neon-branches
-          - modules/iceberg-branches
-          - modules/data-access
+          - aws/bootstrap
+          - aws/network
+          - aws/eks-platform
+          - aws/s3-bucket
+          - aws/preview-storage
+          - aws/iceberg-branches
+          - aws/data-access
+          - aws/data-adapter
+          - aws/compute-adapter
+          - aws/oidc-provider
           - examples/minimal
           - examples/complete
           - examples/preview
           - examples/jupyterhub
+          - examples/kind
+          - examples/kind-aws-data
     steps:
       - uses: actions/checkout@v7
       - uses: opentofu/setup-opentofu@v2
@@ -67,13 +72,18 @@ jobs:
   checkov:
     name: checkov
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # One tree per run: the portable modules and the AWS backend.
+        dir: [modules, aws]
     steps:
       - uses: actions/checkout@v7
       # Repo-wide exceptions live in .checkov.yml with their reasons; per-resource
       # ones are inline next to the resource. The gate stays hard.
       - uses: bridgecrewio/checkov-action@v12
         with:
-          directory: modules
+          directory: ${{ matrix.dir }}
           framework: terraform
           config_file: .checkov.yml
           quiet: true
@@ -87,7 +97,7 @@ jobs:
       - name: Verify generated module docs are up to date
         uses: terraform-docs/gh-actions@v1
         with:
-          working-dir: modules/bootstrap,modules/network,modules/eks-platform,modules/workloads,modules/s3-bucket,modules/preview-storage,modules/neon-branches,modules/iceberg-branches,modules/data-access
+          working-dir: modules/workloads,modules/neon-branches,aws/bootstrap,aws/network,aws/eks-platform,aws/s3-bucket,aws/preview-storage,aws/iceberg-branches,aws/data-access,aws/data-adapter,aws/compute-adapter,aws/oidc-provider
           config-file: .terraform-docs.yml
           output-format: markdown table
           fail-on-diff: true
@@ -99,11 +109,14 @@ jobs:
       fail-fast: false
       matrix:
         dir:
-          - modules/bootstrap
-          - modules/network
           - modules/workloads
-          - modules/iceberg-branches
-          - modules/data-access
+          - aws/bootstrap
+          - aws/network
+          - aws/iceberg-branches
+          - aws/data-access
+          - aws/data-adapter
+          - aws/compute-adapter
+          - aws/oidc-provider
     steps:
       - uses: actions/checkout@v7
       - uses: opentofu/setup-opentofu@v2

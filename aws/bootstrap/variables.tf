@@ -142,7 +142,7 @@ variable "preview_ecr_repositories" {
 }
 
 variable "preview_table_bucket_arns" {
-  description = "S3 Tables table-bucket ARNs in which the preview role may create/destroy per-preview Iceberg namespaces (modules/iceberg-branches). Empty skips the s3tables statements."
+  description = "S3 Tables table-bucket ARNs in which the preview role may create/destroy per-preview Iceberg namespaces (aws/iceberg-branches). Empty skips the s3tables statements."
   type        = list(string)
   default     = []
 }

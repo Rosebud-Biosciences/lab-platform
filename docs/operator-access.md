@@ -4,7 +4,7 @@ How the *person* running `tofu apply` should authenticate, and why the obvious
 approaches don't work. Everything here was learned the expensive way — by an
 apply that failed halfway — so it is written down in one place.
 
-The CI roles in [`modules/bootstrap`](../modules/bootstrap) cover machines.
+The CI roles in [`aws/bootstrap`](../aws/bootstrap) cover machines.
 This document covers you.
 
 ## The problem with the obvious setup
@@ -36,7 +36,7 @@ IAM user (static key)  --sts:AssumeRole + MFA-->  operator-admin role  --> the s
   nothing else it doesn't strictly need. Ideally: self-service on its own
   credentials, and read-only for browsing.
 - The **operator role** carries the real permissions (`AdministratorAccess` by
-  default in `modules/bootstrap`; scope it down once you know what your stacks
+  default in `aws/bootstrap`; scope it down once you know what your stacks
   call). Its trust policy requires `aws:MultiFactorAuthPresent = true` and a
   recent `aws:MultiFactorAuthAge`, so getting into it *is* the MFA check.
   `max_session_duration` is four hours by default, because a full cluster
@@ -47,11 +47,11 @@ IAM user (static key)  --sts:AssumeRole + MFA-->  operator-admin role  --> the s
   themselves — from anything that is not the role. It is attached to the role
   by the module; you attach it to the static identity as well.
 
-`modules/bootstrap` builds the role and the guardrail:
+`aws/bootstrap` builds the role and the guardrail:
 
 ```hcl
 module "bootstrap" {
-  source = "github.com/Rosebud-Biosciences/terraform-aws-lab-platform//modules/bootstrap?ref=main"
+  source = "github.com/Rosebud-Biosciences/terraform-aws-lab-platform//aws/bootstrap?ref=main"
 
   state_bucket_name = "my-org-terraform-state"
 
@@ -133,12 +133,12 @@ The `kubernetes`/`helm`/`kubectl` providers authenticate with `aws eks
 get-token`, which signs as whatever credentials are ambient. When you switch
 from the static key to the role, the cluster sees a new principal — and with
 API authentication mode, a principal without an EKS access entry is refused.
-`modules/eks-platform` gives the *creator* an entry automatically; the role
+`aws/eks-platform` gives the *creator* an entry automatically; the role
 needs one of its own:
 
 ```hcl
 module "platform" {
-  source = "github.com/Rosebud-Biosciences/terraform-aws-lab-platform//modules/eks-platform?ref=main"
+  source = "github.com/Rosebud-Biosciences/terraform-aws-lab-platform//aws/eks-platform?ref=main"
   # ...
   access_entries = {
     operator = {

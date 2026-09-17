@@ -68,11 +68,13 @@ control panel). Start the server, then:
 ## The data is guarded
 
 User homes live on one EFS filesystem, which is the only persistent user data
-in the stack. It is protected with `lifecycle.prevent_destroy` by default
-(`jupyterhub_efs_prevent_destroy = true`), so `tofu destroy` — or flipping
-`enable_jupyterhub` off — fails until you deliberately disarm the guard first
-and apply that change. Snapshot it with AWS Backup using the `jupyterhub_efs_id`
-output before ever doing so.
+in the stack. `aws/compute-adapter` owns it and protects it with
+`lifecycle.prevent_destroy` by default (`jupyterhub_efs_prevent_destroy = true`),
+so `tofu destroy` — or flipping `enable_jupyterhub` off — fails until you
+deliberately disarm the guard first and apply that change. `modules/workloads`
+only binds PersistentVolumes to the filesystem, so destroying the workloads
+layer alone never touches the data. Snapshot it with AWS Backup using the
+adapter's `jupyterhub_efs_id` output before ever doing so.
 
 ## Cost
 

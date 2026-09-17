@@ -28,3 +28,8 @@ skip-check:
   # nothing else, and a key policy is one more thing that can lock an
   # operator out of the run that would fix it.
   - CKV_AWS_119
+  # aws_availability_zones must allowlist zone NAMES to pass; a module that
+  # deploys into any region cannot hard-code them. The set is closed anyway:
+  # `network` slices the sorted names to num_availability_zones, and a newly
+  # added zone sorts last, so the first N never change under it.
+  - CKV_AWS_394
