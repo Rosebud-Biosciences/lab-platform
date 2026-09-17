@@ -1,11 +1,28 @@
 # neon-branches
 
 Copy-on-write [Neon](https://neon.tech) Postgres branches for one preview
-environment — the database side of "branch prod for testing, off prod." For each
-named source (e.g. `app`, `dagster`, `mlflow`) it cuts a child branch off the
-parent (typically prod `main`) in seconds, creates an autoscaling endpoint, and
-exports ready-to-use connection details and SQLAlchemy URLs. Branches and
-endpoints are deleted on `tofu destroy`, so no preview writes persist.
+environment — the database side of "branch prod for testing, off prod." Given
+named sources (e.g. `app`, `dagster`, `mlflow`), it cuts child branches off
+their parents (typically prod `main`) in seconds, creates an autoscaling
+endpoint per branch, and exports ready-to-use connection details and
+SQLAlchemy URLs **per source**. Branches and endpoints are deleted on
+`tofu destroy`, so no preview writes persist.
+
+A Neon branch snapshots a whole project, and its compute belongs to the
+branch, so the module branches per **(project, parent branch)**, not per
+database: sources that share a parent share one branch and one compute, each
+with its own database URL, and get the same snapshot. That makes the two
+common layouts cost what they should:
+
+| Prod layout | Sources | Branches per preview |
+| --- | --- | --- |
+| One project per service (`rosebud-db`, `rosebud-dagster`, `rosebud-mlflow`) | 3 in 3 projects | 3, named `<prefix>app`, `<prefix>dagster`, `<prefix>mlflow` |
+| One project, many databases (the sandbox) | 3 in 1 project | **1**, named `<prefix>app-dagster-mlflow`, serving all three |
+| `data` + `orchestration` projects | 3 in 2 projects | 2 |
+
+`branch_names` stays keyed by source (sources sharing a branch report the
+same name); `branches` lists what was actually created and which sources each
+serves.
 
 Isolated in its own submodule so non-Neon users never have to configure the
 provider — the documented fallback is an empty branched DB plus a migration
@@ -63,7 +80,8 @@ module "neon" {
 
 | Name | Description |
 |------|-------------|
-| <a name="output_branch_names"></a> [branch\_names](#output\_branch\_names) | Names of the ephemeral Neon branches created for this preview |
+| <a name="output_branch_names"></a> [branch\_names](#output\_branch\_names) | Name of the ephemeral Neon branch serving each source, keyed by source name (sources sharing a parent share a branch) |
+| <a name="output_branches"></a> [branches](#output\_branches) | The ephemeral branches actually created, one per distinct (project, parent branch): {project\_id, branch\_id, name, sources} |
 | <a name="output_connections"></a> [connections](#output\_connections) | Per-source connection details (host, user, password, dbname), keyed by the logical source name |
 | <a name="output_postgres_urls"></a> [postgres\_urls](#output\_postgres\_urls) | Per-source SQLAlchemy-style Postgres URLs, keyed by the logical source name |
 <!-- END_TF_DOCS -->

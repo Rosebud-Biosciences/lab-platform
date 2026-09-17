@@ -110,6 +110,7 @@ jobs:
       matrix:
         dir:
           - modules/workloads
+          - modules/neon-branches
           - aws/bootstrap
           - aws/network
           - aws/iceberg-branches

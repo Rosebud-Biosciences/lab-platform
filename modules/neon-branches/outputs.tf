@@ -11,6 +11,18 @@ output "postgres_urls" {
 }
 
 output "branch_names" {
-  description = "Names of the ephemeral Neon branches created for this preview"
-  value       = { for k, b in neon_branch.this : k => b.name }
+  description = "Name of the ephemeral Neon branch serving each source, keyed by source name (sources sharing a parent share a branch)"
+  value       = { for k in keys(local.sources) : k => neon_branch.this[local.source_group[k]].name }
+}
+
+output "branches" {
+  description = "The ephemeral branches actually created, one per distinct (project, parent branch): {project_id, branch_id, name, sources}"
+  value = {
+    for g, spec in local.groups : g => {
+      project_id = spec.project_id
+      branch_id  = neon_branch.this[g].id
+      name       = neon_branch.this[g].name
+      sources    = spec.sources
+    }
+  }
 }
