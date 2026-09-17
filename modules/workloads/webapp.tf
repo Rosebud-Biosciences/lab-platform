@@ -1,15 +1,21 @@
 # ------------------------------------------------------------------------------
 # WORKLOADS MODULE - WEBAPP (generic web application, namespaced by name_prefix)
 #
-# A single-container Deployment + Service + IRSA, with configurable plain and
-# secret env, optional Service-level session affinity, and (in webapp_public.tf)
-# an optional internet-facing ALB ingress with HPA/PDB/WAF.
+# A single-container Deployment + Service + ServiceAccount, with configurable
+# plain and secret env, optional Service-level session affinity, and (in
+# webapp_public.tf) an optional internet-facing Ingress with HPA/PDB.
+# Cloud identity arrives through the workload_identity contract: SA
+# annotations, env, a projected token volume, and/or static secret env.
 # ------------------------------------------------------------------------------
 
 locals {
   webapp_labels = { app = var.webapp_app_name }
 
   webapp_effective_replicas = var.webapp_replicas
+
+  # Plain env: caller-supplied plus the identity contract's (region, role ARN,
+  # token path, endpoint URL).
+  webapp_plain_env = merge(local.identity.webapp.env, var.webapp_env)
 }
 
 resource "kubernetes_namespace_v1" "webapp" {
@@ -20,38 +26,19 @@ resource "kubernetes_namespace_v1" "webapp" {
   }
 }
 
-module "webapp_irsa" {
-  count   = var.enable_webapp ? 1 : 0
-  source  = "terraform-aws-modules/iam/aws//modules/iam-role-for-service-accounts"
-  version = "~> 6.8"
-
-  name            = "${var.cluster_name}-${local.prefix}${var.webapp_app_name}-sa"
-  use_name_prefix = false
-
-  policies = var.webapp_bucket_policies
-
-  oidc_providers = {
-    main = {
-      provider_arn               = var.oidc_provider_arn
-      namespace_service_accounts = ["${local.webapp_namespace}:${local.webapp_service_account_name}"]
-    }
-  }
-}
-
 resource "kubernetes_service_account_v1" "webapp" {
   count = var.enable_webapp ? 1 : 0
 
   metadata {
-    name      = local.webapp_service_account_name
-    namespace = kubernetes_namespace_v1.webapp[0].metadata[0].name
-    annotations = {
-      "eks.amazonaws.com/role-arn" = module.webapp_irsa[0].arn
-    }
+    name        = local.webapp_service_account_name
+    namespace   = kubernetes_namespace_v1.webapp[0].metadata[0].name
+    annotations = local.identity.webapp.service_account_annotations
   }
 }
 
 # Secret env: caller-supplied secret values (e.g. session secret, OIDC client
-# secret) plus the shared DATABASE_URL when set. Injected via envFrom.
+# secret), the identity contract's static credentials, plus the shared
+# DATABASE_URL when set. Injected via envFrom.
 resource "kubernetes_secret_v1" "webapp_env" {
   count = var.enable_webapp ? 1 : 0
 
@@ -61,6 +48,7 @@ resource "kubernetes_secret_v1" "webapp_env" {
   }
 
   data = merge(
+    local.identity_secret_env.webapp,
     var.webapp_secret_env,
     var.database_url != "" ? { DATABASE_URL = var.database_url } : {}
   )
@@ -90,6 +78,33 @@ resource "kubernetes_deployment_v1" "webapp" {
 
       spec {
         service_account_name = kubernetes_service_account_v1.webapp[0].metadata[0].name
+        node_selector        = local.scheduling.webapp.node_selector
+
+        dynamic "toleration" {
+          for_each = local.scheduling.webapp.tolerations
+          content {
+            key      = lookup(toleration.value, "key", null)
+            operator = lookup(toleration.value, "operator", null)
+            value    = lookup(toleration.value, "value", null)
+            effect   = lookup(toleration.value, "effect", null)
+          }
+        }
+
+        dynamic "volume" {
+          for_each = local.identity_volumes.webapp
+          content {
+            name = volume.value.name
+            projected {
+              sources {
+                service_account_token {
+                  audience           = volume.value.projected.sources[0].serviceAccountToken.audience
+                  expiration_seconds = volume.value.projected.sources[0].serviceAccountToken.expirationSeconds
+                  path               = volume.value.projected.sources[0].serviceAccountToken.path
+                }
+              }
+            }
+          }
+        }
 
         container {
           name  = var.webapp_app_name
@@ -99,13 +114,8 @@ resource "kubernetes_deployment_v1" "webapp" {
             container_port = var.webapp_container_port
           }
 
-          env {
-            name  = "AWS_REGION"
-            value = var.region
-          }
-
           dynamic "env" {
-            for_each = var.webapp_env
+            for_each = local.webapp_plain_env
             content {
               name  = env.key
               value = env.value
@@ -115,6 +125,15 @@ resource "kubernetes_deployment_v1" "webapp" {
           env_from {
             secret_ref {
               name = kubernetes_secret_v1.webapp_env[0].metadata[0].name
+            }
+          }
+
+          dynamic "volume_mount" {
+            for_each = local.identity_volume_mounts.webapp
+            content {
+              name       = volume_mount.value.name
+              mount_path = volume_mount.value.mountPath
+              read_only  = volume_mount.value.readOnly
             }
           }
 
@@ -179,6 +198,33 @@ resource "kubernetes_deployment_v1" "webapp_pinned" {
 
       spec {
         service_account_name = kubernetes_service_account_v1.webapp[0].metadata[0].name
+        node_selector        = local.scheduling.webapp.node_selector
+
+        dynamic "toleration" {
+          for_each = local.scheduling.webapp.tolerations
+          content {
+            key      = lookup(toleration.value, "key", null)
+            operator = lookup(toleration.value, "operator", null)
+            value    = lookup(toleration.value, "value", null)
+            effect   = lookup(toleration.value, "effect", null)
+          }
+        }
+
+        dynamic "volume" {
+          for_each = local.identity_volumes.webapp
+          content {
+            name = volume.value.name
+            projected {
+              sources {
+                service_account_token {
+                  audience           = volume.value.projected.sources[0].serviceAccountToken.audience
+                  expiration_seconds = volume.value.projected.sources[0].serviceAccountToken.expirationSeconds
+                  path               = volume.value.projected.sources[0].serviceAccountToken.path
+                }
+              }
+            }
+          }
+        }
 
         container {
           name  = var.webapp_app_name
@@ -188,13 +234,8 @@ resource "kubernetes_deployment_v1" "webapp_pinned" {
             container_port = var.webapp_container_port
           }
 
-          env {
-            name  = "AWS_REGION"
-            value = var.region
-          }
-
           dynamic "env" {
-            for_each = var.webapp_env
+            for_each = local.webapp_plain_env
             content {
               name  = env.key
               value = env.value
@@ -204,6 +245,15 @@ resource "kubernetes_deployment_v1" "webapp_pinned" {
           env_from {
             secret_ref {
               name = kubernetes_secret_v1.webapp_env[0].metadata[0].name
+            }
+          }
+
+          dynamic "volume_mount" {
+            for_each = local.identity_volume_mounts.webapp
+            content {
+              name       = volume_mount.value.name
+              mount_path = volume_mount.value.mountPath
+              read_only  = volume_mount.value.readOnly
             }
           }
 

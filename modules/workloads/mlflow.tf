@@ -1,5 +1,10 @@
 # ------------------------------------------------------------------------------
 # WORKLOADS MODULE - MLFLOW TRACKING SERVER (namespaced by name_prefix)
+#
+# community-charts/mlflow against an external Postgres, with an S3-compatible
+# artifact root (mlflow_artifact_root) reached through the identity contract:
+# SA annotations for webhook identity, env for a projected token or an
+# alternate endpoint (MinIO), and the <svc>-identity-env Secret for static keys.
 # ------------------------------------------------------------------------------
 
 resource "kubernetes_namespace_v1" "mlflow" {
@@ -10,60 +15,21 @@ resource "kubernetes_namespace_v1" "mlflow" {
   }
 }
 
-resource "aws_iam_policy" "mlflow_s3" {
-  count       = var.enable_mlflow ? 1 : 0
-  name        = "${var.cluster_name}-${local.prefix}mlflow-s3"
-  description = "Access to the MLflow artifact bucket for the tracking server${local.iam_desc_suffix}"
-
-  policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
-      {
-        Effect   = "Allow"
-        Action   = ["s3:ListBucket", "s3:GetBucketLocation"]
-        Resource = var.mlflow_artifact_bucket_arn
-      },
-      {
-        Effect   = "Allow"
-        Action   = ["s3:GetObject", "s3:PutObject", "s3:DeleteObject"]
-        Resource = "${var.mlflow_artifact_bucket_arn}/*"
-      }
-    ]
-  })
-}
-
-module "mlflow_irsa" {
-  count   = var.enable_mlflow ? 1 : 0
-  source  = "terraform-aws-modules/iam/aws//modules/iam-role-for-service-accounts"
-  version = "~> 6.8"
-
-  name            = "${var.cluster_name}-${local.prefix}mlflow-sa"
-  use_name_prefix = false
-
-  policies = {
-    s3 = aws_iam_policy.mlflow_s3[0].arn
-  }
-
-  oidc_providers = {
-    main = {
-      provider_arn               = var.oidc_provider_arn
-      namespace_service_accounts = ["${local.mlflow_namespace}:${local.mlflow_service_account_name}"]
-    }
-  }
-}
-
-resource "kubernetes_secret_v1" "mlflow_db" {
+resource "kubernetes_secret_v1" "mlflow_identity_env" {
   count = var.enable_mlflow ? 1 : 0
 
   metadata {
-    name      = "mlflow-db-credentials"
+    name      = local.identity_secret_name.mlflow
     namespace = kubernetes_namespace_v1.mlflow[0].metadata[0].name
   }
 
-  data = {
-    username = var.mlflow_db_user
-    password = var.mlflow_db_password
-  }
+  data = local.identity_secret_env.mlflow
+}
+
+locals {
+  # s3://bucket[/prefix] -> bucket, prefix for the chart's artifactRoot.s3 block.
+  mlflow_artifact_bucket = var.mlflow_artifact_root != "" ? regex("^s3://([^/]+)", var.mlflow_artifact_root)[0] : ""
+  mlflow_artifact_path   = var.mlflow_artifact_root != "" ? trimprefix(trimprefix(var.mlflow_artifact_root, "s3://${local.mlflow_artifact_bucket}"), "/") : ""
 }
 
 resource "helm_release" "mlflow" {
@@ -77,11 +43,19 @@ resource "helm_release" "mlflow" {
   timeout    = 600
 
   values = [templatefile("${local.helm_defaults}/mlflow/values.yaml", {
-    service_account_name = local.mlflow_service_account_name
-    irsa_role_arn        = module.mlflow_irsa[0].arn
-    artifact_bucket      = var.mlflow_artifact_bucket
-    db_host              = var.mlflow_db_host
-    db_name              = var.mlflow_db_name
-    db_secret_name       = kubernetes_secret_v1.mlflow_db[0].metadata[0].name
+    service_account_name        = local.mlflow_service_account_name
+    service_account_annotations = jsonencode(local.identity.mlflow.service_account_annotations)
+    artifact_bucket             = local.mlflow_artifact_bucket
+    artifact_path               = local.mlflow_artifact_path
+    db_host                     = var.mlflow_db_host
+    db_name                     = var.mlflow_db_name
+    db_user                     = jsonencode(var.mlflow_db_user)
+    db_password                 = jsonencode(var.mlflow_db_password)
+    identity_env                = jsonencode(local.identity.mlflow.env)
+    identity_env_secret         = kubernetes_secret_v1.mlflow_identity_env[0].metadata[0].name
+    identity_volumes            = jsonencode(local.identity_volumes.mlflow)
+    identity_volume_mounts      = jsonencode(local.identity_volume_mounts.mlflow)
+    node_selector               = jsonencode(local.scheduling.mlflow.node_selector)
+    tolerations                 = jsonencode(local.scheduling.mlflow.tolerations)
   })]
 }

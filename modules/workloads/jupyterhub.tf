@@ -1,25 +1,47 @@
 # ------------------------------------------------------------------------------
 # WORKLOADS MODULE - JUPYTERHUB (namespaced by name_prefix)
 #
-# JupyterHub with a shared EFS volume and IRSA-backed single-user servers. Moved
-# out of the platform module so it can be toggled per environment and previewed.
-# Optional internal/internet-facing ALB ingress + Route53 alias.
+# JupyterHub with a shared ReadWriteMany volume (home directories + a shared
+# directory) and single-user servers carrying the identity contract. The
+# volume is the jupyterhub_shared_storage contract: a static NFS
+# PersistentVolume (EFS from aws/compute-adapter, Filestore, any NFS server)
+# or a dynamic RWX PersistentVolumeClaim from a StorageClass. Optional public
+# Ingress on the caller's IngressClass.
 # ------------------------------------------------------------------------------
 
 locals {
-  jupyterhub_namespace = "${local.prefix}jupyterhub"
-  efs_name             = "jhub-shared-${var.environment}${local.prefix != "" ? "-${trimsuffix(local.prefix, "-")}" : ""}"
-
-  jupyterhub_single_user_sa = "${var.cluster_name}-${local.prefix}jupyterhub-single-user"
-
-  efs_subnet_ids = var.enable_jupyterhub ? compact([
-    for subnet_id, cidr_block in zipmap(var.private_subnets, var.private_subnets_cidr_blocks) :
-    substr(cidr_block, 0, length(var.efs_subnet_cidr_octet_prefix)) == var.efs_subnet_cidr_octet_prefix ? subnet_id : null
-  ]) : []
+  jupyterhub_home_claim   = "jupyterhub-home"
+  jupyterhub_shared_claim = "jupyterhub-shared"
 
   jupyterhub_ingress_enabled = var.enable_jupyterhub && var.jupyterhub_public_host != ""
 
-  jupyterhub_efs = one(aws_efs_file_system.jupyterhub[*])
+  jupyterhub_public_annotations = merge(
+    var.jupyterhub_public_host != "" ? { "external-dns.alpha.kubernetes.io/hostname" = var.jupyterhub_public_host } : {},
+    var.jupyterhub_public_ingress_annotations,
+  )
+
+  # The shared directory volume plus the identity token, in the shape
+  # KubeSpawner takes for singleuser.storage.extraVolumes / extraVolumeMounts.
+  jupyterhub_extra_volumes = concat(
+    [{ name = "jupyterhub-shared", persistentVolumeClaim = { claimName = local.jupyterhub_shared_claim } }],
+    local.identity_volumes.jupyterhub,
+  )
+  jupyterhub_extra_volume_mounts = concat(
+    [{ name = "jupyterhub-shared", mountPath = "/home/shared", readOnly = false }],
+    local.identity_volume_mounts.jupyterhub,
+  )
+
+  # NFS ignores fsGroup for ownership, so the container starts as root and
+  # chowns the (freshly created) home sub-path and shared dir to the notebook
+  # user before dropping privileges -- the docker-stacks start script does it.
+  jupyterhub_singleuser_env = merge(
+    local.identity.jupyterhub.env,
+    {
+      CHOWN_HOME      = "yes"
+      CHOWN_HOME_OPTS = "-R"
+      CHOWN_EXTRA     = "/home/shared"
+    },
+  )
 }
 
 resource "kubernetes_namespace_v1" "jupyterhub" {
@@ -31,106 +53,36 @@ resource "kubernetes_namespace_v1" "jupyterhub" {
 }
 
 # ------------------------------------------------------------------------------
-# Shared EFS volume
+# Shared RWX volume: two claims (homes, shared) from one small local chart
 #
-# This filesystem holds every user's home directory and the shared directory --
-# the only persistent user data in the module. OpenTofu 1.12's dynamic
-# prevent_destroy guards it directly: durable environments stay protected by
-# default while previews can tear down, and flipping the flag is now just a
-# plan-time guard change (under Terraform's literal-only rule this took two
-# mutually exclusive resources, and flipping REPLACED the filesystem). With
-# protection on, disabling JupyterHub (or `tofu destroy`) fails until the
-# caller first disarms the flag -- an intentional two-step.
+# This is the only persistent user data in the module. Whatever backs it
+# (an EFS filesystem, a Filestore share, an NFS box, a RWX StorageClass) is
+# created and guarded by the caller/adapter; here we only bind to it, so
+# `tofu destroy` of this module never deletes home directories.
 # ------------------------------------------------------------------------------
 
-resource "aws_efs_file_system" "jupyterhub" {
-  count     = var.enable_jupyterhub ? 1 : 0
-  encrypted = true
-
-  lifecycle_policy {
-    transition_to_ia = "AFTER_30_DAYS"
-  }
-  lifecycle_policy {
-    transition_to_primary_storage_class = "AFTER_1_ACCESS"
-  }
-
-  tags = merge(var.tags, {
-    Name = local.efs_name
-  })
-
-  lifecycle {
-    prevent_destroy = var.jupyterhub_efs_prevent_destroy
-  }
-}
-
-resource "aws_security_group" "efs" {
-  count       = var.enable_jupyterhub ? 1 : 0
-  name        = "${var.cluster_name}-${local.prefix}jhub-efs"
-  description = "Allow inbound NFS from the pod CIDR"
-  vpc_id      = var.vpc_id
-
-  ingress {
-    description = "NFS 2049/tcp"
-    cidr_blocks = var.vpc_secondary_cidr_blocks
-    from_port   = 2049
-    to_port     = 2049
-    protocol    = "tcp"
-  }
-
-  tags = var.tags
-}
-
-resource "aws_efs_mount_target" "jupyterhub" {
-  count = var.enable_jupyterhub ? length(local.efs_subnet_ids) : 0
-
-  file_system_id  = local.jupyterhub_efs.id
-  subnet_id       = local.efs_subnet_ids[count.index]
-  security_groups = [aws_security_group.efs[0].id]
-}
-
-# EFS-backed PV/PVC via a small local chart (one release per claim).
-resource "helm_release" "efs_persist" {
-  for_each = var.enable_jupyterhub ? toset(["efs-persist", "efs-persist-shared"]) : toset([])
+resource "helm_release" "jupyterhub_shared_volume" {
+  for_each = var.enable_jupyterhub ? toset([local.jupyterhub_home_claim, local.jupyterhub_shared_claim]) : toset([])
 
   name             = each.key
   namespace        = kubernetes_namespace_v1.jupyterhub[0].metadata[0].name
   create_namespace = false
-  chart            = "${local.helm_defaults}/efs"
+  chart            = "${local.helm_defaults}/shared-volume"
 
   values = [yamlencode({
-    pv = {
-      name    = each.key
-      dnsName = local.jupyterhub_efs.dns_name
-    }
-    pvc = {
-      name = each.key
+    name             = each.key
+    size             = var.jupyterhub_shared_storage.size
+    storageClassName = var.jupyterhub_shared_storage.storage_class_name
+    nfs = var.jupyterhub_shared_storage.nfs_server == null ? null : {
+      server = var.jupyterhub_shared_storage.nfs_server
+      path   = var.jupyterhub_shared_storage.nfs_path
     }
   })]
 }
 
 # ------------------------------------------------------------------------------
-# Single-user IRSA (read-only S3 by default)
+# Single-user identity
 # ------------------------------------------------------------------------------
-
-module "jupyterhub_single_user_irsa" {
-  count   = var.enable_jupyterhub ? 1 : 0
-  source  = "terraform-aws-modules/iam/aws//modules/iam-role-for-service-accounts"
-  version = "~> 6.8"
-
-  name            = "${var.cluster_name}-${local.prefix}jhub-single-user-sa"
-  use_name_prefix = false
-
-  policies = {
-    s3_read = "arn:aws:iam::aws:policy/AmazonS3ReadOnlyAccess"
-  }
-
-  oidc_providers = {
-    main = {
-      provider_arn               = var.oidc_provider_arn
-      namespace_service_accounts = ["${local.jupyterhub_namespace}:${local.jupyterhub_single_user_sa}"]
-    }
-  }
-}
 
 resource "kubernetes_service_account_v1" "jupyterhub_single_user" {
   count = var.enable_jupyterhub ? 1 : 0
@@ -138,10 +90,21 @@ resource "kubernetes_service_account_v1" "jupyterhub_single_user" {
   metadata {
     name        = local.jupyterhub_single_user_sa
     namespace   = kubernetes_namespace_v1.jupyterhub[0].metadata[0].name
-    annotations = { "eks.amazonaws.com/role-arn" : module.jupyterhub_single_user_irsa[0].arn }
+    annotations = local.identity.jupyterhub.service_account_annotations
   }
 
   automount_service_account_token = true
+}
+
+resource "kubernetes_secret_v1" "jupyterhub_identity_env" {
+  count = var.enable_jupyterhub ? 1 : 0
+
+  metadata {
+    name      = local.identity_secret_name.jupyterhub
+    namespace = kubernetes_namespace_v1.jupyterhub[0].metadata[0].name
+  }
+
+  data = local.identity_secret_env.jupyterhub
 }
 
 # ------------------------------------------------------------------------------
@@ -178,32 +141,47 @@ resource "helm_release" "jupyterhub" {
       oidc_scopes         = jsonencode(var.jupyterhub_oidc_scopes)
       oidc_username_claim = jsonencode(var.jupyterhub_oidc_username_claim)
       oidc_login_service  = jsonencode(var.jupyterhub_oidc_login_service)
+      # Storage + identity + scheduling contracts (shared by all three templates).
+      home_claim               = local.jupyterhub_home_claim
+      extra_volumes            = jsonencode(local.jupyterhub_extra_volumes)
+      extra_volume_mounts      = jsonencode(local.jupyterhub_extra_volume_mounts)
+      singleuser_env           = jsonencode(local.jupyterhub_singleuser_env)
+      identity_env_secret      = kubernetes_secret_v1.jupyterhub_identity_env[0].metadata[0].name
+      hub_node_selector        = jsonencode(local.scheduling.jupyterhub.node_selector)
+      hub_tolerations          = jsonencode(local.scheduling.jupyterhub.tolerations)
+      singleuser_node_selector = jsonencode(local.scheduling.jupyterhub_singleuser.node_selector)
+      singleuser_tolerations   = jsonencode(local.scheduling.jupyterhub_singleuser.tolerations)
     })],
     # Caller overrides win (later documents take precedence in Helm).
     var.jupyterhub_extra_values,
   )
 
-  depends_on = [helm_release.efs_persist]
+  depends_on = [helm_release.jupyterhub_shared_volume, kubernetes_secret_v1.jupyterhub_identity_env]
 }
 
 # ------------------------------------------------------------------------------
-# Ingress & DNS (optional)
+# Public Ingress (optional)
 # ------------------------------------------------------------------------------
 
 resource "kubernetes_ingress_v1" "jupyterhub" {
   count = local.jupyterhub_ingress_enabled ? 1 : 0
 
   metadata {
-    name      = "jupyterhub"
-    namespace = kubernetes_namespace_v1.jupyterhub[0].metadata[0].name
-    annotations = {
-      "alb.ingress.kubernetes.io/scheme"      = var.jupyterhub_ingress_scheme
-      "alb.ingress.kubernetes.io/target-type" = "ip"
-    }
+    name        = "jupyterhub"
+    namespace   = kubernetes_namespace_v1.jupyterhub[0].metadata[0].name
+    annotations = local.jupyterhub_public_annotations
   }
 
   spec {
-    ingress_class_name = "alb"
+    ingress_class_name = var.jupyterhub_public_ingress_class_name
+
+    dynamic "tls" {
+      for_each = var.jupyterhub_public_tls_secret_name != "" ? [1] : []
+      content {
+        hosts       = [var.jupyterhub_public_host]
+        secret_name = var.jupyterhub_public_tls_secret_name
+      }
+    }
 
     rule {
       host = var.jupyterhub_public_host
@@ -224,32 +202,7 @@ resource "kubernetes_ingress_v1" "jupyterhub" {
     }
   }
 
-  wait_for_load_balancer = true
+  wait_for_load_balancer = var.webapp_public_wait_for_load_balancer
 
   depends_on = [helm_release.jupyterhub]
-}
-
-data "aws_lb" "jupyterhub" {
-  count = local.jupyterhub_ingress_enabled && var.jupyterhub_route53_zone_id != "" ? 1 : 0
-
-  tags = {
-    "elbv2.k8s.aws/cluster" = var.cluster_name
-    "ingress.k8s.aws/stack" = "${local.jupyterhub_namespace}/jupyterhub"
-  }
-
-  depends_on = [kubernetes_ingress_v1.jupyterhub]
-}
-
-resource "aws_route53_record" "jupyterhub" {
-  count = local.jupyterhub_ingress_enabled && var.jupyterhub_route53_zone_id != "" ? 1 : 0
-
-  zone_id = var.jupyterhub_route53_zone_id
-  name    = var.jupyterhub_public_host
-  type    = "A"
-
-  alias {
-    name                   = data.aws_lb.jupyterhub[0].dns_name
-    zone_id                = data.aws_lb.jupyterhub[0].zone_id
-    evaluate_target_health = true
-  }
 }

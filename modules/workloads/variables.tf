@@ -1,48 +1,23 @@
 # ------------------------------------------------------------------------------
-# TARGET CLUSTER (existing) + NAMING
+# NAMING
 # ------------------------------------------------------------------------------
 
-variable "cluster_name" {
-  description = "Name of the existing EKS cluster to deploy the workloads onto"
-  type        = string
-}
-
-variable "oidc_provider_arn" {
-  description = "IRSA OIDC provider ARN of the target cluster"
-  type        = string
-}
-
-variable "region" {
-  description = "AWS region"
-  type        = string
-}
-
-variable "vpc_name" {
-  description = "VPC name used by Karpenter NodePools for subnet/SG discovery"
-  type        = string
-}
-
-variable "karpenter_node_iam_role_name" {
-  description = "Name of the Karpenter node IAM role (used by NodePool nodeRole). Empty disables NodePool creation."
-  type        = string
-  default     = ""
-}
-
 variable "environment" {
-  description = "Environment name (prod / dev / preview)"
+  description = "Environment name (prod / dev / preview), published to pipelines as PIPELINE_ENV"
   type        = string
   default     = "dev"
 }
 
 variable "name_prefix" {
   description = <<-EOT
-    Prefix applied to every namespace, Helm release, IAM role, NodePool, and
-    private hostname so multiple workload environments can share one cluster.
-    Empty ("") reproduces the base names. A preview uses e.g. "pr123-".
+    Prefix applied to every namespace, Helm release, and private hostname so
+    multiple workload environments can share one cluster. Empty ("")
+    reproduces the base names. A preview uses e.g. "pr123-".
 
-    Validated against the tightest downstream AWS/Kubernetes limits so a long
-    prefix cannot silently produce an invalid namespace (63), IAM role name
-    (64), or ALB name (32).
+    Backend adapters derive their own resource names (IAM roles, NodePools,
+    filesystems) from the same prefix, so it is validated against the tightest
+    downstream limits -- a Kubernetes namespace (63), an AWS IAM role name
+    (64), an ALB name (32) -- rather than only what this module creates.
   EOT
   type        = string
   default     = ""
@@ -53,17 +28,109 @@ variable "name_prefix" {
   }
 
   validation {
-    # 20 leaves headroom under every downstream limit once suffixes like
-    # "<cluster>-<prefix>argo-workflow-sa" (IAM 64) or the ALB name (32) are added.
+    # 21 leaves headroom under every downstream limit once suffixes like
+    # "<cluster>-<prefix>argo-workflow-sa" (IAM 64) or an ALB name (32) are added.
     condition     = length(var.name_prefix) <= 21
-    error_message = "name_prefix must be <= 21 characters to stay within AWS/Kubernetes name limits after suffixes are appended."
+    error_message = "name_prefix must be <= 21 characters to stay within cloud/Kubernetes name limits after suffixes are appended."
   }
 }
 
-variable "tags" {
-  description = "Tags applied to AWS resources"
-  type        = map(string)
+# ------------------------------------------------------------------------------
+# CONTRACT: IDENTITY
+#
+# How each service's pods obtain credentials for the data backend. Keyed by
+# service: "webapp", "dagster", "ray", "argo", "mlflow", "jupyterhub". Every
+# key is optional; a missing service gets no identity at all.
+#
+# Three mechanisms, all expressed through the same object, so any backend can
+# be paired with any cluster:
+#   service_account_annotations  webhook-injected identity when compute and
+#                                data are in the same cloud: EKS IRSA
+#                                ("eks.amazonaws.com/role-arn"), GKE Workload
+#                                Identity, AKS Workload Identity.
+#   projected_token + env        web-identity federation from ANY cluster to a
+#                                cloud that trusts its OIDC issuer: the pod
+#                                mounts a projected ServiceAccount token and
+#                                the SDK reads AWS_ROLE_ARN +
+#                                AWS_WEB_IDENTITY_TOKEN_FILE (or the GCP/Azure
+#                                equivalents) from env. No mutating webhook is
+#                                needed because this module mounts the token.
+#   secret_env                   static credentials (MinIO, an IAM user) in a
+#                                Kubernetes Secret, see
+#                                workload_identity_secret_env.
+#
+# The ServiceAccount an adapter must trust for each service is fixed by this
+# module -- see output.service_accounts and the README "Identity contract".
+# ------------------------------------------------------------------------------
+
+variable "workload_identity" {
+  description = <<-EOT
+    Per-service identity (non-secret part). Keys: webapp, dagster, ray, argo,
+    mlflow, jupyterhub. For each: `service_account_annotations` stamped on the
+    service's ServiceAccount; `env` plain variables the pods receive (e.g.
+    AWS_REGION, AWS_ROLE_ARN, AWS_WEB_IDENTITY_TOKEN_FILE, AWS_ENDPOINT_URL);
+    `projected_token` mounts a projected ServiceAccount token at
+    <mount_path>/<file_name> with the given audience for web-identity
+    federation. Produced by a backend adapter (aws/data-adapter) or written by
+    hand. For "ray", `env` also lands in the analytics-config ConfigMap so
+    RayJobs launched by user code can envFrom it.
+  EOT
+  type = map(object({
+    service_account_annotations = optional(map(string), {})
+    env                         = optional(map(string), {})
+    projected_token = optional(object({
+      audience           = string
+      mount_path         = optional(string, "/var/run/secrets/workload-identity")
+      file_name          = optional(string, "token")
+      expiration_seconds = optional(number, 3600)
+    }))
+  }))
+  default = {}
+
+  validation {
+    condition     = alltrue([for k in keys(var.workload_identity) : contains(["webapp", "dagster", "ray", "argo", "mlflow", "jupyterhub"], k)])
+    error_message = "workload_identity keys must be among: webapp, dagster, ray, argo, mlflow, jupyterhub."
+  }
+}
+
+variable "workload_identity_secret_env" {
+  description = <<-EOT
+    Per-service SECRET environment variables (same keys as workload_identity),
+    delivered through a Kubernetes Secret named <service>-identity-env in the
+    service's namespace and injected with envFrom. This is the static-credential
+    path (AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY for MinIO or an IAM user).
+    Keys must be known at plan time. The Secret exists for every enabled
+    service, empty when nothing is set, so charts can reference it
+    unconditionally.
+  EOT
+  type        = map(map(string))
   default     = {}
+  sensitive   = true
+}
+
+# ------------------------------------------------------------------------------
+# CONTRACT: SCHEDULING
+# ------------------------------------------------------------------------------
+
+variable "scheduling" {
+  description = <<-EOT
+    Node placement per pod role: webapp, dagster (webserver, daemon, user code,
+    run pods), mlflow, jupyterhub (hub + proxy), jupyterhub_singleuser,
+    ray_head, ray_worker. Each gives a nodeSelector and tolerations. Empty
+    (the default) schedules anywhere, which is what a laptop kind cluster
+    wants; aws/compute-adapter emits `karpenter.sh/nodepool` selectors and the
+    matching tolerations for the NodePools it creates. Unknown keys are ignored.
+  EOT
+  type = map(object({
+    node_selector = optional(map(string), {})
+    tolerations = optional(list(object({
+      key      = optional(string)
+      operator = optional(string, "Equal")
+      value    = optional(string)
+      effect   = optional(string)
+    })), [])
+  }))
+  default = {}
 }
 
 # ------------------------------------------------------------------------------
@@ -71,13 +138,13 @@ variable "tags" {
 # ------------------------------------------------------------------------------
 
 variable "enable_webapp" {
-  description = "Deploy the generic web application (Deployment + Service + IRSA)"
+  description = "Deploy the generic web application (Deployment + Service + ServiceAccount)"
   type        = bool
   default     = false
 }
 
 variable "enable_jupyterhub" {
-  description = "Deploy JupyterHub (namespace, EFS shared volume, IRSA, Helm release, optional ALB ingress)"
+  description = "Deploy JupyterHub (namespace, shared RWX volume, ServiceAccount, Helm release, optional public ingress). Requires jupyterhub_shared_storage."
   type        = bool
   default     = false
 }
@@ -89,7 +156,7 @@ variable "enable_dagster" {
 }
 
 variable "enable_ray" {
-  description = "Deploy the Ray namespace + IRSA (the KubeRay operator lives in the platform module)"
+  description = "Deploy the Ray namespace + ServiceAccount (the KubeRay operator is a cluster prerequisite, see README)"
   type        = bool
   default     = false
 }
@@ -123,7 +190,7 @@ variable "enable_private_ingress" {
 # ------------------------------------------------------------------------------
 
 variable "private_ingress_class_name" {
-  description = "IngressClass backing the private workload Ingresses. 'tailscale' uses the operator from the platform module; set to your own private ingress controller to bring your own."
+  description = "IngressClass backing the private workload Ingresses. 'tailscale' uses the operator (a cluster prerequisite); set to your own private ingress controller to bring your own."
   type        = string
   default     = "tailscale"
 }
@@ -280,14 +347,8 @@ variable "webapp_secret_env" {
   sensitive   = true
 }
 
-variable "webapp_bucket_policies" {
-  description = "Map of IAM policy ARNs attached to the webapp service account (e.g. read-only S3 access)"
-  type        = map(string)
-  default     = {}
-}
-
 variable "webapp_health_check_path" {
-  description = "HTTP path used for the webapp readiness/liveness probes and ALB health check"
+  description = "HTTP path used for the webapp readiness/liveness probes (adapters reuse it for load-balancer health checks)"
   type        = string
   default     = "/"
 }
@@ -327,30 +388,51 @@ variable "webapp_session_affinity_seconds" {
   }
 }
 
-# --- Public (internet-facing) ALB ingress + autoscaling ----------------------
+# --- Public (internet-facing) ingress + autoscaling ---------------------------
+#
+# CONTRACT: the class and annotations come from a backend adapter
+# (aws/compute-adapter: "alb" + ACM certificate + WAF ACL annotations) or from
+# whatever ingress controller the cluster runs (ingress-nginx + cert-manager).
 
 variable "enable_webapp_public_ingress" {
-  description = "Create an internet-facing ALB Ingress for the webapp (plus HPA, PodDisruptionBudget, and optional Route53 alias). Requires the AWS Load Balancer Controller."
+  description = "Create an internet-facing Ingress for the webapp (plus HPA and PodDisruptionBudget). Requires webapp_public_ingress_class_name."
   type        = bool
   default     = false
 }
 
 variable "webapp_public_host" {
-  description = "Public hostname the ALB serves and the Route53 alias points at"
+  description = "Public hostname the Ingress serves. Also stamped as external-dns.alpha.kubernetes.io/hostname so external-dns (if installed) publishes the record."
   type        = string
   default     = ""
 }
 
-variable "webapp_acm_certificate_arn" {
-  description = "ACM certificate ARN for the ALB HTTPS listener. Required when enable_webapp_public_ingress is true."
+variable "webapp_public_ingress_class_name" {
+  description = "IngressClass for the public webapp Ingress ('alb' from aws/compute-adapter, 'nginx', ...). Required when enable_webapp_public_ingress is true."
+  type        = string
+  default     = ""
+
+  validation {
+    condition     = !var.enable_webapp_public_ingress || var.webapp_public_ingress_class_name != ""
+    error_message = "webapp_public_ingress_class_name is required when enable_webapp_public_ingress is true."
+  }
+}
+
+variable "webapp_public_ingress_annotations" {
+  description = "Annotations for the public webapp Ingress (aws/compute-adapter emits the alb.ingress.kubernetes.io/* set; cert-manager users add cert-manager.io/cluster-issuer)."
+  type        = map(string)
+  default     = {}
+}
+
+variable "webapp_public_tls_secret_name" {
+  description = "TLS Secret for the public webapp Ingress (e.g. issued by cert-manager). Empty adds no tls block, which is right for TLS terminated at a cloud load balancer via annotations."
   type        = string
   default     = ""
 }
 
-variable "webapp_route53_zone_id" {
-  description = "Route53 hosted zone id for webapp_public_host. Empty skips the alias record."
-  type        = string
-  default     = ""
+variable "webapp_public_wait_for_load_balancer" {
+  description = "Block the apply until the Ingress reports a load-balancer address, surfacing controller errors at apply time. Set false on clusters whose ingress controller never populates the status (kind)."
+  type        = bool
+  default     = true
 }
 
 variable "webapp_hpa_min_replicas" {
@@ -369,18 +451,6 @@ variable "webapp_hpa_cpu_target" {
   description = "Target average CPU utilisation (percent of the request) the HPA holds the webapp at"
   type        = number
   default     = 70
-}
-
-variable "enable_webapp_waf" {
-  description = "Attach a WAFv2 web ACL (AWS managed common rules + a per-IP rate limit) to the public ALB"
-  type        = bool
-  default     = false
-}
-
-variable "webapp_waf_rate_limit" {
-  description = "WAF rate-based rule limit: max requests per 5-minute window from a single IP before it is blocked"
-  type        = number
-  default     = 2000
 }
 
 # ------------------------------------------------------------------------------
@@ -447,7 +517,7 @@ variable "jupyterhub_oidc_callback_url" {
 }
 
 variable "jupyterhub_oidc_username_claim" {
-  description = "Claim used as the JupyterHub username (also the {username} EFS home sub-path, and what jupyterhub_admin_users/jupyterhub_allowed_users match against)"
+  description = "Claim used as the JupyterHub username (also the {username} home sub-path on the shared volume, and what jupyterhub_admin_users/jupyterhub_allowed_users match against)"
   type        = string
   default     = "email"
 }
@@ -495,65 +565,65 @@ variable "jupyterhub_singleuser_image" {
   default     = ""
 }
 
-variable "jupyterhub_public_host" {
-  description = "Hostname for the JupyterHub ALB ingress. Empty skips the ingress/DNS."
-  type        = string
-  default     = ""
-}
+# --- CONTRACT: shared storage ---------------------------------------------------
 
-variable "jupyterhub_ingress_scheme" {
-  description = "ALB scheme for the JupyterHub ingress ('internal' or 'internet-facing')"
-  type        = string
-  default     = "internal"
-}
-
-variable "jupyterhub_route53_zone_id" {
-  description = "Route53 hosted zone id for jupyterhub_public_host. Empty skips the alias record."
-  type        = string
-  default     = ""
-}
-
-variable "jupyterhub_efs_prevent_destroy" {
+variable "jupyterhub_shared_storage" {
   description = <<-EOT
-    Protect the JupyterHub EFS filesystem (user home directories) from
-    `tofu destroy` via lifecycle.prevent_destroy (dynamic; OpenTofu >= 1.12).
-    Leave true for durable environments — destroys then fail until this is
-    first flipped off, an intentional two-step. Set false for
-    previews/ephemeral stamps so they can tear down.
+    The ReadWriteMany volume holding every user's home directory and the
+    shared directory -- the only persistent user data in this module. Exactly
+    one of:
+      nfs_server          static NFS PersistentVolumes pointing at an existing
+                          server: an EFS filesystem's DNS name
+                          (aws/compute-adapter), a Filestore IP, any NFS box.
+      storage_class_name  dynamic RWX PersistentVolumeClaims from a
+                          StorageClass (efs-sc, standard-rwx, azurefile,
+                          nfs-client; kind's local-path works on one node).
+    `size` is the claim size (nominal for NFS). Required when
+    enable_jupyterhub is true.
   EOT
-  type        = bool
-  default     = true
+  type = object({
+    nfs_server         = optional(string)
+    nfs_path           = optional(string, "/")
+    storage_class_name = optional(string)
+    size               = optional(string, "100Gi")
+  })
+  default = {}
+
+  validation {
+    condition     = !var.enable_jupyterhub || ((var.jupyterhub_shared_storage.nfs_server != null) != (var.jupyterhub_shared_storage.storage_class_name != null))
+    error_message = "With enable_jupyterhub, set exactly one of jupyterhub_shared_storage.nfs_server or .storage_class_name."
+  }
 }
 
-# EFS placement (only needed when enable_jupyterhub is true)
-variable "vpc_id" {
-  description = "VPC ID (required for the JupyterHub EFS security group)"
+# --- Public ingress (optional) ---------------------------------------------------
+
+variable "jupyterhub_public_host" {
+  description = "Hostname for a JupyterHub Ingress on jupyterhub_public_ingress_class_name (also stamped for external-dns). Empty skips the Ingress."
   type        = string
   default     = ""
 }
 
-variable "private_subnets" {
-  description = "Private subnet IDs (JupyterHub EFS mount targets)"
-  type        = list(string)
-  default     = []
-}
-
-variable "private_subnets_cidr_blocks" {
-  description = "Private subnet CIDR blocks, same order as private_subnets (used to place EFS mount targets in the pod CIDR)"
-  type        = list(string)
-  default     = []
-}
-
-variable "efs_subnet_cidr_octet_prefix" {
-  description = "First-octet prefix selecting which private subnets host the JupyterHub EFS mount targets"
+variable "jupyterhub_public_ingress_class_name" {
+  description = "IngressClass for the JupyterHub Ingress. Required when jupyterhub_public_host is set."
   type        = string
-  default     = "100."
+  default     = ""
+
+  validation {
+    condition     = var.jupyterhub_public_host == "" || var.jupyterhub_public_ingress_class_name != ""
+    error_message = "jupyterhub_public_ingress_class_name is required when jupyterhub_public_host is set."
+  }
 }
 
-variable "vpc_secondary_cidr_blocks" {
-  description = "Secondary VPC CIDR blocks allowed to reach the JupyterHub EFS (NFS 2049)"
-  type        = list(string)
-  default     = []
+variable "jupyterhub_public_ingress_annotations" {
+  description = "Annotations for the JupyterHub Ingress (aws/compute-adapter emits the alb.ingress.kubernetes.io/* set)."
+  type        = map(string)
+  default     = {}
+}
+
+variable "jupyterhub_public_tls_secret_name" {
+  description = "TLS Secret for the JupyterHub Ingress (e.g. cert-manager). Empty adds no tls block."
+  type        = string
+  default     = ""
 }
 
 # ------------------------------------------------------------------------------
@@ -561,9 +631,9 @@ variable "vpc_secondary_cidr_blocks" {
 # ------------------------------------------------------------------------------
 
 variable "dagster_chart_version" {
-  description = "Version of the official dagster/dagster Helm chart. Must be >= 1.12.8." # renovate: chart=dagster registryUrl=https://dagster-io.github.io/helm
+  description = "Version of the official dagster/dagster Helm chart. Must be >= 1.13.23: earlier images are amd64-only, and an arm64 cluster (kind on Apple Silicon, Graviton nodes) cannot pull them." # renovate: chart=dagster registryUrl=https://dagster-io.github.io/helm
   type        = string
-  default     = "1.13.14"
+  default     = "1.13.23"
 }
 
 variable "dagster_repository" {
@@ -573,15 +643,9 @@ variable "dagster_repository" {
 }
 
 variable "dagster_user_code_image" {
-  description = "User-code (code location) image for Dagster, repository:tag. Empty deploys the chart with the example user code."
+  description = "User-code (code location) image for Dagster, repository:tag, exposing /opt/dagster/app/repo.py. Empty deploys the module's own hello-world code location (helm-defaults/dagster/hello_repo.py) in the stock dagster-k8s image."
   type        = string
   default     = ""
-}
-
-variable "dagster_bucket_policies" {
-  description = "Map of IAM policy ARNs attached to the Dagster service account"
-  type        = map(string)
-  default     = {}
 }
 
 variable "dagster_user_code_env" {
@@ -612,9 +676,9 @@ variable "dagster_user_code_secret_env" {
 # ------------------------------------------------------------------------------
 
 variable "mlflow_chart_version" {
-  description = "Version of the community-charts/mlflow Helm chart" # renovate: chart=mlflow registryUrl=https://community-charts.github.io/helm-charts
+  description = "Version of the community-charts/mlflow Helm chart. Must be >= 1.x: the 0.7 chart's image bundles a libpq too old for SCRAM authentication, which Postgres 14+ and Neon default to." # renovate: chart=mlflow registryUrl=https://community-charts.github.io/helm-charts
   type        = string
-  default     = "0.7.19"
+  default     = "1.11.7"
 }
 
 variable "mlflow_repository" {
@@ -623,16 +687,20 @@ variable "mlflow_repository" {
   default     = "https://community-charts.github.io/helm-charts"
 }
 
-variable "mlflow_artifact_bucket" {
-  description = "S3 bucket name for MLflow artifacts"
+variable "mlflow_artifact_root" {
+  description = <<-EOT
+    Artifact store URI for the tracking server, e.g. s3://my-bucket/mlflow.
+    Any S3-compatible store works: point AWS_ENDPOINT_URL /
+    MLFLOW_S3_ENDPOINT_URL at MinIO through workload_identity["mlflow"].env.
+    Empty uses the chart's default local artifact root (fine for kind).
+  EOT
   type        = string
   default     = ""
-}
 
-variable "mlflow_artifact_bucket_arn" {
-  description = "S3 bucket ARN for MLflow artifacts (grants the tracking server access)"
-  type        = string
-  default     = ""
+  validation {
+    condition     = var.mlflow_artifact_root == "" || can(regex("^s3://[^/]+", var.mlflow_artifact_root))
+    error_message = "mlflow_artifact_root must be empty or an s3://bucket[/prefix] URI (S3-compatible stores included)."
+  }
 }
 
 # ------------------------------------------------------------------------------
@@ -693,45 +761,32 @@ variable "ray_cluster_release_name" {
   default     = "ray-cluster"
 }
 
-variable "ray_storage_bucket_policies" {
-  description = "Map of IAM policy ARNs attached to the Ray/Argo/Dagster service accounts"
-  type        = map(string)
-  default     = {}
+variable "ray_head_resources" {
+  description = "Resource requests/limits for the persistent Ray head container"
+  type = object({
+    requests = optional(map(string), { cpu = "1", memory = "2Gi" })
+    limits   = optional(map(string), { cpu = "2", memory = "4Gi" })
+  })
+  default = {}
+}
+
+variable "ray_worker_resources" {
+  description = "Resource requests/limits for the persistent Ray CPU worker containers"
+  type = object({
+    requests = optional(map(string), { cpu = "1", memory = "2Gi" })
+    limits   = optional(map(string), { cpu = "2", memory = "4Gi" })
+  })
+  default = {}
+}
+
+variable "ray_worker_max_replicas" {
+  description = "Autoscaling ceiling for the persistent Ray CPU worker group (min is 0)"
+  type        = number
+  default     = 10
 }
 
 variable "ray_dashboard_cluster_name" {
   description = "RayCluster whose head Pod backs the private ray Ingress. Empty follows the persistent cluster ('<name_prefix><ray_cluster_release_name>')."
   type        = string
   default     = ""
-}
-
-# ------------------------------------------------------------------------------
-# KARPENTER NODEPOOLS (created per workload environment, name-prefixed)
-# ------------------------------------------------------------------------------
-
-variable "karpenter_node_pools" {
-  description = "Map of Karpenter NodePool configurations (created only if karpenter_node_iam_role_name is set)"
-  type = map(object({
-    name                   = optional(string)
-    instance_sizes         = optional(list(string), ["large", "xlarge", "2xlarge", "4xlarge", "8xlarge"])
-    instance_families      = optional(list(string), ["t3a", "c5", "m5", "r5", "r6g"])
-    instance_architectures = optional(list(string), ["amd64"])
-    capacity_types         = optional(list(string), ["spot", "on-demand"])
-    ami_family             = optional(string, "AL2023")
-    labels                 = optional(map(string), {})
-    taints = optional(list(object({
-      key    = string
-      value  = optional(string)
-      effect = string
-    })), [])
-    limits = optional(map(string), {})
-  }))
-  default = {}
-
-  validation {
-    condition = alltrue([
-      for pool in values(var.karpenter_node_pools) : contains(["AL2", "AL2023", "Bottlerocket"], pool.ami_family)
-    ])
-    error_message = "ami_family must be one of: AL2, AL2023, Bottlerocket."
-  }
 }

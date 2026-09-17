@@ -1,10 +1,17 @@
 # ------------------------------------------------------------------------------
 # WORKLOADS MODULE - RAY & ARGO WORKFLOWS (namespaced by name_prefix)
 #
-# Deploys the Ray namespace, an IRSA-backed service account (S3 + ECR read), an
-# optional persistent Ray cluster (KubeRay ray-cluster chart), and an optional
-# Argo Workflows service account + RBAC. The KubeRay operator itself lives in
-# the platform module.
+# Deploys the Ray namespace, the Ray ServiceAccount carrying the identity
+# contract, an optional persistent Ray cluster (KubeRay ray-cluster chart), and
+# an optional Argo Workflows service account + RBAC. The KubeRay operator is a
+# cluster prerequisite (see README).
+#
+# RayJobs launched by user code (Dagster, Argo) build their own pod specs; two
+# module-owned objects give them a stable contract in this namespace:
+#   ConfigMap analytics-config   plain env: MLFLOW_TRACKING_URI, PIPELINE_ENV,
+#                                plus workload_identity["ray"].env
+#   Secret    ray-identity-env   workload_identity_secret_env["ray"]
+# and the ServiceAccount ray-s3-sa, which carries the SA annotations.
 # ------------------------------------------------------------------------------
 
 locals {
@@ -18,6 +25,10 @@ locals {
     "ray.io/cluster"   = local.ray_dashboard_cluster
     "ray.io/node-type" = "head"
   }
+
+  # The chart's own log volume must stay when we set volumes/volumeMounts.
+  ray_log_volume       = [{ name = "log-volume", emptyDir = {} }]
+  ray_log_volume_mount = [{ name = "log-volume", mountPath = "/tmp/ray" }]
 }
 
 resource "kubernetes_namespace_v1" "ray" {
@@ -28,75 +39,20 @@ resource "kubernetes_namespace_v1" "ray" {
   }
 }
 
-data "aws_caller_identity" "current" {}
-data "aws_partition" "current" {}
-
-# GetAuthorizationToken accepts only "*"; the pull actions take repository
-# ARNs, so they are scoped to this account's repositories in this region.
-resource "aws_iam_policy" "ecr_read" {
-  count       = var.enable_ray || var.enable_argo_workflows ? 1 : 0
-  name        = "${var.cluster_name}-${local.prefix}ecr-read"
-  description = "ECR read policy for Ray and Argo Workflows${local.iam_desc_suffix}"
-
-  policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
-      {
-        Sid      = "Login"
-        Effect   = "Allow"
-        Action   = ["ecr:GetAuthorizationToken"]
-        Resource = "*"
-      },
-      {
-        Sid    = "PullFromAccountRepositories"
-        Effect = "Allow"
-        Action = [
-          "ecr:BatchCheckLayerAvailability",
-          "ecr:BatchGetImage",
-          "ecr:GetDownloadUrlForLayer"
-        ]
-        Resource = "arn:${data.aws_partition.current.partition}:ecr:${var.region}:${data.aws_caller_identity.current.account_id}:repository/*"
-      }
-    ]
-  })
-
-  tags = var.tags
-}
-
-module "ray_cluster_irsa" {
-  count   = var.enable_ray ? 1 : 0
-  source  = "terraform-aws-modules/iam/aws//modules/iam-role-for-service-accounts"
-  version = "~> 6.8"
-
-  name            = "${var.cluster_name}-${local.prefix}ray-cluster-sa"
-  use_name_prefix = false
-
-  policies = merge(
-    { ecr_read = aws_iam_policy.ecr_read[0].arn },
-    var.ray_storage_bucket_policies
-  )
-
-  oidc_providers = {
-    main = {
-      provider_arn               = var.oidc_provider_arn
-      namespace_service_accounts = ["${kubernetes_namespace_v1.ray[0].metadata[0].name}:ray-s3-sa"]
-    }
-  }
-}
-
 resource "kubernetes_service_account_v1" "ray_cluster_sa" {
   count = var.enable_ray ? 1 : 0
 
   metadata {
-    name        = "ray-s3-sa"
+    name        = local.ray_service_account_name
     namespace   = kubernetes_namespace_v1.ray[0].metadata[0].name
-    annotations = { "eks.amazonaws.com/role-arn" : module.ray_cluster_irsa[0].arn }
+    annotations = local.identity.ray.service_account_annotations
   }
 
   automount_service_account_token = true
 }
 
-# Shared analytics env for pipeline compute: MLflow tracking + region.
+# Shared analytics env for pipeline compute: MLflow tracking, environment, and
+# the identity contract's plain env (region, endpoint URL, role ARN).
 resource "kubernetes_config_map_v1" "analytics_config" {
   count = var.enable_ray ? 1 : 0
 
@@ -105,11 +61,24 @@ resource "kubernetes_config_map_v1" "analytics_config" {
     namespace = kubernetes_namespace_v1.ray[0].metadata[0].name
   }
 
-  data = {
-    "AWS_REGION"          = var.region
-    "MLFLOW_TRACKING_URI" = local.mlflow_tracking_uri
-    "PIPELINE_ENV"        = var.environment
+  data = merge(
+    local.identity.ray.env,
+    {
+      "MLFLOW_TRACKING_URI" = local.mlflow_tracking_uri
+      "PIPELINE_ENV"        = var.environment
+    },
+  )
+}
+
+resource "kubernetes_secret_v1" "ray_identity_env" {
+  count = var.enable_ray ? 1 : 0
+
+  metadata {
+    name      = local.identity_secret_name.ray
+    namespace = kubernetes_namespace_v1.ray[0].metadata[0].name
   }
+
+  data = local.identity_secret_env.ray
 }
 
 resource "kubernetes_secret_v1" "database_url" {
@@ -129,36 +98,13 @@ resource "kubernetes_secret_v1" "database_url" {
 # Argo Workflows service account + RBAC (cluster-scoped RBAC is name-prefixed)
 # ------------------------------------------------------------------------------
 
-module "argo_workflow_irsa" {
-  count   = var.enable_argo_workflows ? 1 : 0
-  source  = "terraform-aws-modules/iam/aws//modules/iam-role-for-service-accounts"
-  version = "~> 6.8"
-
-  name            = "${var.cluster_name}-${local.prefix}argo-workflow-sa"
-  use_name_prefix = false
-
-  policies = merge(
-    { ecr_read = aws_iam_policy.ecr_read[0].arn },
-    var.ray_storage_bucket_policies
-  )
-
-  oidc_providers = {
-    main = {
-      provider_arn               = var.oidc_provider_arn
-      namespace_service_accounts = var.enable_ray ? ["${kubernetes_namespace_v1.ray[0].metadata[0].name}:argo-workflow"] : []
-    }
-  }
-}
-
 resource "kubernetes_service_account_v1" "argo_workflow" {
   count = var.enable_argo_workflows && var.enable_ray ? 1 : 0
 
   metadata {
-    name      = "argo-workflow"
-    namespace = kubernetes_namespace_v1.ray[0].metadata[0].name
-    annotations = {
-      "eks.amazonaws.com/role-arn" : module.argo_workflow_irsa[0].arn
-    }
+    name        = local.argo_service_account_name
+    namespace   = kubernetes_namespace_v1.ray[0].metadata[0].name
+    annotations = local.identity.argo.service_account_annotations
   }
 }
 
@@ -226,13 +172,27 @@ resource "helm_release" "ray_cluster" {
   timeout    = 600
 
   values = [templatefile("${local.helm_defaults}/ray/values.yaml", {
+    cluster_name            = "${local.prefix}${var.ray_cluster_release_name}"
     image_repo              = var.ray_image_repository
     image_tag               = local.ray_image_tag
     ray_version             = var.ray_version
     ray_single_user_sa_name = kubernetes_service_account_v1.ray_cluster_sa[0].metadata[0].name
     gpu_image_repo          = var.ray_gpu_image_repository
     gpu_image_tag           = local.ray_gpu_image_tag
+    head_resources          = jsonencode(var.ray_head_resources)
+    worker_resources        = jsonencode(var.ray_worker_resources)
+    worker_max_replicas     = var.ray_worker_max_replicas
+    identity_env            = jsonencode(local.identity_env_list.ray)
+    identity_env_secret     = kubernetes_secret_v1.ray_identity_env[0].metadata[0].name
+    volumes                 = jsonencode(concat(local.ray_log_volume, local.identity_volumes.ray))
+    volume_mounts           = jsonencode(concat(local.ray_log_volume_mount, local.identity_volume_mounts.ray))
+    head_node_selector      = jsonencode(local.scheduling.ray_head.node_selector)
+    head_tolerations        = jsonencode(local.scheduling.ray_head.tolerations)
+    worker_node_selector    = jsonencode(local.scheduling.ray_worker.node_selector)
+    worker_tolerations      = jsonencode(local.scheduling.ray_worker.tolerations)
   })]
+
+  depends_on = [kubernetes_secret_v1.ray_identity_env]
 }
 
 # ------------------------------------------------------------------------------

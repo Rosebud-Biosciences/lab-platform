@@ -27,9 +27,27 @@ output "jupyterhub_namespace" {
   value       = var.enable_jupyterhub ? kubernetes_namespace_v1.jupyterhub[0].metadata[0].name : null
 }
 
-output "jupyterhub_efs_id" {
-  description = "EFS filesystem id holding JupyterHub per-user home and shared directories (if enabled) — the module's only persistent user data; point AWS Backup here"
-  value       = var.enable_jupyterhub ? local.jupyterhub_efs.id : null
+# The identity contract's other half: the <namespace>/<serviceaccount> a
+# backend adapter must trust for each service. Computed from inputs alone
+# (name_prefix, webapp_app_name), so an adapter can be planned alongside this
+# module without a dependency cycle -- aws/data-adapter derives the same names
+# from the same inputs and this output exists to make that contract visible
+# and testable.
+output "service_accounts" {
+  description = "Per-service {namespace, name} of the ServiceAccounts pods run as (null when the service is off). Backend adapters trust exactly these subjects."
+  value = {
+    webapp     = var.enable_webapp ? { namespace = local.webapp_namespace, name = local.webapp_service_account_name } : null
+    dagster    = local.enable_dagster ? { namespace = local.dagster_namespace, name = local.dagster_service_account } : null
+    ray        = var.enable_ray ? { namespace = local.ray_namespace, name = local.ray_service_account_name } : null
+    argo       = var.enable_argo_workflows && var.enable_ray ? { namespace = local.ray_namespace, name = local.argo_service_account_name } : null
+    mlflow     = var.enable_mlflow ? { namespace = local.mlflow_namespace, name = local.mlflow_service_account_name } : null
+    jupyterhub = var.enable_jupyterhub ? { namespace = local.jupyterhub_namespace, name = local.jupyterhub_single_user_sa } : null
+  }
+}
+
+output "identity_secret_names" {
+  description = "Per-service name of the <service>-identity-env Secret (in that service's namespace) carrying workload_identity_secret_env; RayJobs launched by user code can envFrom the ray one."
+  value       = local.identity_secret_name
 }
 
 output "dagster_private_url" {
@@ -55,4 +73,9 @@ output "ray_dashboard_private_url" {
 output "webapp_public_url" {
   description = "Public HTTPS URL for the webapp (null unless the public ingress is enabled)"
   value       = local.webapp_public_enabled ? "https://${var.webapp_public_host}" : null
+}
+
+output "webapp_public_ingress" {
+  description = "{namespace, name} of the public webapp Ingress (null unless enabled), for adapters that look up the load balancer it produced"
+  value       = local.webapp_public_enabled ? { namespace = local.webapp_namespace, name = local.webapp_public_ingress_name } : null
 }

@@ -1,5 +1,0 @@
-apiVersion: v2
-name: karpenter-resources
-description: Helm chart for configuring NodePool and EC2NodeClass resources for Karpenter v1
-version: 0.1.0
-appVersion: 0.1.0

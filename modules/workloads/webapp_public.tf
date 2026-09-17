@@ -1,41 +1,25 @@
 # ------------------------------------------------------------------------------
-# WORKLOADS MODULE - WEBAPP PUBLIC SURFACE (internet-facing ALB + autoscaling)
+# WORKLOADS MODULE - WEBAPP PUBLIC SURFACE (internet-facing Ingress + autoscaling)
 #
 # Gated on enable_webapp_public_ingress (default OFF). When on, adds:
-#   - an internet-facing ALB Ingress (target-type ip, ACM TLS, 80->443 redirect)
+#   - an Ingress on the caller's public IngressClass, decorated with the
+#     caller's annotations (aws/compute-adapter: ALB scheme, ACM certificate,
+#     WAF ACL; ingress-nginx: cert-manager issuer), optionally with a TLS
+#     Secret, and stamped with the external-dns hostname annotation so DNS
+#     follows the Ingress wherever external-dns runs
 #   - an HPA (scales with load) and a PodDisruptionBudget (safe rollouts/drains)
-#   - an optional Route53 ALIAS at the public host pointing to the ALB
-#   - an optional WAFv2 web ACL (managed common rules + a per-IP rate limit)
 #
-# Requires the AWS Load Balancer Controller (platform module). Set
-# webapp_ignore_image_changes = true so a re-apply does not fight the HPA over
-# the replica count.
+# Set webapp_ignore_image_changes = true so a re-apply does not fight the HPA
+# over the replica count.
 # ------------------------------------------------------------------------------
 
 locals {
-  webapp_public_enabled = var.enable_webapp && var.enable_webapp_public_ingress
-  webapp_waf_enabled    = local.webapp_public_enabled && var.enable_webapp_waf
+  webapp_public_enabled      = var.enable_webapp && var.enable_webapp_public_ingress
+  webapp_public_ingress_name = "${var.webapp_app_name}-public"
 
-  webapp_alb_annotations = merge(
-    {
-      "alb.ingress.kubernetes.io/scheme"           = "internet-facing"
-      "alb.ingress.kubernetes.io/target-type"      = "ip"
-      "alb.ingress.kubernetes.io/listen-ports"     = jsonencode([{ HTTP = 80 }, { HTTPS = 443 }])
-      "alb.ingress.kubernetes.io/ssl-redirect"     = "443"
-      "alb.ingress.kubernetes.io/certificate-arn"  = var.webapp_acm_certificate_arn
-      "alb.ingress.kubernetes.io/healthcheck-path" = var.webapp_health_check_path
-    },
-    # Optional target-group stickiness for stateful single-pod sessions.
-    var.webapp_session_affinity_seconds > 0 ? {
-      "alb.ingress.kubernetes.io/target-group-attributes" = join(",", [
-        "stickiness.enabled=true",
-        "stickiness.type=lb_cookie",
-        "stickiness.lb_cookie.duration_seconds=${var.webapp_session_affinity_seconds}",
-      ])
-    } : {},
-    local.webapp_waf_enabled ? {
-      "alb.ingress.kubernetes.io/wafv2-acl-arn" = aws_wafv2_web_acl.webapp[0].arn
-    } : {}
+  webapp_public_annotations = merge(
+    var.webapp_public_host != "" ? { "external-dns.alpha.kubernetes.io/hostname" = var.webapp_public_host } : {},
+    var.webapp_public_ingress_annotations,
   )
 }
 
@@ -43,13 +27,21 @@ resource "kubernetes_ingress_v1" "webapp_public" {
   count = local.webapp_public_enabled ? 1 : 0
 
   metadata {
-    name        = "${var.webapp_app_name}-public"
+    name        = local.webapp_public_ingress_name
     namespace   = local.webapp_namespace
-    annotations = local.webapp_alb_annotations
+    annotations = local.webapp_public_annotations
   }
 
   spec {
-    ingress_class_name = "alb"
+    ingress_class_name = var.webapp_public_ingress_class_name
+
+    dynamic "tls" {
+      for_each = var.webapp_public_tls_secret_name != "" ? [1] : []
+      content {
+        hosts       = [var.webapp_public_host]
+        secret_name = var.webapp_public_tls_secret_name
+      }
+    }
 
     rule {
       host = var.webapp_public_host
@@ -70,39 +62,9 @@ resource "kubernetes_ingress_v1" "webapp_public" {
     }
   }
 
-  # Block the apply until the ALB reports a hostname, so the Route53 alias below
-  # (which reads the ALB back) has a target.
-  wait_for_load_balancer = true
+  wait_for_load_balancer = var.webapp_public_wait_for_load_balancer
 
   depends_on = [kubernetes_service_v1.webapp]
-}
-
-# The ALB the controller created, found by the tags it stamps on it. A data
-# lookup lets the Route53 record be a proper ALIAS (an alias needs the ALB's
-# canonical zone id, which the Ingress status hostname alone does not carry).
-data "aws_lb" "webapp_public" {
-  count = local.webapp_public_enabled && var.webapp_route53_zone_id != "" ? 1 : 0
-
-  tags = {
-    "elbv2.k8s.aws/cluster" = var.cluster_name
-    "ingress.k8s.aws/stack" = "${local.webapp_namespace}/${var.webapp_app_name}-public"
-  }
-
-  depends_on = [kubernetes_ingress_v1.webapp_public]
-}
-
-resource "aws_route53_record" "webapp_public" {
-  count = local.webapp_public_enabled && var.webapp_route53_zone_id != "" ? 1 : 0
-
-  zone_id = var.webapp_route53_zone_id
-  name    = var.webapp_public_host
-  type    = "A"
-
-  alias {
-    name                   = data.aws_lb.webapp_public[0].dns_name
-    zone_id                = data.aws_lb.webapp_public[0].zone_id
-    evaluate_target_health = true
-  }
 }
 
 # ------------------------------------------------------------------------------
@@ -159,90 +121,4 @@ resource "kubernetes_pod_disruption_budget_v1" "webapp" {
       match_labels = local.webapp_labels
     }
   }
-}
-
-# ------------------------------------------------------------------------------
-# WAFv2 (optional): AWS managed common rules + a per-IP rate limit
-# ------------------------------------------------------------------------------
-
-resource "aws_wafv2_web_acl" "webapp" {
-  count = local.webapp_waf_enabled ? 1 : 0
-
-  name        = "${local.prefix}${var.webapp_app_name}-public"
-  description = "Baseline protection for the public ${var.webapp_app_name} ALB${local.iam_desc_suffix}."
-  scope       = "REGIONAL"
-
-  default_action {
-    allow {}
-  }
-
-  rule {
-    name     = "aws-common-rules"
-    priority = 1
-
-    override_action {
-      none {}
-    }
-
-    statement {
-      managed_rule_group_statement {
-        vendor_name = "AWS"
-        name        = "AWSManagedRulesCommonRuleSet"
-      }
-    }
-
-    visibility_config {
-      cloudwatch_metrics_enabled = true
-      metric_name                = "${local.prefix}${var.webapp_app_name}-common-rules"
-      sampled_requests_enabled   = true
-    }
-  }
-
-  rule {
-    name     = "per-ip-rate-limit"
-    priority = 2
-
-    action {
-      block {}
-    }
-
-    statement {
-      rate_based_statement {
-        limit              = var.webapp_waf_rate_limit
-        aggregate_key_type = "IP"
-      }
-    }
-
-    visibility_config {
-      cloudwatch_metrics_enabled = true
-      metric_name                = "${local.prefix}${var.webapp_app_name}-rate-limit"
-      sampled_requests_enabled   = true
-    }
-  }
-
-  visibility_config {
-    cloudwatch_metrics_enabled = true
-    metric_name                = "${local.prefix}${var.webapp_app_name}-public"
-    sampled_requests_enabled   = true
-  }
-
-  tags = var.tags
-}
-
-# WAF request logs: the audit trail for what the rules above blocked and why.
-# The log group name must start with aws-waf-logs- for WAF to accept it.
-# Sampled requests in the console show a slice; this keeps 30 days of all.
-resource "aws_cloudwatch_log_group" "webapp_waf" {
-  count = local.webapp_waf_enabled ? 1 : 0
-
-  name              = "aws-waf-logs-${local.prefix}${var.webapp_app_name}-public"
-  retention_in_days = 30
-  tags              = var.tags
-}
-
-resource "aws_wafv2_web_acl_logging_configuration" "webapp" {
-  count = local.webapp_waf_enabled ? 1 : 0
-
-  resource_arn            = aws_wafv2_web_acl.webapp[0].arn
-  log_destination_configs = [aws_cloudwatch_log_group.webapp_waf[0].arn]
 }

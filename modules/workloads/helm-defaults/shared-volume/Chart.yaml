@@ -1,0 +1,5 @@
+apiVersion: v2
+name: shared-volume
+description: One ReadWriteMany PersistentVolumeClaim for JupyterHub, bound either to a static NFS PersistentVolume (nfs.server set) or provisioned dynamically from a StorageClass
+version: 0.1.0
+appVersion: 0.1.0

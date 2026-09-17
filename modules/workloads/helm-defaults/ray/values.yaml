@@ -1,5 +1,13 @@
 # Values for the kuberay ray-cluster chart. A single-group CPU cluster with the
 # workload service account; add GPU groups as needed for your pipelines.
+# Identity (env, static secret, projected token volume) and scheduling come
+# from the module's contract inputs; lists/maps are rendered as JSON, which
+# YAML accepts inline.
+# The chart would otherwise name the RayCluster <release>-kuberay; naming it
+# after the release keeps the module's dashboard Service selector
+# (ray.io/cluster = <prefix><release>) and ray_dashboard_cluster_name honest.
+fullnameOverride: ${cluster_name}
+
 image:
   repository: ${image_repo}
   tag: ${image_tag}
@@ -7,27 +15,31 @@ image:
 head:
   serviceAccountName: ${ray_single_user_sa_name}
   rayVersion: ${ray_version}
-  resources:
-    requests:
-      cpu: "1"
-      memory: "2Gi"
-    limits:
-      cpu: "2"
-      memory: "4Gi"
+  resources: ${head_resources}
+  containerEnv: ${identity_env}
+  envFrom:
+    - secretRef:
+        name: ${identity_env_secret}
+  volumes: ${volumes}
+  volumeMounts: ${volume_mounts}
+  nodeSelector: ${head_node_selector}
+  tolerations: ${head_tolerations}
 
 worker:
   groupName: cpu-workers
   replicas: 0
   minReplicas: 0
-  maxReplicas: 10
+  maxReplicas: ${worker_max_replicas}
   serviceAccountName: ${ray_single_user_sa_name}
-  resources:
-    requests:
-      cpu: "1"
-      memory: "2Gi"
-    limits:
-      cpu: "2"
-      memory: "4Gi"
+  resources: ${worker_resources}
+  containerEnv: ${identity_env}
+  envFrom:
+    - secretRef:
+        name: ${identity_env_secret}
+  volumes: ${volumes}
+  volumeMounts: ${volume_mounts}
+  nodeSelector: ${worker_node_selector}
+  tolerations: ${worker_tolerations}
 
 # GPU worker group image is available via ${gpu_image_repo}:${gpu_image_tag} for
 # callers that add an additionalWorkerGroups entry.

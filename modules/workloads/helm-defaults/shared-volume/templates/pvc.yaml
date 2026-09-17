@@ -1,0 +1,18 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ .Values.name }}
+spec:
+  accessModes:
+    - ReadWriteMany
+{{- if and .Values.nfs .Values.nfs.server }}
+  # Static: bind to the PersistentVolume this chart creates; "" disables
+  # dynamic provisioning so the default StorageClass cannot intercept it.
+  storageClassName: ""
+  volumeName: {{ .Release.Namespace }}-{{ .Values.name }}
+{{- else }}
+  storageClassName: {{ required "set storageClassName or nfs.server" .Values.storageClassName }}
+{{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.size }}

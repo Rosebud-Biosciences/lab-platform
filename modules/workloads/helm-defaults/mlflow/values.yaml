@@ -1,35 +1,44 @@
 # Values for the community-charts/mlflow chart: external Postgres backend store,
-# S3 artifact root, and an IRSA-annotated service account for bucket access.
+# S3-compatible artifact root, and the module's identity + scheduling contract
+# (lists/maps rendered as JSON, which YAML accepts inline).
 
 serviceAccount:
   create: true
   name: ${service_account_name}
-  annotations:
-    eks.amazonaws.com/role-arn: ${irsa_role_arn}
+  annotations: ${service_account_annotations}
 
+# The chart has no existing-secret hook for the backend store: it writes
+# user/password into its own <release>-env-secret, so they are passed here
+# (the release values are sensitive in state, as the module's own Secrets are).
 backendStore:
   postgres:
     enabled: true
     host: "${db_host}"
     port: 5432
     database: "${db_name}"
-    user: ""
-    password: ""
-  # Credentials come from the module-managed secret.
-  existingSecret: ${db_secret_name}
-  existingSecretKeys:
-    username: username
-    password: password
+    user: ${db_user}
+    password: ${db_password}
 
+%{ if artifact_bucket != "" ~}
 artifactRoot:
   proxiedArtifactStorage: true
   s3:
     enabled: true
     bucket: "${artifact_bucket}"
+    path: "${artifact_path}"
+%{ endif ~}
 
 service:
   type: ClusterIP
   port: 80
 
-extraEnvVars:
-  MLFLOW_S3_IGNORE_TLS: "false"
+# Identity contract: plain env (region, role ARN, token path, endpoint URL for
+# MinIO) inline; static credentials via envFrom the module-managed Secret.
+extraEnvVars: ${identity_env}
+extraSecretNamesForEnvFrom:
+  - ${identity_env_secret}
+extraVolumes: ${identity_volumes}
+extraVolumeMounts: ${identity_volume_mounts}
+
+nodeSelector: ${node_selector}
+tolerations: ${tolerations}

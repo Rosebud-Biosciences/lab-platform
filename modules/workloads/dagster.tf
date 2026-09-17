@@ -2,8 +2,9 @@
 # WORKLOADS MODULE - DAGSTER CONTROL PLANE (namespaced by name_prefix)
 #
 # Deploys the official dagster/dagster Helm chart against an external Postgres,
-# with an IRSA-backed service account and RBAC to manage Ray clusters in the ray
-# namespace. Requires enable_ray = true (enforced by the precondition below).
+# with a ServiceAccount carrying the identity contract and RBAC to manage Ray
+# clusters in the ray namespace. Requires enable_ray = true (enforced by the
+# precondition below).
 # ------------------------------------------------------------------------------
 
 locals {
@@ -25,34 +26,13 @@ resource "kubernetes_namespace_v1" "dagster" {
   }
 }
 
-module "dagster_irsa" {
-  count   = local.enable_dagster ? 1 : 0
-  source  = "terraform-aws-modules/iam/aws//modules/iam-role-for-service-accounts"
-  version = "~> 6.8"
-
-  name            = "${var.cluster_name}-${local.prefix}dagster-sa"
-  use_name_prefix = false
-
-  policies = merge(
-    { ecr_read = aws_iam_policy.ecr_read[0].arn },
-    var.dagster_bucket_policies
-  )
-
-  oidc_providers = {
-    main = {
-      provider_arn               = var.oidc_provider_arn
-      namespace_service_accounts = ["${local.dagster_namespace}:${local.dagster_service_account}"]
-    }
-  }
-}
-
 resource "kubernetes_service_account_v1" "dagster" {
   count = local.enable_dagster ? 1 : 0
 
   metadata {
     name        = local.dagster_service_account
     namespace   = kubernetes_namespace_v1.dagster[0].metadata[0].name
-    annotations = { "eks.amazonaws.com/role-arn" : module.dagster_irsa[0].arn }
+    annotations = local.identity.dagster.service_account_annotations
   }
 }
 
@@ -113,6 +93,20 @@ resource "kubernetes_secret_v1" "dagster_db_password" {
   }
 }
 
+# Identity contract: static credentials for every Dagster pod (webserver,
+# daemon, user code, launched runs). Exists even when empty so the chart values
+# can reference it unconditionally.
+resource "kubernetes_secret_v1" "dagster_identity_env" {
+  count = local.enable_dagster ? 1 : 0
+
+  metadata {
+    name      = local.identity_secret_name.dagster
+    namespace = kubernetes_namespace_v1.dagster[0].metadata[0].name
+  }
+
+  data = local.identity_secret_env.dagster
+}
+
 # Environment for the user-code deployment (and, via includeConfigInLaunchedRuns,
 # every run pod). DATABASE_URL rides along automatically, as it does for the
 # webapp: the assets and the app read the same database. The Secret exists
@@ -137,6 +131,36 @@ resource "kubernetes_secret_v1" "dagster_user_code_env" {
   data = local.dagster_user_code_secret_env
 }
 
+# No user-code image: the module's own hello-world code location, mounted from
+# this ConfigMap into the stock dagster-k8s image, so a fresh platform has an
+# asset to materialize without depending on upstream's example image.
+locals {
+  dagster_hello_code = local.enable_dagster && var.dagster_user_code_image == ""
+  dagster_hello_cm   = "dagster-hello-code"
+
+  dagster_user_code_volumes = concat(
+    local.identity_volumes.dagster,
+    local.dagster_hello_code ? [{ name = "code", configMap = { name = local.dagster_hello_cm } }] : [],
+  )
+  dagster_user_code_volume_mounts = concat(
+    local.identity_volume_mounts.dagster,
+    local.dagster_hello_code ? [{ name = "code", mountPath = "/opt/dagster/app", readOnly = true }] : [],
+  )
+}
+
+resource "kubernetes_config_map_v1" "dagster_hello_code" {
+  count = local.dagster_hello_code ? 1 : 0
+
+  metadata {
+    name      = local.dagster_hello_cm
+    namespace = kubernetes_namespace_v1.dagster[0].metadata[0].name
+  }
+
+  data = {
+    "repo.py" = file("${local.helm_defaults}/dagster/hello_repo.py")
+  }
+}
+
 resource "helm_release" "dagster" {
   count = local.enable_dagster ? 1 : 0
 
@@ -153,15 +177,26 @@ resource "helm_release" "dagster" {
     db_host                 = var.dagster_db_host
     db_user                 = var.dagster_db_user
     db_name                 = var.dagster_db_name
+    chart_version           = var.dagster_chart_version
     user_code_image         = var.dagster_user_code_image
-    user_code_env           = var.dagster_user_code_env
+    user_code_env           = merge(local.identity.dagster.env, var.dagster_user_code_env)
     user_code_env_secret    = local.dagster_user_code_env_secret
+    user_code_volumes       = jsonencode(local.dagster_user_code_volumes)
+    user_code_volume_mounts = jsonencode(local.dagster_user_code_volume_mounts)
+    identity_env_secret     = kubernetes_secret_v1.dagster_identity_env[0].metadata[0].name
+    identity_env            = jsonencode(local.identity_env_list.dagster)
+    identity_volumes        = jsonencode(local.identity_volumes.dagster)
+    identity_volume_mounts  = jsonencode(local.identity_volume_mounts.dagster)
+    node_selector           = jsonencode(local.scheduling.dagster.node_selector)
+    tolerations             = jsonencode(local.scheduling.dagster.tolerations)
   })]
 
   depends_on = [
     kubernetes_service_account_v1.dagster,
     kubernetes_cluster_role_binding_v1.dagster_ray_ops,
     kubernetes_secret_v1.dagster_db_password,
+    kubernetes_secret_v1.dagster_identity_env,
     kubernetes_secret_v1.dagster_user_code_env,
+    kubernetes_config_map_v1.dagster_hello_code,
   ]
 }

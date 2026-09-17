@@ -1,0 +1,22 @@
+{{- if and .Values.nfs .Values.nfs.server }}
+# PersistentVolumes are cluster-scoped, so the name carries the namespace: two
+# environments (prod, a preview) on one cluster can each bind their own.
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: {{ .Release.Namespace }}-{{ .Values.name }}
+spec:
+  capacity:
+    storage: {{ .Values.size }}
+  accessModes:
+    - ReadWriteMany
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: ""
+  # Pre-bind to our claim so no other RWX claim in the cluster grabs this PV.
+  claimRef:
+    namespace: {{ .Release.Namespace }}
+    name: {{ .Values.name }}
+  nfs:
+    server: {{ .Values.nfs.server }}
+    path: {{ .Values.nfs.path | default "/" | quote }}
+{{- end }}

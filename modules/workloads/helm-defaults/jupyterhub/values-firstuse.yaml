@@ -17,6 +17,23 @@ hub:
 %{ else ~}
       allowed_users: ${allowed_users}
 %{ endif ~}
+    KubeSpawner:
+      # Identity contract: static credentials (if any) reach every notebook
+      # container via envFrom the module-managed Secret.
+      extra_container_config:
+        envFrom:
+          - secretRef:
+              name: ${identity_env_secret}
+  # Placement of the hub itself (the proxy follows it).
+  nodeSelector: ${hub_node_selector}
+  tolerations: ${hub_tolerations}
+
+proxy:
+  service:
+    type: ClusterIP
+  chp:
+    nodeSelector: ${hub_node_selector}
+    tolerations: ${hub_tolerations}
 
 singleuser:
   serviceAccountName: ${jupyter_single_user_sa_name}
@@ -29,33 +46,24 @@ singleuser:
   # CHOWN_* env below is honoured before privileges drop to the notebook user.
   cmd: start-singleuser.sh
   storage:
-    # Per-user home: one sub-directory per username on the shared EFS volume.
+    # Per-user home: one sub-directory per username on the shared RWX volume.
     type: static
     static:
-      pvcName: efs-persist
+      pvcName: ${home_claim}
       subPath: "home/{username}"
-    # Shared directory visible (read-write) to every user.
-    extraVolumes:
-      - name: jupyterhub-shared
-        persistentVolumeClaim:
-          claimName: efs-persist-shared
-    extraVolumeMounts:
-      - name: jupyterhub-shared
-        mountPath: /home/shared
-        readOnly: false
-  # EFS/NFS ignores fsGroup for ownership, so the container must start as root
-  # and chown the (freshly created) home sub-path and shared dir to the notebook
+    # The shared directory (read-write for every user) plus, when the identity
+    # contract asks for one, the projected token volume.
+    extraVolumes: ${extra_volumes}
+    extraVolumeMounts: ${extra_volume_mounts}
+  # NFS ignores fsGroup for ownership, so the container must start as root and
+  # chown the (freshly created) home sub-path and shared dir to the notebook
   # user before dropping privileges -- handled by the docker-stacks start script.
   uid: 0
   fsGid: 0
-  extraEnv:
-    CHOWN_HOME: "yes"
-    CHOWN_HOME_OPTS: "-R"
-    CHOWN_EXTRA: "/home/shared"
-
-proxy:
-  service:
-    type: ClusterIP
+  # CHOWN_* plus the identity contract's plain env (region, role ARN, ...).
+  extraEnv: ${singleuser_env}
+  nodeSelector: ${singleuser_node_selector}
+  extraTolerations: ${singleuser_tolerations}
 
 # NOTE: ${password} is intentionally unused for firstuse auth (kept so all auth
 # templates accept the same variable set).

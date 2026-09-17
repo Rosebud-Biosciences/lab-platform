@@ -1,5 +1,6 @@
 # ------------------------------------------------------------------------------
-# SHARED LOCALS: prefixed names, image tags, private hostnames.
+# SHARED LOCALS: prefixed names, image tags, private hostnames, and the
+# normalized contract inputs (identity, scheduling).
 # name_prefix = "" reproduces the base names so this module is a drop-in for a
 # single-environment deployment; a non-empty prefix isolates a preview.
 # ------------------------------------------------------------------------------
@@ -7,21 +8,24 @@
 locals {
   prefix = var.name_prefix
 
-  # Parenthetical note appended to IAM policy descriptions so previews are
-  # distinguishable.
-  iam_desc_suffix = local.prefix != "" ? " (${local.prefix})" : ""
-
   # This module owns its own Helm value templates.
   helm_defaults = "${path.module}/helm-defaults"
 
-  webapp_namespace  = "${local.prefix}${var.webapp_app_name}"
-  dagster_namespace = "${local.prefix}dagster"
-  mlflow_namespace  = "${local.prefix}mlflow"
-  ray_namespace     = "${local.prefix}ray"
+  webapp_namespace     = "${local.prefix}${var.webapp_app_name}"
+  dagster_namespace    = "${local.prefix}dagster"
+  mlflow_namespace     = "${local.prefix}mlflow"
+  ray_namespace        = "${local.prefix}ray"
+  jupyterhub_namespace = "${local.prefix}jupyterhub"
 
+  # ServiceAccount names: the identity contract. A backend adapter trusts
+  # exactly <namespace>/<name> for each service, so these are fixed here and
+  # published through output.service_accounts.
   webapp_service_account_name = var.webapp_app_name
   dagster_service_account     = "dagster"
   mlflow_service_account_name = "mlflow"
+  ray_service_account_name    = "ray-s3-sa"
+  argo_service_account_name   = "argo-workflow"
+  jupyterhub_single_user_sa   = "jupyterhub-single-user"
 
   # Helm release names (the chart derives resource/service names from these).
   dagster_release = "${local.prefix}dagster"
@@ -46,37 +50,95 @@ locals {
   private_mlflow_host  = "${var.private_ingress_hostname_prefix}mlflow"
   private_webapp_host  = "${var.private_ingress_hostname_prefix}webapp"
   private_ray_host     = "${var.private_ingress_hostname_prefix}ray"
-
-  create_pools = var.karpenter_node_iam_role_name != "" ? var.karpenter_node_pools : {}
 }
 
 # ------------------------------------------------------------------------------
-# KARPENTER NODEPOOLS (per workload env; names prefixed so previews get their
-# own pools that scale to zero and are torn down on destroy).
+# IDENTITY CONTRACT, normalized per service
+#
+# Every service gets a full identity object even when the caller supplied
+# nothing, so the service files can reference local.identity.<svc>.* without
+# guards. The projected token becomes a Kubernetes volume + mount pair in
+# plain-map form, which the Helm value templates jsonencode() straight into
+# `volumes:` / `volumeMounts:` lists (JSON is valid YAML), and the webapp
+# Deployment consumes through dynamic blocks.
 # ------------------------------------------------------------------------------
 
-resource "helm_release" "karpenter_node_pools" {
-  for_each = local.create_pools
+locals {
+  identity_services = ["webapp", "dagster", "ray", "argo", "mlflow", "jupyterhub"]
 
-  namespace        = "karpenter"
-  create_namespace = false
-  name             = "karpenter-resources-${local.prefix}${each.key}"
-  chart            = "${local.helm_defaults}/karpenter-resources"
+  empty_identity = {
+    service_account_annotations = {}
+    env                         = {}
+    projected_token             = null
+  }
 
-  values = [
-    yamlencode({
-      name                  = "${local.prefix}${coalesce(each.value.name, each.key)}"
-      clusterName           = var.cluster_name
-      vpcName               = var.vpc_name
-      nodeRole              = var.karpenter_node_iam_role_name
-      instanceSizes         = each.value.instance_sizes
-      instanceFamilies      = each.value.instance_families
-      instanceArchitectures = each.value.instance_architectures
-      capacityTypes         = each.value.capacity_types
-      amiFamily             = each.value.ami_family
-      labels                = each.value.labels
-      taints                = [for t in each.value.taints : { for k, v in t : k => v if v != null }]
-      limits                = each.value.limits
-    })
-  ]
+  identity = {
+    for svc in local.identity_services :
+    svc => lookup(var.workload_identity, svc, local.empty_identity)
+  }
+
+  identity_secret_env = {
+    for svc in local.identity_services :
+    svc => lookup(var.workload_identity_secret_env, svc, {})
+  }
+
+  identity_secret_name = {
+    for svc in local.identity_services : svc => "${svc}-identity-env"
+  }
+
+  identity_volume_name = "workload-identity-token"
+
+  identity_volumes = {
+    for svc, id in local.identity :
+    svc => id.projected_token == null ? [] : [{
+      name = local.identity_volume_name
+      projected = {
+        sources = [{
+          serviceAccountToken = {
+            audience          = id.projected_token.audience
+            expirationSeconds = id.projected_token.expiration_seconds
+            path              = id.projected_token.file_name
+          }
+        }]
+      }
+    }]
+  }
+
+  identity_volume_mounts = {
+    for svc, id in local.identity :
+    svc => id.projected_token == null ? [] : [{
+      name      = local.identity_volume_name
+      mountPath = id.projected_token.mount_path
+      readOnly  = true
+    }]
+  }
+
+  # Kubernetes EnvVar list form for charts that take lists (ray-cluster,
+  # dagster webserver/daemon).
+  identity_env_list = {
+    for svc, id in local.identity :
+    svc => [for k, v in id.env : { name = k, value = v }]
+  }
+}
+
+# ------------------------------------------------------------------------------
+# SCHEDULING CONTRACT, normalized per pod role
+# ------------------------------------------------------------------------------
+
+locals {
+  scheduling_roles = ["webapp", "dagster", "mlflow", "jupyterhub", "jupyterhub_singleuser", "ray_head", "ray_worker"]
+
+  empty_scheduling = { node_selector = {}, tolerations = [] }
+
+  scheduling = {
+    for role in local.scheduling_roles :
+    role => {
+      node_selector = lookup(var.scheduling, role, local.empty_scheduling).node_selector
+      # Drop null attributes so the rendered toleration is a clean object.
+      tolerations = [
+        for t in lookup(var.scheduling, role, local.empty_scheduling).tolerations :
+        { for k, v in t : k => v if v != null }
+      ]
+    }
+  }
 }

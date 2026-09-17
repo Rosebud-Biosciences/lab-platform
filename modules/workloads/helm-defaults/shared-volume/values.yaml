@@ -1,0 +1,11 @@
+# Claim name (also the PersistentVolume name suffix in NFS mode).
+name: jupyterhub-home
+# Requested size; nominal for NFS, real for dynamic provisioning.
+size: 100Gi
+# Dynamic mode: a ReadWriteMany-capable StorageClass. Ignored when nfs.server is set.
+storageClassName: null
+# Static mode: an existing NFS export. The chart creates a PersistentVolume
+# bound to this claim; nothing is created on the server.
+nfs:
+  server: null
+  path: /
