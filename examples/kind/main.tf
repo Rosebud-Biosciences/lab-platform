@@ -1,27 +1,31 @@
 # ------------------------------------------------------------------------------
 # KIND EXAMPLE: local compute + local data
 #
-# The portable workloads module on a kind cluster, with MinIO as the S3 API and
-# Postgres as the database. No adapters, no cloud provider: the four contract
-# inputs are written by hand here, which is also the template for a "metal"
-# backend. Sized to fit a 4-vCPU / 16 GiB GitHub runner; see the README for the
-# laptop flow and .github/workflows/kind-smoke.yml for the CI one.
+# The portable workloads module on a kind cluster, with SeaweedFS as the S3 API
+# and Postgres as the database. No adapters, no cloud provider: the four
+# contract inputs are written by hand here, which is also the template for a
+# "metal" backend. Sized to fit a 4-vCPU / 16 GiB GitHub runner; see the README
+# for the laptop flow and .github/workflows/kind-smoke.yml for the CI one.
 # ------------------------------------------------------------------------------
 
 locals {
   # Static credentials to an S3-compatible store: the identity contract's
-  # third mechanism. Every service gets the same MinIO endpoint; boto3/fsspec
+  # third mechanism. Every service gets the same endpoint; boto3/fsspec
   # (Dagster, Ray, the app) read AWS_ENDPOINT_URL, MLflow reads
-  # MLFLOW_S3_ENDPOINT_URL.
+  # MLFLOW_S3_ENDPOINT_URL. The two checksum settings keep the AWS SDKs from
+  # sending the flexible checksums (aws-chunked uploads) that only AWS S3
+  # itself is guaranteed to accept.
   s3_env = {
-    AWS_REGION              = "us-east-1"
-    AWS_ENDPOINT_URL        = var.minio_endpoint
-    MLFLOW_S3_ENDPOINT_URL  = var.minio_endpoint
-    AWS_S3_FORCE_PATH_STYLE = "true"
+    AWS_REGION                       = "us-east-1"
+    AWS_ENDPOINT_URL                 = var.s3_endpoint
+    MLFLOW_S3_ENDPOINT_URL           = var.s3_endpoint
+    AWS_S3_FORCE_PATH_STYLE          = "true"
+    AWS_REQUEST_CHECKSUM_CALCULATION = "when_required"
+    AWS_RESPONSE_CHECKSUM_VALIDATION = "when_required"
   }
   s3_secret_env = {
-    AWS_ACCESS_KEY_ID     = var.minio_root_user
-    AWS_SECRET_ACCESS_KEY = var.minio_root_password
+    AWS_ACCESS_KEY_ID     = var.s3_access_key
+    AWS_SECRET_ACCESS_KEY = var.s3_secret_key
   }
 
   services = ["webapp", "dagster", "ray", "argo", "mlflow", "jupyterhub"]
@@ -66,7 +70,7 @@ module "workloads" {
   dagster_db_name     = "dagster"
   dagster_db_user     = var.postgres_user
   dagster_db_password = var.postgres_password
-  # Where pipeline code finds its data: the MinIO bucket prereqs.sh created.
+  # Where pipeline code finds its data: the bucket prereqs.sh created.
   dagster_user_code_env = { DATA_ROOT = "s3://data" }
 
   # Argo per environment with the workflow archive on the local Postgres (no

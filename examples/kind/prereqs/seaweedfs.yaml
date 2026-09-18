@@ -1,0 +1,101 @@
+# Local S3-compatible object store for the kind example: the "data backend"
+# when everything runs on a laptop. SeaweedFS (Apache-2.0) in its single-binary
+# form -- `weed server` runs master, volume, filer and the S3 gateway in one
+# process. Single node, ephemeral storage: the point is API compatibility, not
+# durability. Credentials come from the seaweedfs-s3 Secret that
+# scripts/prereqs.sh renders (s3.json: one identity with the access key pair).
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: seaweedfs
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: seaweedfs
+  namespace: seaweedfs
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: seaweedfs }
+  template:
+    metadata:
+      labels: { app: seaweedfs }
+    spec:
+      containers:
+        - name: seaweedfs
+          image: chrislusf/seaweedfs:4.47
+          args:
+            - server
+            - -ip.bind=0.0.0.0
+            - -dir=/data
+            - -master.volumeSizeLimitMB=256
+            - -volume.max=0
+            - -filer
+            - -s3
+            - -s3.port=8333
+            - -s3.config=/etc/seaweedfs/s3.json
+          ports:
+            - { name: s3, containerPort: 8333 }
+            - { name: filer, containerPort: 8888 }
+            - { name: master, containerPort: 9333 }
+          readinessProbe:
+            httpGet: { path: /status, port: 8333 }
+            periodSeconds: 5
+          resources:
+            requests: { cpu: 100m, memory: 256Mi }
+            limits: { memory: 1Gi }
+          volumeMounts:
+            - { name: data, mountPath: /data }
+            - { name: s3-config, mountPath: /etc/seaweedfs, readOnly: true }
+      volumes:
+        - name: data
+          emptyDir: {}
+        - name: s3-config
+          secret:
+            secretName: seaweedfs-s3
+            items:
+              - { key: s3.json, path: s3.json }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: seaweedfs
+  namespace: seaweedfs
+spec:
+  selector: { app: seaweedfs }
+  ports:
+    - { name: s3, port: 8333, targetPort: 8333 }
+    - { name: filer, port: 8888, targetPort: 8888 }
+---
+# Create the buckets the workloads expect (mlflow artifacts, pipeline data),
+# through the S3 API itself so bucket creation is the first compatibility check.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: seaweedfs-buckets
+  namespace: seaweedfs
+spec:
+  backoffLimit: 20
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: aws
+          image: amazon/aws-cli:2.36.49
+          env:
+            - { name: AWS_DEFAULT_REGION, value: us-east-1 }
+            - { name: AWS_ENDPOINT_URL, value: http://seaweedfs.seaweedfs.svc.cluster.local:8333 }
+            - { name: AWS_REQUEST_CHECKSUM_CALCULATION, value: when_required }
+            - { name: AWS_RESPONSE_CHECKSUM_VALIDATION, value: when_required }
+          envFrom:
+            - secretRef: { name: seaweedfs-s3 }
+          command:
+            - sh
+            - -c
+            - |
+              set -e
+              for bucket in mlflow data; do
+                aws s3api head-bucket --bucket "$bucket" 2>/dev/null || aws s3api create-bucket --bucket "$bucket"
+              done
+              aws s3 ls

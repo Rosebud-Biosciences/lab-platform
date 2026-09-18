@@ -55,7 +55,7 @@ variable "name_prefix" {
 #                                AWS_WEB_IDENTITY_TOKEN_FILE (or the GCP/Azure
 #                                equivalents) from env. No mutating webhook is
 #                                needed because this module mounts the token.
-#   secret_env                   static credentials (MinIO, an IAM user) in a
+#   secret_env                   static credentials (an S3-compatible store, an IAM user) in a
 #                                Kubernetes Secret, see
 #                                workload_identity_secret_env.
 #
@@ -98,7 +98,7 @@ variable "workload_identity_secret_env" {
     Per-service SECRET environment variables (same keys as workload_identity),
     delivered through a Kubernetes Secret named <service>-identity-env in the
     service's namespace and injected with envFrom. This is the static-credential
-    path (AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY for MinIO or an IAM user).
+    path (AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY for an S3-compatible store or an IAM user).
     Keys must be known at plan time. The Secret exists for every enabled
     service, empty when nothing is set, so charts can reference it
     unconditionally.
@@ -736,7 +736,7 @@ variable "mlflow_artifact_root" {
   description = <<-EOT
     Artifact store URI for the tracking server, e.g. s3://my-bucket/mlflow.
     Any S3-compatible store works: point AWS_ENDPOINT_URL /
-    MLFLOW_S3_ENDPOINT_URL at MinIO through workload_identity["mlflow"].env.
+    MLFLOW_S3_ENDPOINT_URL at it through workload_identity["mlflow"].env.
     Empty uses the chart's default local artifact root (fine for kind).
   EOT
   type        = string

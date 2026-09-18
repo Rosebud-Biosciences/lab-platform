@@ -6,6 +6,18 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed: `examples/kind` object store is SeaweedFS
+
+- MinIO's community edition was archived in April 2026 and receives no fixes,
+  so the local data backend of `examples/kind` (and the `kind-smoke` local
+  leg) is now [SeaweedFS](https://github.com/seaweedfs/seaweedfs) in its
+  single-binary form. The identity contract is unchanged (static keys via
+  `workload_identity_secret_env`); the example's inputs are backend-neutral
+  (`s3_endpoint`, `s3_access_key`, `s3_secret_key`; `WITH_S3=0` skips it) and
+  the pods carry `AWS_REQUEST_CHECKSUM_CALCULATION=when_required` /
+  `AWS_RESPONSE_CHECKSUM_VALIDATION=when_required` so the AWS SDKs stay off the
+  flexible-checksum uploads only AWS S3 itself is guaranteed to accept.
+
 ### Changed (breaking): portable workloads, `aws/` split along data and compute
 
 Consumers pinned to the pre-split layout (`//modules/bootstrap`, ...) must
@@ -80,7 +92,7 @@ update paths and wiring; tag the first release carrying this as **0.2.0**.
   JupyterHub (guarded), the ALB/ACM/WAF annotation set, and the Karpenter
   NodePools (moved here from `workloads`) with `node_pool_roles` turning them
   into the `scheduling` contract.
-- New examples: `examples/kind` (local compute + local data: MinIO +
+- New examples: `examples/kind` (local compute + local data: SeaweedFS +
   Postgres, static credentials, free) and `examples/kind-aws-data` (local
   compute + AWS data: hosted issuer + projected-token roles, no static keys).
   New `kind-smoke` workflow runs the first on every PR touching the module and

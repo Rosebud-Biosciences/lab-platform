@@ -120,7 +120,7 @@ run "webapp_projected_token_identity" {
 
 # Static credentials against an S3-compatible store: env carries the endpoint,
 # the identity Secret is envFrom'd by the chart, no SA annotations.
-run "mlflow_static_credentials_minio" {
+run "mlflow_static_credentials_s3_compatible" {
   command = plan
 
   variables {
@@ -134,12 +134,12 @@ run "mlflow_static_credentials_minio" {
       mlflow = {
         env = {
           AWS_REGION             = "us-east-1"
-          MLFLOW_S3_ENDPOINT_URL = "http://minio.minio.svc.cluster.local:9000"
+          MLFLOW_S3_ENDPOINT_URL = "http://seaweedfs.seaweedfs.svc.cluster.local:8333"
         }
       }
     }
     workload_identity_secret_env = {
-      mlflow = { AWS_ACCESS_KEY_ID = "minio", AWS_SECRET_ACCESS_KEY = "minio123" }
+      mlflow = { AWS_ACCESS_KEY_ID = "seaweedfs", AWS_SECRET_ACCESS_KEY = "seaweedfs123" }
     }
   }
 
@@ -152,7 +152,7 @@ run "mlflow_static_credentials_minio" {
     error_message = "enabling only mlflow must not create the webapp namespace"
   }
   assert {
-    condition     = strcontains(helm_release.mlflow[0].values[0], "minio.minio.svc.cluster.local:9000")
+    condition     = strcontains(helm_release.mlflow[0].values[0], "seaweedfs.seaweedfs.svc.cluster.local:8333")
     error_message = "workload_identity.mlflow.env must render into the chart's extraEnvVars"
   }
   assert {
@@ -297,7 +297,7 @@ run "dagster_requires_ray_and_renders_contracts" {
     }
     workload_identity = {
       dagster = { env = { AWS_REGION = "us-west-2" } }
-      ray     = { env = { AWS_REGION = "us-west-2", AWS_ENDPOINT_URL = "http://minio:9000" } }
+      ray     = { env = { AWS_REGION = "us-west-2", AWS_ENDPOINT_URL = "http://seaweedfs:8333" } }
     }
   }
 
@@ -322,7 +322,7 @@ run "dagster_requires_ray_and_renders_contracts" {
     error_message = "the Dagster identity Secret must be envFrom'd"
   }
   assert {
-    condition     = kubernetes_config_map_v1.analytics_config[0].data["AWS_ENDPOINT_URL"] == "http://minio:9000"
+    condition     = kubernetes_config_map_v1.analytics_config[0].data["AWS_ENDPOINT_URL"] == "http://seaweedfs:8333"
     error_message = "workload_identity.ray.env must land in the analytics-config ConfigMap for user-code RayJobs"
   }
   assert {

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Laptop flow for examples/kind-aws-data: kind cluster with a hosted issuer ->
-# prerequisites (no MinIO: the data is in AWS) -> tofu apply -> verify.
+# prerequisites (no local object store: the data is in AWS) -> tofu apply -> verify.
 #
 #   OIDC_BUCKET   (required) globally unique, DNS-safe, no dots
 #   AWS_REGION    (default us-west-2)
@@ -15,7 +15,7 @@ AWS_REGION="${AWS_REGION:-us-west-2}"
 CLUSTER="${CLUSTER:-lab-platform-aws}"
 
 "$here/kind-up.sh"
-WITH_MINIO=0 "$here/../../kind/scripts/prereqs.sh"
+WITH_S3=0 "$here/../../kind/scripts/prereqs.sh"
 
 tofu -chdir="$example" init -input=false
 tofu -chdir="$example" apply -input=false -auto-approve \

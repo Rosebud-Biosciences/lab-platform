@@ -49,22 +49,22 @@ variable "jupyterhub_storage_class" {
 
 # --- The local data backend (must match what scripts/prereqs.sh created) ----
 
-variable "minio_endpoint" {
-  description = "In-cluster MinIO S3 endpoint"
+variable "s3_endpoint" {
+  description = "In-cluster S3 endpoint of the local object store (SeaweedFS from scripts/prereqs.sh)"
   type        = string
-  default     = "http://minio.minio.svc.cluster.local:9000"
+  default     = "http://seaweedfs.seaweedfs.svc.cluster.local:8333"
 }
 
-variable "minio_root_user" {
-  description = "MinIO access key (scripts/prereqs.sh MINIO_ROOT_USER)"
+variable "s3_access_key" {
+  description = "Object store access key (scripts/prereqs.sh S3_ACCESS_KEY)"
   type        = string
-  default     = "minio"
+  default     = "seaweedfs"
 }
 
-variable "minio_root_password" {
-  description = "MinIO secret key (scripts/prereqs.sh MINIO_ROOT_PASSWORD)"
+variable "s3_secret_key" {
+  description = "Object store secret key (scripts/prereqs.sh S3_SECRET_KEY)"
   type        = string
-  default     = "minio12345"
+  default     = "seaweedfs12345"
   sensitive   = true
 }
 

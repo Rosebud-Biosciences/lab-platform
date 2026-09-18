@@ -4,7 +4,7 @@
 # community-charts/mlflow against an external Postgres, with an S3-compatible
 # artifact root (mlflow_artifact_root) reached through the identity contract:
 # SA annotations for webhook identity, env for a projected token or an
-# alternate endpoint (MinIO), and the <svc>-identity-env Secret for static keys.
+# alternate endpoint (an S3-compatible store), and the <svc>-identity-env Secret for static keys.
 # ------------------------------------------------------------------------------
 
 resource "kubernetes_namespace_v1" "mlflow" {

@@ -47,7 +47,7 @@ The ordering matters and `scripts/up.sh` encodes it:
    (the URL must be baked in before the first token is minted) and exports
    the JWKS to `jwks.json`.
 2. `prereqs.sh` from [`examples/kind`](../kind) installs KubeRay,
-   metrics-server and Postgres (`WITH_MINIO=0`: the object store is S3).
+   metrics-server and Postgres (`WITH_S3=0`: the object store is S3).
 3. `tofu apply` creates the data bucket, publishes the discovery documents,
    registers the provider, creates the roles, and deploys the workloads.
 4. [`scripts/verify.sh`](scripts/verify.sh) runs the health checks, then

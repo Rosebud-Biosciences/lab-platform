@@ -81,7 +81,7 @@ flowchart LR
 
 Pick a cell of the data x compute matrix and wire the adapters for it:
 
-| | AWS data (S3, S3 Tables, Neon) | Local data (MinIO, Postgres) |
+| | AWS data (S3, S3 Tables, Neon) | Local data (SeaweedFS, Postgres) |
 | --- | --- | --- |
 | **EKS compute** | `examples/complete`, `minimal`, `jupyterhub`, `preview` -- `data-adapter` (`binding = "webhook"`) + `compute-adapter` | (not a useful cell) |
 | **kind / GKE / on-prem compute** | [`examples/kind-aws-data`](examples/kind-aws-data) -- `oidc-provider` + `data-adapter` (`binding = "projected"`); the pods reach prod-shaped data with per-service roles and no static keys | [`examples/kind`](examples/kind) -- static credentials, everything on a laptop or a free CI runner |

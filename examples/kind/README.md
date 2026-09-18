@@ -3,8 +3,9 @@
 The whole workloads layer -- webapp, Dagster, a Ray cluster, MLflow, Argo
 Workflows (with its archive), optionally JupyterHub -- on a
 [kind](https://kind.sigs.k8s.io/) cluster on your laptop,
-with MinIO as the S3 API and Postgres as the database. **No cloud account, no
-adapters, no `aws` provider.** This is the same `modules/workloads` the AWS
+with [SeaweedFS](https://github.com/seaweedfs/seaweedfs) as the S3 API and
+Postgres as the database. **No cloud account, no adapters, no `aws`
+provider.** This is the same `modules/workloads` the AWS
 examples deploy; the four contract inputs are simply written by hand here,
 which also makes this file the template for a `metal/` backend.
 
@@ -29,7 +30,7 @@ scripts/down.sh          # tofu destroy + delete the cluster
 1. `kind create cluster` from [`kind-config.yaml`](kind-config.yaml);
 2. [`scripts/prereqs.sh`](scripts/prereqs.sh): what any cluster must provide
    (KubeRay operator, the Argo Workflows CRDs, metrics-server) plus the local
-   data backend (MinIO with `mlflow` and `data` buckets, Postgres with
+   data backend (SeaweedFS with `mlflow` and `data` buckets, Postgres with
    `app`/`dagster`/`mlflow`/`argo` databases). See the workloads README, "Cluster prerequisites";
 3. `tofu apply` of [`main.tf`](main.tf);
 4. [`scripts/verify.sh`](scripts/verify.sh): every Deployment rolled out, the
@@ -40,8 +41,10 @@ scripts/down.sh          # tofu destroy + delete the cluster
 
 - `workload_identity` / `workload_identity_secret_env` in `main.tf`: the
   static-credential path of the identity contract. Every service gets
-  `AWS_ENDPOINT_URL` (MinIO) in `env` and the MinIO keys in a
-  `<service>-identity-env` Secret. Swap these for the outputs of
+  `AWS_ENDPOINT_URL` (SeaweedFS) in `env` and the access keys in a
+  `<service>-identity-env` Secret. Any S3-compatible store works here; the
+  `AWS_*_CHECKSUM_*` settings keep the AWS SDKs off the flexible-checksum
+  uploads only AWS S3 itself is guaranteed to accept. Swap these for the outputs of
   `aws/data-adapter` and the same pods talk to real S3 -- that is
   [`examples/kind-aws-data`](../kind-aws-data).
 - `jupyterhub_shared_storage = { storage_class_name = "standard" }`: the

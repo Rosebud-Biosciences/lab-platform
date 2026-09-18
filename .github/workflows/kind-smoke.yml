@@ -3,7 +3,7 @@ name: kind smoke
 # The workloads module's live integration test, in two legs.
 #
 # local (free, runs on every PR that touches the module or the kind examples):
-#   a kind cluster on the runner, MinIO + Postgres as the data backend,
+#   a kind cluster on the runner, SeaweedFS + Postgres as the data backend,
 #   `tofu apply examples/kind`, every Deployment rolled out, the RayCluster
 #   ready, MLflow/Dagster/webapp answering health checks, then `tofu destroy`.
 #   No cloud account involved. This is the first non-mocked test of
@@ -56,7 +56,7 @@ env:
 
 jobs:
   local:
-    name: kind + MinIO + Postgres
+    name: kind + SeaweedFS + Postgres
     runs-on: ubuntu-latest
     timeout-minutes: 40
     steps:
@@ -134,8 +134,8 @@ jobs:
       - name: Create kind cluster with a hosted issuer
         run: examples/kind-aws-data/scripts/kind-up.sh
 
-      - name: Cluster prerequisites (no MinIO; the data is in S3)
-        run: WITH_MINIO=0 examples/kind/scripts/prereqs.sh
+      - name: Cluster prerequisites (no local object store; the data is in S3)
+        run: WITH_S3=0 examples/kind/scripts/prereqs.sh
 
       - name: tofu apply examples/kind-aws-data
         working-directory: examples/kind-aws-data

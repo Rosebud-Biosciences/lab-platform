@@ -33,7 +33,7 @@ service:
   port: 80
 
 # Identity contract: plain env (region, role ARN, token path, endpoint URL for
-# MinIO) inline; static credentials via envFrom the module-managed Secret.
+# an S3-compatible store) inline; static credentials via envFrom the module-managed Secret.
 extraEnvVars: ${identity_env}
 extraSecretNamesForEnvFrom:
   - ${identity_env_secret}

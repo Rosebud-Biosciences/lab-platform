@@ -1,5 +1,5 @@
 # Local compute + local data: the whole workloads layer on a kind cluster with
-# MinIO and Postgres standing in for S3 and Neon. No AWS provider anywhere.
+# SeaweedFS and Postgres standing in for S3 and Neon. No AWS provider anywhere.
 terraform {
   required_version = ">= 1.12"
 
