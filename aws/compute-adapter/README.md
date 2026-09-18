@@ -22,7 +22,7 @@ twins), and `scheduling`.
 
 ```hcl
 module "compute" {
-  source = "github.com/Rosebud-Biosciences/terraform-aws-lab-platform//aws/compute-adapter?ref=v0.2.0"
+  source = "github.com/Rosebud-Biosciences/lab-platform//aws/compute-adapter?ref=v0.2.0"
 
   providers = { aws = aws, helm = helm }
 
@@ -45,7 +45,7 @@ module "compute" {
 }
 
 module "workloads" {
-  source = "github.com/Rosebud-Biosciences/terraform-aws-lab-platform//modules/workloads?ref=v0.2.0"
+  source = "github.com/Rosebud-Biosciences/lab-platform//modules/workloads?ref=v0.2.0"
   # ...
   jupyterhub_shared_storage         = module.compute.jupyterhub_shared_storage
   webapp_public_ingress_class_name  = module.compute.webapp_public_ingress_class_name

@@ -14,7 +14,7 @@ name: Preview Down
 #
 #   jobs:
 #     down:
-#       uses: Rosebud-Biosciences/terraform-aws-lab-platform/.github/workflows/preview-down.yml@main
+#       uses: Rosebud-Biosciences/lab-platform/.github/workflows/preview-down.yml@main
 #       with:
 #         preview_name: pr${{ github.event.pull_request.number }}
 #         role_to_assume: arn:aws:iam::123456789012:role/github-actions-preview-deployer

@@ -24,7 +24,7 @@ creates.
 
 ```hcl
 module "bootstrap" {
-  source = "github.com/Rosebud-Biosciences/terraform-aws-lab-platform//aws/bootstrap?ref=main"
+  source = "github.com/Rosebud-Biosciences/lab-platform//aws/bootstrap?ref=main"
 
   state_bucket_name = "my-org-terraform-state"
   github_owner      = "my-org"

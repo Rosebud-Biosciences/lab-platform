@@ -24,7 +24,7 @@ assert they agree.
 
 ```hcl
 module "data" {
-  source = "github.com/Rosebud-Biosciences/terraform-aws-lab-platform//aws/data-adapter?ref=v0.2.0"
+  source = "github.com/Rosebud-Biosciences/lab-platform//aws/data-adapter?ref=v0.2.0"
 
   cluster_name      = module.platform.cluster_name
   oidc_provider_arn = module.platform.oidc_provider_arn
@@ -42,7 +42,7 @@ module "data" {
 }
 
 module "workloads" {
-  source = "github.com/Rosebud-Biosciences/terraform-aws-lab-platform//modules/workloads?ref=v0.2.0"
+  source = "github.com/Rosebud-Biosciences/lab-platform//modules/workloads?ref=v0.2.0"
   # ...
   workload_identity            = module.data.workload_identity
   workload_identity_secret_env = module.data.workload_identity_secret_env

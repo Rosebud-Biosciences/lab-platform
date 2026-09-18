@@ -85,6 +85,12 @@ update paths and wiring; tag the first release carrying this as **0.2.0**.
   compute + AWS data: hosted issuer + projected-token roles, no static keys).
   New `kind-smoke` workflow runs the first on every PR touching the module and
   the second when `ENABLE_KIND_AWS_DATA` is set.
+- Repository renamed `terraform-aws-lab-platform` -> **`lab-platform`**: a
+  portable `modules/` core with a backend directory per cloud is neither
+  Terraform-only nor AWS-only, and the registry naming convention bought
+  nothing for modules consumed by `github.com/...//path` refs. GitHub
+  redirects the old name (git, module sources, reusable-workflow `uses:`);
+  consumers should still update their `//` sources and `uses:` lines.
 - `modules/neon-branches` branches per **(project, parent branch)** instead
   of per source: databases that live in one project now share one branch and
   one compute per preview (the same snapshot for all of them) instead of one
@@ -248,7 +254,7 @@ Migration for an existing deployment (`examples/*` show the wiring):
   from this repo while it is private (a runner's `GITHUB_TOKEN` reaches only
   its own repository). Unset it once the repo is public.
 - Module sources and reusable-workflow references in the docs name the
-  upstream repo, `github.com/Rosebud-Biosciences/terraform-aws-lab-platform`,
+  upstream repo, `github.com/Rosebud-Biosciences/lab-platform`,
   instead of the `your-org` placeholder; forks of the platform replace it.
 - Removed two unused declarations tflint flagged: `ts_tailnet` on
   `modules/network` (a leftover from when the module configured the Tailscale
@@ -299,8 +305,7 @@ Migration for an existing deployment (`examples/*` show the wiring):
   plan-time guard change instead of a filesystem REPLACEMENT — and the
   `s3-bucket` module's bucket/KMS key (plus the bootstrap state bucket) gain
   plan-time guards layered on the existing Deny policies. Terraform's
-  literal-only `prevent_destroy` cannot express any of this; the repo keeps
-  the `terraform-aws-*` name only because registries require it.
+  literal-only `prevent_destroy` cannot express any of this.
 
 ### Changed vs. the original private repo
 

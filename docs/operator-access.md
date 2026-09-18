@@ -51,7 +51,7 @@ IAM user (static key)  --sts:AssumeRole + MFA-->  operator-admin role  --> the s
 
 ```hcl
 module "bootstrap" {
-  source = "github.com/Rosebud-Biosciences/terraform-aws-lab-platform//aws/bootstrap?ref=main"
+  source = "github.com/Rosebud-Biosciences/lab-platform//aws/bootstrap?ref=main"
 
   state_bucket_name = "my-org-terraform-state"
 
@@ -138,7 +138,7 @@ needs one of its own:
 
 ```hcl
 module "platform" {
-  source = "github.com/Rosebud-Biosciences/terraform-aws-lab-platform//aws/eks-platform?ref=main"
+  source = "github.com/Rosebud-Biosciences/lab-platform//aws/eks-platform?ref=main"
   # ...
   access_entries = {
     operator = {

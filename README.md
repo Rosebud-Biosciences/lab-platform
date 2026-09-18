@@ -1,4 +1,4 @@
-# terraform-aws-lab-platform
+# lab-platform
 
 A composable family of OpenTofu modules for running a data/ML platform on
 Kubernetes — JupyterHub, Ray, Dagster, MLflow, and a public webapp, each behind
@@ -11,8 +11,11 @@ Cloud specifics live in per-backend adapters, split along two axes because
 **data is harder to move than compute**: `aws/data-adapter` gives pods on *any*
 cluster identity to AWS data stores, `aws/compute-adapter` covers what is bound
 to an EKS cluster itself. AWS is the only backend today; the seam is
-documented so `gcp/`, `azure/` or `metal/` can follow. (The repo keeps the
-`terraform-aws-*` name because both registries require that naming convention.)
+documented so `gcp/`, `azure/` or `metal/` can follow. (The repo used to be
+`terraform-aws-lab-platform`; with a portable core and a backend directory per
+cloud the registry's `terraform-<provider>-` convention no longer describes
+it, and modules are consumed by `github.com/...//path` source refs anyway.
+GitHub redirects the old name.)
 
 > Status: extracted from a production stack and genericized for open source.
 > Wiring is validated (`tofu validate` + plan-only `tofu test`); a full apply
