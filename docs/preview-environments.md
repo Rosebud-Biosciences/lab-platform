@@ -163,7 +163,7 @@ per deployment, not layers; the `lab-platform-template-app` shows both behind a
 
 | | `tofu` (this page so far) | `tether` |
 | --- | --- | --- |
-| Postgres | `neon-branches`: CoW branch, tuned compute | tether fork of the Neon project's branch (one branch serves every database), `--pin record` |
+| Postgres -- the app's database and the services' own (Dagster run storage, MLflow tracking store, Argo workflow archive) | `neon-branches`: CoW branch per (project, parent), tuned compute | tether fork of the Neon project's branch (one branch serves every database), `--pin record` |
 | Object stores (Icechunk, Lance, Delta) | fresh copies in the `preview-storage` bucket: **empty** | branches inside the prod stores, forked from the last pinned state |
 | Iceberg | `iceberg-branches`: empty namespace, IAM-isolated | table branches on the prod tables |
 | Which prod state was tested | not recorded | a pinned dataset commit per preview |
@@ -179,11 +179,24 @@ code, audited by tether's operation log and `verify`, is the guard. And user ref
 on an S3 Tables table suspend its automatic maintenance while they exist, so
 forks are kept short-lived and swept.
 
+**Service state is data too.** A stamped Dagster, MLflow or Argo Workflows is
+only as useful as what it remembers, so a full preview gives each its own
+branch of prod's database (`neon_branch_sources` keys `dagster`, `mlflow`,
+`argo`; tether objects `db/dagster`, `db/mlflow`, `db/argo`) and the preview
+opens with prod's run history, experiments and archived workflows visible --
+and writes none of it back. Neon branches cannot be promoted, so nothing a
+preview's services record ever lands on prod; that is the point. MLflow's
+artifacts are the one non-branchable piece (write-once blobs; tether's
+object-store backend has no fork): they go to a per-preview prefix -- the
+ephemeral bucket in `tofu` mode, `<data bucket>/tether/mlflow/pr<N>/` in
+`tether` mode -- that the teardown deletes.
+
 **The contract both providers meet.** Application code never learns which
 provider is in use. Pods receive:
 
 - `DATABASE_URL` — the preview's Postgres (the `neon-branches` URL, or the URL
-  tether's `open` prints for the fork).
+  tether's `open` prints for the fork), and each stamped service its own
+  database's connection (`<svc>_db_*` inputs of `modules/workloads`).
 - `DATA_REFS` — a JSON object `key -> address`, one entry per data object, in the
   address forms tether's `open --json` prints: `s3://.../x.icechunk#<branch>`,
   `<namespace>.<table>#<branch>`, `s3://.../x.lance#<branch>`, `s3://.../x.delta`
