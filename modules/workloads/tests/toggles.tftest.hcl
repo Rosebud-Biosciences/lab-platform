@@ -827,6 +827,30 @@ run "auth_oidc_requires_issuer" {
   expect_failures = [var.auth]
 }
 
+# MLflow >= 3.5 refuses Host headers it was not told about; the module must
+# allow every name it gives the server, plus the caller's.
+run "mlflow_allows_its_own_hostnames" {
+  command = plan
+
+  variables {
+    name_prefix                     = "pr7-"
+    private_ingress_hostname_prefix = "pr7-"
+    enable_mlflow                   = true
+    mlflow_db_host                  = "db.example.com"
+    mlflow_db_name                  = "mlflow"
+    mlflow_db_user                  = "mlflow"
+    mlflow_db_password              = "test"
+    enable_private_ingress          = true
+    private_ingress_dns_suffix      = "tail1234.ts.net"
+    mlflow_allowed_hosts            = ["mlflow.example.com"]
+  }
+
+  assert {
+    condition     = alltrue([for h in ["pr7-mlflow.pr7-mlflow.svc.cluster.local", "pr7-mlflow.tail1234.ts.net", "mlflow-auth.pr7-mlflow.svc.cluster.local", "mlflow.example.com", "localhost:*"] : strcontains(helm_release.mlflow[0].values[0], h)])
+    error_message = "MLFLOW_SERVER_ALLOWED_HOSTS must name the Service, the private hostname, the proxy, localhost and the caller's extra hosts"
+  }
+}
+
 # ------------------------------------------------------------------------------
 # Default-deny, token-verifying webapp, and the network fence
 # ------------------------------------------------------------------------------

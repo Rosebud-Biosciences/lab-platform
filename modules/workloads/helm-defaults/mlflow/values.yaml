@@ -32,6 +32,11 @@ service:
   type: ClusterIP
   port: 80
 
+# `mlflow server --workers`: the chart's default of 4 uvicorn processes is
+# several hundred MiB idle; a lab tracking server is fine with fewer.
+extraArgs:
+  workers: "${workers}"
+
 # Identity contract: plain env (region, role ARN, token path, endpoint URL for
 # an S3-compatible store) inline; static credentials via envFrom the module-managed Secret.
 extraEnvVars: ${identity_env}

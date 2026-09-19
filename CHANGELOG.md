@@ -52,6 +52,17 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   why the webapp's sessions are hashed), and what `oidc` mode still needs
   before production use.
 
+### Fixed: MLflow >= 3.5 behind any hostname
+
+- MLflow 3.5 added DNS-rebinding protection that rejects every Host header it
+  was not told about (only localhost and private IPs pass), so the UI answered
+  `403 Invalid Host header` through the private Ingress while `/health` kept
+  passing. `modules/workloads` now sets `MLFLOW_SERVER_ALLOWED_HOSTS` to the
+  names it gives the server (in-cluster Service, private hostname, its
+  oauth2-proxy, localhost) plus `mlflow_allowed_hosts` for any others.
+- New `mlflow_workers` (default 2; the chart's default of 4 uvicorn processes
+  idles at several hundred MiB).
+
 ### Changed: `examples/kind` object store is SeaweedFS
 
 - MinIO's community edition was archived in April 2026 and receives no fixes,

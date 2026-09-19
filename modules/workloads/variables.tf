@@ -905,6 +905,29 @@ variable "mlflow_artifact_root" {
   }
 }
 
+variable "mlflow_workers" {
+  description = "uvicorn worker processes for the tracking server (`mlflow server --workers`). Each is a few hundred MiB; the chart's default is 4."
+  type        = number
+  default     = 2
+
+  validation {
+    condition     = var.mlflow_workers >= 1
+    error_message = "mlflow_workers must be at least 1."
+  }
+}
+
+variable "mlflow_allowed_hosts" {
+  description = <<-EOT
+    Extra Host headers the MLflow server accepts (MLflow >= 3.5 rejects any it
+    was not told about). The module already allows its own names -- the
+    in-cluster Service, the private hostname under private_ingress_dns_suffix,
+    the oauth2-proxy, localhost -- so add only other names you reach it by
+    (a public hostname, a port-forward alias). "*.example.com" wildcards work.
+  EOT
+  type        = list(string)
+  default     = []
+}
+
 # ------------------------------------------------------------------------------
 # ARGO WORKFLOWS
 # ------------------------------------------------------------------------------
