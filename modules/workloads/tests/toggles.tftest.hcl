@@ -11,6 +11,7 @@
 mock_provider "kubernetes" {}
 mock_provider "helm" {}
 mock_provider "kubectl" {}
+mock_provider "random" {}
 
 run "all_disabled_creates_nothing" {
   command = plan
@@ -374,6 +375,7 @@ run "webapp_public_ingress_generic" {
     webapp_public_ingress_annotations    = { "cert-manager.io/cluster-issuer" = "letsencrypt" }
     webapp_public_tls_secret_name        = "app-tls"
     webapp_public_wait_for_load_balancer = false
+    auth                                 = { mode = "none" }
   }
 
   assert {
@@ -564,4 +566,485 @@ run "override_refused_when_service_is_stamped" {
   }
 
   expect_failures = [var.mlflow_tracking_uri]
+}
+
+# ------------------------------------------------------------------------------
+# AUTH (var.auth): headers mode deploys nothing; oidc mode registers Dex
+# clients, fronts the protected UIs with oauth2-proxy (gated per service),
+# turns on Argo's native SSO and hands the webapp its OIDC_* env.
+# ------------------------------------------------------------------------------
+
+run "auth_headers_mode_deploys_nothing" {
+  command = plan
+
+  variables {
+    enable_webapp              = true
+    webapp_image               = "nginx"
+    enable_ray                 = true
+    enable_dagster             = true
+    dagster_db_host            = "db.example.com"
+    dagster_db_name            = "dagster"
+    dagster_db_user            = "dagster"
+    dagster_db_password        = "test"
+    enable_private_ingress     = true
+    private_ingress_dns_suffix = "tail1234.ts.net"
+    auth                       = { identity_groups_header = "Tailscale-User-Groups" }
+  }
+
+  assert {
+    condition     = length(kubernetes_deployment_v1.oauth2_proxy) == 0 && length(kubectl_manifest.dex_client) == 0 && length(random_password.auth_client) == 0
+    error_message = "headers mode must deploy no proxies and register no clients"
+  }
+  assert {
+    condition     = kubernetes_ingress_v1.dagster_private[0].spec[0].default_backend[0].service[0].name == "dagster-dagster-webserver"
+    error_message = "the private Ingress keeps pointing at the service itself"
+  }
+  assert {
+    condition     = local.webapp_plain_env["AUTH_MODE"] == "headers" && local.webapp_plain_env["IDENTITY_HEADER"] == "Tailscale-User-Login" && local.webapp_plain_env["IDENTITY_GROUPS_HEADER"] == "Tailscale-User-Groups"
+    error_message = "the webapp learns the mode and which headers to trust"
+  }
+  assert {
+    condition     = output.auth.mode == "headers" && length(output.auth.clients) == 0
+    error_message = "output.auth reports the mode and no clients"
+  }
+}
+
+run "auth_oidc_with_dex" {
+  command = plan
+
+  variables {
+    name_prefix                     = "pr7-"
+    private_ingress_hostname_prefix = "pr7-"
+    enable_webapp                   = true
+    webapp_image                    = "nginx"
+    enable_ray                      = true
+    enable_dagster                  = true
+    dagster_db_host                 = "db.example.com"
+    dagster_db_name                 = "dagster"
+    dagster_db_user                 = "dagster"
+    dagster_db_password             = "test"
+    enable_mlflow                   = true
+    mlflow_db_host                  = "db.example.com"
+    mlflow_db_name                  = "mlflow"
+    mlflow_db_user                  = "mlflow"
+    mlflow_db_password              = "test"
+    enable_argo_workflows           = true
+    enable_private_ingress          = true
+    private_ingress_dns_suffix      = "tail1234.ts.net"
+    auth = {
+      mode          = "oidc"
+      issuer_url    = "http://dex.dex.svc.cluster.local:5556/dex"
+      dex_namespace = "dex"
+      protect = {
+        dagster = { allowed_groups = ["authors"] }
+        mlflow  = { allowed_emails = ["a@example.com", "b@example.com"] }
+      }
+      argo_rbac_rules = {
+        admins   = { rule = "'platform' in groups", access = "write", precedence = 10 }
+        everyone = { rule = "true", access = "read" }
+      }
+    }
+  }
+
+  # Clients: proxies (one client, both redirect URIs), Argo, the webapp; no
+  # JupyterHub since it is off.
+  assert {
+    condition     = sort(keys(kubectl_manifest.dex_client)) == tolist(["argo", "oauth2-proxy", "webapp"])
+    error_message = "one Dex client per relying party this environment runs"
+  }
+  assert {
+    condition     = output.auth.clients["oauth2-proxy"].client_id == "pr7-oauth2-proxy" && output.auth.clients["oauth2-proxy"].dex_object == "obzdollpmf2xi2bsfvyhe33yphf7fhheqqrcgji"
+    error_message = "Dex names the OAuth2Client base32(id ++ fnv64 offset basis), lowercase, unpadded (pr7-oauth2-proxy -> obzdollpmf2xi2bsfvyhe33yphf7fhheqqrcgji)"
+  }
+  assert {
+    condition     = output.auth.clients["argo"].dex_object == "obzdollbojtw7s7sttsiiirdeu" && output.auth.clients["webapp"].dex_object == "obzdollxmvrgc4dqzpzjzzeeeirsk"
+    error_message = "base32 known vectors for pr7-argo and pr7-webapp"
+  }
+  assert {
+    condition     = output.auth.clients["oauth2-proxy"].redirect_uris == ["https://pr7-dagster.tail1234.ts.net/oauth2/callback", "https://pr7-mlflow.tail1234.ts.net/oauth2/callback"]
+    error_message = "the proxy client's redirect URIs are the private hostnames of the protected services"
+  }
+  assert {
+    condition     = output.auth.clients["argo"].redirect_uris == ["https://pr7-argo.tail1234.ts.net/oauth2/callback"] && output.auth.clients["webapp"].redirect_uris == ["https://pr7-webapp.tail1234.ts.net/auth/callback"]
+    error_message = "Argo and the webapp get their own redirect URIs"
+  }
+
+  # Proxies: only the protected, enabled services; ray is enabled but not in protect.
+  assert {
+    condition     = sort(keys(kubernetes_deployment_v1.oauth2_proxy)) == tolist(["dagster", "mlflow"]) && output.auth.proxied_services == tolist(["dagster", "mlflow"])
+    error_message = "a proxy per protected service, none for services absent from protect"
+  }
+  assert {
+    condition     = contains(kubernetes_deployment_v1.oauth2_proxy["dagster"].spec[0].template[0].spec[0].container[0].args, "--allowed-group=authors") && contains(kubernetes_deployment_v1.oauth2_proxy["dagster"].spec[0].template[0].spec[0].container[0].args, "--oidc-groups-claim=groups")
+    error_message = "the Dagster proxy enforces its group gate"
+  }
+  assert {
+    condition     = !anytrue([for a in kubernetes_deployment_v1.oauth2_proxy["mlflow"].spec[0].template[0].spec[0].container[0].args : startswith(a, "--allowed-group=")]) && contains(kubernetes_deployment_v1.oauth2_proxy["mlflow"].spec[0].template[0].spec[0].container[0].args, "--authenticated-emails-file=/etc/oauth2-proxy/emails.txt")
+    error_message = "the MLflow proxy gates on the explicit email list, not groups"
+  }
+  assert {
+    condition     = kubernetes_config_map_v1.oauth2_proxy_emails["mlflow"].data["emails.txt"] == "a@example.com\nb@example.com" && length(kubernetes_config_map_v1.oauth2_proxy_emails) == 1
+    error_message = "the email list is a ConfigMap only where one is set"
+  }
+  assert {
+    condition     = contains(kubernetes_deployment_v1.oauth2_proxy["dagster"].spec[0].template[0].spec[0].container[0].args, "--upstream=http://pr7-dagster-dagster-webserver.pr7-dagster.svc.cluster.local:80") && contains(kubernetes_deployment_v1.oauth2_proxy["dagster"].spec[0].template[0].spec[0].container[0].args, "--redirect-url=https://pr7-dagster.tail1234.ts.net/oauth2/callback") && !anytrue([for a in kubernetes_deployment_v1.oauth2_proxy["dagster"].spec[0].template[0].spec[0].container[0].args : startswith(a, "--cookie-domain")])
+    error_message = "the proxy fronts the service, redirects to the private hostname, and keeps its cookie host-only"
+  }
+  assert {
+    condition     = alltrue([for a in ["--cookie-refresh=1h", "--cookie-expire=24h", "--scope=openid email profile groups offline_access"] : contains(kubernetes_deployment_v1.oauth2_proxy["dagster"].spec[0].template[0].spec[0].container[0].args, a)])
+    error_message = "proxy sessions refresh hourly (a refresh token from Dex's offline_access) and end within a day"
+  }
+  assert {
+    condition     = contains(kubernetes_deployment_v1.oauth2_proxy["dagster"].spec[0].template[0].spec[0].container[0].args, "--email-domain=*") && !anytrue([for a in kubernetes_deployment_v1.oauth2_proxy["mlflow"].spec[0].template[0].spec[0].container[0].args : startswith(a, "--email-domain")])
+    error_message = "a group gate authenticates any domain and authorizes by group; an email gate authenticates by the list alone"
+  }
+  assert {
+    condition     = kubernetes_ingress_v1.dagster_private[0].spec[0].default_backend[0].service[0].name == "dagster-auth" && kubernetes_ingress_v1.mlflow_private[0].spec[0].default_backend[0].service[0].name == "mlflow-auth" && kubernetes_ingress_v1.ray_dashboard_private[0].spec[0].default_backend[0].service[0].name == "ray-dashboard"
+    error_message = "protected Ingresses point at the proxy; unprotected ones at the service"
+  }
+
+  # Argo: native SSO + one rbac ServiceAccount per rule.
+  assert {
+    condition     = strcontains(helm_release.argo_workflows[0].values[0], "- sso") && strcontains(helm_release.argo_workflows[0].values[0], "redirectUrl: \"https://pr7-argo.tail1234.ts.net/oauth2/callback\"") && !strcontains(helm_release.argo_workflows[0].values[0], "- server")
+    error_message = "Argo switches to its native SSO"
+  }
+  assert {
+    condition     = kubernetes_service_account_v1.argo_sso["admins"].metadata[0].annotations["workflows.argoproj.io/rbac-rule"] == "'platform' in groups" && kubernetes_service_account_v1.argo_sso["admins"].metadata[0].annotations["workflows.argoproj.io/rbac-rule-precedence"] == "10" && kubernetes_service_account_v1.argo_sso["everyone"].metadata[0].annotations["workflows.argoproj.io/rbac-rule-precedence"] == "0"
+    error_message = "each rule's precedence is the one given (Argo tries the highest first), not derived from its name"
+  }
+  assert {
+    condition     = contains(kubernetes_role_v1.argo_sso["write"].rule[0].verbs, "create") && !contains(kubernetes_role_v1.argo_sso["read"].rule[0].verbs, "create") && [for s in kubernetes_role_binding_v1.argo_sso["read"].subject : s.name] == ["argo-ui-everyone"] && [for s in kubernetes_role_binding_v1.argo_sso["write"].subject : s.name] == ["argo-ui-admins"]
+    error_message = "read and write are separate Roles and each rule's ServiceAccount is bound to its own level"
+  }
+
+  # The webapp runs its own login.
+  assert {
+    condition     = local.webapp_plain_env["AUTH_MODE"] == "oidc" && local.webapp_plain_env["COOKIE_SECURE"] == "true" && local.webapp_plain_env["OIDC_ISSUER_URL"] == "http://dex.dex.svc.cluster.local:5556/dex" && local.webapp_plain_env["OIDC_CLIENT_ID"] == "pr7-webapp" && local.webapp_plain_env["OIDC_REDIRECT_URL"] == "https://pr7-webapp.tail1234.ts.net/auth/callback" && !contains(keys(local.webapp_plain_env), "IDENTITY_HEADER")
+    error_message = "the webapp gets its mode, Secure cookies, OIDC_* env and no header hint"
+  }
+  assert {
+    condition     = contains(keys(kubernetes_secret_v1.webapp_env[0].data), "OIDC_CLIENT_SECRET") && contains(keys(kubernetes_secret_v1.webapp_env[0].data), "SESSION_SECRET")
+    error_message = "the webapp's client and session secrets land in its env Secret"
+  }
+}
+
+run "auth_oidc_without_ingress_uses_cluster_urls" {
+  command = plan
+
+  variables {
+    enable_ray          = true
+    enable_dagster      = true
+    dagster_db_host     = "db.example.com"
+    dagster_db_name     = "dagster"
+    dagster_db_user     = "dagster"
+    dagster_db_password = "test"
+    auth = {
+      mode                  = "oidc"
+      issuer_url            = "http://dex.dex.svc.cluster.local:5556/dex"
+      dex_namespace         = "dex"
+      protect               = { dagster = {}, ray = {} }
+      allowed_email_domains = ["*"]
+      cookie_secure         = false
+      external_scheme       = "http"
+    }
+  }
+
+  assert {
+    condition     = output.auth.clients["oauth2-proxy"].redirect_uris == ["http://dagster-auth.dagster.svc.cluster.local/oauth2/callback", "http://ray-auth.ray.svc.cluster.local/oauth2/callback"]
+    error_message = "without a private Ingress the redirect URIs are the in-cluster proxy Services (kind)"
+  }
+  assert {
+    condition     = length(kubernetes_service_v1.ray_dashboard) == 1
+    error_message = "the Ray dashboard Service exists as the proxy's upstream even without a private Ingress"
+  }
+  assert {
+    condition     = contains(kubernetes_deployment_v1.oauth2_proxy["dagster"].spec[0].template[0].spec[0].container[0].args, "--cookie-secure=false") && !anytrue([for a in kubernetes_deployment_v1.oauth2_proxy["dagster"].spec[0].template[0].spec[0].container[0].args : startswith(a, "--allowed-group=")])
+    error_message = "an explicit [\"*\"] admits any authenticated user; cookie_secure follows the variable"
+  }
+}
+
+run "auth_oidc_bring_your_own_clients" {
+  command = plan
+
+  variables {
+    enable_ray          = true
+    enable_dagster      = true
+    dagster_db_host     = "db.example.com"
+    dagster_db_name     = "dagster"
+    dagster_db_user     = "dagster"
+    dagster_db_password = "test"
+    auth = {
+      mode                  = "oidc"
+      issuer_url            = "https://accounts.google.com"
+      protect               = { dagster = {} }
+      allowed_email_domains = ["example.com"]
+      clients               = { oauth2-proxy = { client_id = "123.apps.googleusercontent.com", client_secret = "shh" } }
+      scopes                = ["openid", "email", "profile"]
+    }
+  }
+
+  assert {
+    condition     = length(kubectl_manifest.dex_client) == 0 && length(random_password.auth_client) == 0
+    error_message = "no Dex registration when the clients are brought"
+  }
+  assert {
+    condition     = contains(kubernetes_deployment_v1.oauth2_proxy["dagster"].spec[0].template[0].spec[0].container[0].args, "--client-id=123.apps.googleusercontent.com") && kubernetes_secret_v1.oauth2_proxy["dagster"].data["client-secret"] == "shh" && output.auth.clients["oauth2-proxy"].dex_object == null
+    error_message = "the brought client feeds the proxy"
+  }
+  assert {
+    condition     = contains(kubernetes_deployment_v1.oauth2_proxy["dagster"].spec[0].template[0].spec[0].container[0].args, "--scope=openid email profile")
+    error_message = "scopes follow the variable (no groups scope for issuers that lack it)"
+  }
+}
+
+run "auth_oidc_missing_brought_client_is_refused" {
+  command = plan
+
+  variables {
+    enable_ray          = true
+    enable_dagster      = true
+    dagster_db_host     = "db.example.com"
+    dagster_db_name     = "dagster"
+    dagster_db_user     = "dagster"
+    dagster_db_password = "test"
+    auth = {
+      mode       = "oidc"
+      issuer_url = "https://accounts.google.com"
+      protect    = { dagster = {} }
+    }
+  }
+
+  expect_failures = [kubernetes_secret_v1.oauth2_proxy]
+}
+
+run "auth_oidc_requires_issuer" {
+  command = plan
+
+  variables {
+    auth = { mode = "oidc" }
+  }
+
+  expect_failures = [var.auth]
+}
+
+# ------------------------------------------------------------------------------
+# Default-deny, token-verifying webapp, and the network fence
+# ------------------------------------------------------------------------------
+
+run "auth_open_gate_is_refused" {
+  command = plan
+
+  variables {
+    enable_ray          = true
+    enable_dagster      = true
+    dagster_db_host     = "db.example.com"
+    dagster_db_name     = "dagster"
+    dagster_db_user     = "dagster"
+    dagster_db_password = "test"
+    auth = {
+      mode          = "oidc"
+      issuer_url    = "http://dex.dex.svc.cluster.local:5556/dex"
+      dex_namespace = "dex"
+      protect       = { dagster = {} }
+    }
+  }
+
+  expect_failures = [kubernetes_secret_v1.oauth2_proxy]
+}
+
+run "argo_sso_without_rules_is_refused" {
+  command = plan
+
+  variables {
+    enable_argo_workflows = true
+    auth = {
+      mode          = "oidc"
+      issuer_url    = "http://dex.dex.svc.cluster.local:5556/dex"
+      dex_namespace = "dex"
+      protect       = {}
+    }
+  }
+
+  expect_failures = [kubernetes_secret_v1.argo_sso]
+}
+
+run "proxied_webapp_verifies_the_proxy_token" {
+  command = plan
+
+  variables {
+    enable_webapp       = true
+    webapp_image        = "nginx"
+    enable_ray          = true
+    enable_dagster      = true
+    dagster_db_host     = "db.example.com"
+    dagster_db_name     = "dagster"
+    dagster_db_user     = "dagster"
+    dagster_db_password = "test"
+    auth = {
+      mode          = "oidc"
+      issuer_url    = "http://dex.dex.svc.cluster.local:5556/dex"
+      dex_namespace = "dex"
+      protect = {
+        webapp  = { allowed_groups = ["lab"] }
+        dagster = { allowed_groups = ["lab"] }
+      }
+    }
+  }
+
+  assert {
+    condition     = local.webapp_plain_env["AUTH_PROXIED"] == "1" && local.webapp_plain_env["IDENTITY_JWT_ISSUER"] == "http://dex.dex.svc.cluster.local:5556/dex" && local.webapp_plain_env["IDENTITY_JWT_AUDIENCE"] == "oauth2-proxy" && !contains(keys(local.webapp_plain_env), "IDENTITY_HEADER")
+    error_message = "a proxied webapp verifies the proxy's ID token (issuer + the proxy client as audience) and trusts no forwarded header"
+  }
+  assert {
+    condition     = contains(kubernetes_deployment_v1.oauth2_proxy["webapp"].spec[0].template[0].spec[0].container[0].args, "--pass-authorization-header=true") && !contains(kubernetes_deployment_v1.oauth2_proxy["dagster"].spec[0].template[0].spec[0].container[0].args, "--pass-authorization-header=true")
+    error_message = "only the webapp's proxy forwards the ID token"
+  }
+  assert {
+    condition     = length(kubectl_manifest.dex_client) == 1 && contains(keys(kubectl_manifest.dex_client), "oauth2-proxy")
+    error_message = "a proxied webapp needs no client of its own"
+  }
+}
+
+run "public_webapp_in_headers_mode_is_refused" {
+  command = plan
+
+  variables {
+    enable_webapp                        = true
+    webapp_image                         = "nginx"
+    enable_webapp_public_ingress         = true
+    webapp_public_host                   = "app.example.com"
+    webapp_public_ingress_class_name     = "nginx"
+    webapp_public_wait_for_load_balancer = false
+  }
+
+  expect_failures = [kubernetes_ingress_v1.webapp_public]
+}
+
+run "network_fence_in_headers_mode" {
+  command = plan
+
+  variables {
+    enable_webapp         = true
+    webapp_image          = "nginx"
+    enable_ray            = true
+    enable_dagster        = true
+    dagster_db_host       = "db.example.com"
+    dagster_db_name       = "dagster"
+    dagster_db_user       = "dagster"
+    dagster_db_password   = "test"
+    enable_mlflow         = true
+    mlflow_db_host        = "db.example.com"
+    mlflow_db_name        = "mlflow"
+    mlflow_db_user        = "mlflow"
+    mlflow_db_password    = "test"
+    enable_argo_workflows = true
+  }
+
+  assert {
+    condition     = sort(keys(kubernetes_network_policy_v1.upstream)) == tolist(["argo", "dagster", "mlflow", "ray", "webapp"]) && length(kubernetes_network_policy_v1.front_door) == 0
+    error_message = "every UI service is fenced; with no proxies there is no front-door policy"
+  }
+  assert {
+    # the webapp trusts Tailscale-User-Login: only the tailnet Ingress (and its own namespace) may reach it
+    condition     = length(kubernetes_network_policy_v1.upstream["webapp"].spec[0].ingress[0].from) == 2 && kubernetes_network_policy_v1.upstream["webapp"].spec[0].ingress[0].from[1].namespace_selector[0].match_expressions[0].values == toset(["tailscale"])
+    error_message = "the header-trusting webapp admits only its namespace and the ingress namespace"
+  }
+  assert {
+    condition     = kubernetes_network_policy_v1.upstream["dagster"].spec[0].ingress[0].from[1].namespace_selector[0].match_expressions[0].key == "lab-platform.io/service" && kubernetes_network_policy_v1.upstream["dagster"].spec[0].ingress[0].from[1].namespace_selector[0].match_expressions[0].values == toset(["webapp"])
+    error_message = "Dagster admits the webapp (it triggers runs), by service label so any environment's webapp qualifies"
+  }
+  assert {
+    condition     = kubernetes_network_policy_v1.upstream["ray"].spec[0].ingress[0].from[2].namespace_selector[0].match_expressions[0].values == toset(["kuberay-system"])
+    error_message = "the KubeRay operator reaches the Ray head"
+  }
+  assert {
+    condition     = kubernetes_namespace_v1.dagster[0].metadata[0].labels["lab-platform.io/service"] == "dagster"
+    error_message = "namespaces carry the service label policies select on"
+  }
+}
+
+run "network_fence_in_oidc_mode" {
+  command = plan
+
+  variables {
+    enable_ray          = true
+    enable_dagster      = true
+    dagster_db_host     = "db.example.com"
+    dagster_db_name     = "dagster"
+    dagster_db_user     = "dagster"
+    dagster_db_password = "test"
+    network_policies    = { ingress_namespaces = ["ingress-nginx"] }
+    auth = {
+      mode          = "oidc"
+      issuer_url    = "http://dex.dex.svc.cluster.local:5556/dex"
+      dex_namespace = "dex"
+      protect       = { dagster = { allowed_groups = ["lab"] } }
+    }
+  }
+
+  assert {
+    condition     = !anytrue([for f in kubernetes_network_policy_v1.upstream["dagster"].spec[0].ingress[0].from : length(f.namespace_selector) > 0 && contains(tolist(f.namespace_selector[0].match_expressions[0].values), "ingress-nginx")])
+    error_message = "a proxied service's own pods are not reachable from the ingress: only its proxy is"
+  }
+  assert {
+    condition     = kubernetes_network_policy_v1.front_door["dagster"].spec[0].pod_selector[0].match_labels["app"] == "dagster-auth" && kubernetes_network_policy_v1.front_door["dagster"].spec[0].ingress[0].from[0].namespace_selector[0].match_expressions[0].values == toset(["ingress-nginx"])
+    error_message = "the proxy admits only the ingress namespace"
+  }
+}
+
+run "network_fence_can_be_disabled" {
+  command = plan
+
+  variables {
+    enable_webapp    = true
+    webapp_image     = "nginx"
+    network_policies = { enabled = false }
+  }
+
+  assert {
+    condition     = length(kubernetes_network_policy_v1.upstream) == 0
+    error_message = "network_policies.enabled = false creates no policies"
+  }
+}
+
+run "jupyterhub_follows_the_auth_mode" {
+  command = plan
+
+  variables {
+    enable_jupyterhub         = true
+    jupyterhub_shared_storage = { storage_class_name = "standard" }
+    jupyterhub_allowed_users  = ["ann@lab.org"]
+    auth = {
+      mode          = "oidc"
+      issuer_url    = "http://dex.dex.svc.cluster.local:5556/dex"
+      dex_namespace = "dex"
+      protect       = {}
+    }
+  }
+
+  assert {
+    condition     = strcontains(helm_release.jupyterhub[0].values[0], "generic-oauth") && contains(keys(kubectl_manifest.dex_client), "jupyterhub")
+    error_message = "with auth.mode = oidc JupyterHub logs in through the same issuer, with a Dex client registered for it"
+  }
+  assert {
+    condition     = !strcontains(helm_release.jupyterhub[0].values[0], "allow_all: true")
+    error_message = "a named user list, not allow_all"
+  }
+}
+
+run "jupyterhub_oidc_admitting_nobody_is_refused" {
+  command = plan
+
+  variables {
+    enable_jupyterhub         = true
+    jupyterhub_shared_storage = { storage_class_name = "standard" }
+    auth = {
+      mode          = "oidc"
+      issuer_url    = "http://dex.dex.svc.cluster.local:5556/dex"
+      dex_namespace = "dex"
+      protect       = {}
+    }
+  }
+
+  expect_failures = [helm_release.jupyterhub]
 }

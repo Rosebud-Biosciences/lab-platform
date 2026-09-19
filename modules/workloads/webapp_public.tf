@@ -32,6 +32,13 @@ resource "kubernetes_ingress_v1" "webapp_public" {
     annotations = local.webapp_public_annotations
   }
 
+  lifecycle {
+    precondition {
+      condition     = var.auth.mode != "headers"
+      error_message = "A public webapp Ingress cannot be combined with auth.mode = \"headers\": the app would trust ${var.auth.identity_header}, which any internet client can send through the public load balancer. Use auth.mode = \"oidc\" (the app logs users in itself) or \"none\"."
+    }
+  }
+
   spec {
     ingress_class_name = var.webapp_public_ingress_class_name
 

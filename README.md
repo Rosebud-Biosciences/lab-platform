@@ -187,6 +187,19 @@ role, and a Deny policy protects the guards and the role from anything that is
 not that role. How to set that up, and how to actually run tofu through it, is
 in [`docs/operator-access.md`](docs/operator-access.md).
 
+## Who may open what
+
+By default the private network is the login: behind the Tailscale operator
+every UI request already names the caller, and the tailnet ACL grants UIs by
+tag. `modules/workloads` `auth = { mode = "oidc" }` makes that independent of
+the network: one [Dex](modules/dex) issuer per cluster brokering whatever IdP
+you run (Google, GitHub, LDAP, SAML -- swap it in one place), an
+`oauth2-proxy` in front of each UI that cannot log users in itself with
+per-service group gates, Argo and JupyterHub on native OIDC, and the webapp
+running its own login so that users, sessions and group memberships live in
+*its* database and branch with every preview. Design and the state map in
+[`docs/auth.md`](docs/auth.md); `examples/kind` runs it end to end.
+
 ## Keeping it current
 
 Dependabot handles providers, modules and Actions. The Helm chart pins in the

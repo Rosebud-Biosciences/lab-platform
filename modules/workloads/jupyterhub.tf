@@ -13,6 +13,14 @@ locals {
   jupyterhub_home_claim   = "jupyterhub-home"
   jupyterhub_shared_claim = "jupyterhub-shared"
 
+  # One switch for the environment: JupyterHub logs in through the same
+  # issuer as everything else in auth mode "oidc", unless told otherwise.
+  jupyterhub_mechanism = coalesce(var.jupyterhub_auth_mechanism, var.auth.mode == "oidc" ? "oidc" : "dummy")
+  # With OIDC, admitting every account the issuer admits is an explicit choice.
+  jupyterhub_allow_all = length(var.jupyterhub_allowed_users) == 0 && (
+    local.jupyterhub_mechanism != "oidc" || var.jupyterhub_allow_all
+  )
+
   jupyterhub_ingress_enabled = var.enable_jupyterhub && var.jupyterhub_public_host != ""
 
   jupyterhub_public_annotations = merge(
@@ -50,6 +58,8 @@ resource "kubernetes_namespace_v1" "jupyterhub" {
 
   metadata {
     name = local.jupyterhub_namespace
+    # NetworkPolicies admit client services by this label (netpol.tf).
+    labels = { "lab-platform.io/service" = "jupyterhub" }
   }
 }
 
@@ -124,24 +134,28 @@ resource "helm_release" "jupyterhub" {
   create_namespace = false
 
   values = concat(
-    [templatefile("${local.helm_defaults}/jupyterhub/values-${var.jupyterhub_auth_mechanism}.yaml", {
+    [templatefile("${local.helm_defaults}/jupyterhub/values-${local.jupyterhub_mechanism}.yaml", {
       password                    = var.jupyterhub_user_password
       singleuser_image            = var.jupyterhub_singleuser_image
       jupyter_single_user_sa_name = kubernetes_service_account_v1.jupyterhub_single_user[0].metadata[0].name
       admin_users                 = jsonencode(var.jupyterhub_admin_users)
       allowed_users               = jsonencode(var.jupyterhub_allowed_users)
-      allow_all                   = length(var.jupyterhub_allowed_users) == 0
+      allow_all                   = local.jupyterhub_allow_all
       # oidc mechanism only; the other templates ignore these. Strings are
       # jsonencode()d so secrets with YAML-special characters stay one scalar.
-      oidc_client_id      = jsonencode(var.jupyterhub_oidc_client_id)
-      oidc_client_secret  = jsonencode(var.jupyterhub_oidc_client_secret)
-      oidc_callback_url   = jsonencode(var.jupyterhub_oidc_callback_url)
-      oidc_authorize_url  = jsonencode(var.jupyterhub_oidc_authorize_url)
-      oidc_token_url      = jsonencode(var.jupyterhub_oidc_token_url)
-      oidc_userdata_url   = jsonencode(var.jupyterhub_oidc_userdata_url)
-      oidc_scopes         = jsonencode(var.jupyterhub_oidc_scopes)
+      # local.jupyterhub_oidc (auth.tf) is the jupyterhub_oidc_* variables, or
+      # a client the module registered at Dex when auth.mode = "oidc".
+      oidc_client_id      = jsonencode(local.jupyterhub_oidc.client_id)
+      oidc_client_secret  = jsonencode(local.jupyterhub_oidc.client_secret)
+      oidc_callback_url   = jsonencode(local.jupyterhub_oidc.callback_url)
+      oidc_authorize_url  = jsonencode(local.jupyterhub_oidc.authorize_url)
+      oidc_token_url      = jsonencode(local.jupyterhub_oidc.token_url)
+      oidc_userdata_url   = jsonencode(local.jupyterhub_oidc.userdata_url)
+      oidc_scopes         = jsonencode(local.jupyterhub_oidc.scopes)
       oidc_username_claim = jsonencode(var.jupyterhub_oidc_username_claim)
-      oidc_login_service  = jsonencode(var.jupyterhub_oidc_login_service)
+      oidc_login_service  = jsonencode(local.jupyterhub_oidc.login_service)
+      oidc_allowed_groups = jsonencode(var.auth.jupyterhub_allowed_groups)
+      oidc_groups_claim   = jsonencode(var.auth.groups_claim)
       # Storage + identity + scheduling contracts (shared by all three templates).
       home_claim               = local.jupyterhub_home_claim
       extra_volumes            = jsonencode(local.jupyterhub_extra_volumes)
@@ -156,6 +170,13 @@ resource "helm_release" "jupyterhub" {
     # Caller overrides win (later documents take precedence in Helm).
     var.jupyterhub_extra_values,
   )
+
+  lifecycle {
+    precondition {
+      condition     = local.jupyterhub_mechanism != "oidc" || local.jupyterhub_allow_all || length(var.jupyterhub_allowed_users) > 0 || length(var.auth.jupyterhub_allowed_groups) > 0
+      error_message = "JupyterHub on OIDC admits nobody: set jupyterhub_allowed_users or auth.jupyterhub_allowed_groups, or jupyterhub_allow_all = true if the issuer's connectors already restrict who can log in."
+    }
+  }
 
   depends_on = [helm_release.jupyterhub_shared_volume, kubernetes_secret_v1.jupyterhub_identity_env]
 }

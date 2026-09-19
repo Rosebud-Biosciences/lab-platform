@@ -8,6 +8,10 @@
 # class name at it. var.private_ingress_annotations decorates each Ingress
 # (per service or "*" for all) -- see that variable for the Tailscale ACL
 # device-tag scoping it exists for.
+#
+# auth = { mode = "oidc" }: a protected service's Ingress points at its
+# oauth2-proxy Service (auth.tf) instead of the service itself, so the login
+# happens before any request reaches the UI, whatever the IngressClass.
 # ------------------------------------------------------------------------------
 
 locals {
@@ -17,6 +21,12 @@ locals {
       lookup(var.private_ingress_annotations, "*", {}),
       lookup(var.private_ingress_annotations, svc, {}),
     )
+  }
+
+  # Backend per service: the oauth2-proxy when protected, the service otherwise.
+  private_backend = {
+    for svc, up in local.proxy_upstream :
+    svc => contains(keys(local.proxied_services), svc) ? { name = local.proxy_service_name[svc], port = 80 } : { name = up.service, port = up.port }
   }
 }
 
@@ -34,9 +44,9 @@ resource "kubernetes_ingress_v1" "dagster_private" {
 
     default_backend {
       service {
-        name = local.dagster_webserver_service
+        name = local.private_backend.dagster.name
         port {
-          number = 80
+          number = local.private_backend.dagster.port
         }
       }
     }
@@ -46,7 +56,7 @@ resource "kubernetes_ingress_v1" "dagster_private" {
     }
   }
 
-  depends_on = [helm_release.dagster]
+  depends_on = [helm_release.dagster, kubernetes_service_v1.oauth2_proxy]
 }
 
 resource "kubernetes_ingress_v1" "mlflow_private" {
@@ -63,9 +73,9 @@ resource "kubernetes_ingress_v1" "mlflow_private" {
 
     default_backend {
       service {
-        name = local.mlflow_service
+        name = local.private_backend.mlflow.name
         port {
-          number = 80
+          number = local.private_backend.mlflow.port
         }
       }
     }
@@ -75,7 +85,7 @@ resource "kubernetes_ingress_v1" "mlflow_private" {
     }
   }
 
-  depends_on = [helm_release.mlflow]
+  depends_on = [helm_release.mlflow, kubernetes_service_v1.oauth2_proxy]
 }
 
 resource "kubernetes_ingress_v1" "webapp_private" {
@@ -92,9 +102,9 @@ resource "kubernetes_ingress_v1" "webapp_private" {
 
     default_backend {
       service {
-        name = var.webapp_app_name
+        name = local.private_backend.webapp.name
         port {
-          number = 80
+          number = local.private_backend.webapp.port
         }
       }
     }
@@ -104,7 +114,7 @@ resource "kubernetes_ingress_v1" "webapp_private" {
     }
   }
 
-  depends_on = [kubernetes_service_v1.webapp]
+  depends_on = [kubernetes_service_v1.webapp, kubernetes_service_v1.oauth2_proxy]
 }
 
 resource "kubernetes_ingress_v1" "ray_dashboard_private" {
@@ -121,9 +131,9 @@ resource "kubernetes_ingress_v1" "ray_dashboard_private" {
 
     default_backend {
       service {
-        name = local.ray_dashboard_service
+        name = local.private_backend.ray.name
         port {
-          number = 80
+          number = local.private_backend.ray.port
         }
       }
     }
@@ -133,7 +143,7 @@ resource "kubernetes_ingress_v1" "ray_dashboard_private" {
     }
   }
 
-  depends_on = [kubernetes_service_v1.ray_dashboard]
+  depends_on = [kubernetes_service_v1.ray_dashboard, kubernetes_service_v1.oauth2_proxy]
 }
 
 resource "kubernetes_ingress_v1" "argo_private" {

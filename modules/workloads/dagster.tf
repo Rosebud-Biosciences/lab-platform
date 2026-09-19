@@ -16,6 +16,8 @@ resource "kubernetes_namespace_v1" "dagster" {
 
   metadata {
     name = local.dagster_namespace
+    # NetworkPolicies admit client services by this label (netpol.tf).
+    labels = { "lab-platform.io/service" = "dagster" }
   }
 
   lifecycle {

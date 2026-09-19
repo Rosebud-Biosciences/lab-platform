@@ -28,5 +28,11 @@ terraform {
       source  = "hashicorp/helm"
       version = "~> 3.0"
     }
+    # auth = { mode = "oidc" }: client and cookie secrets for the environment's
+    # OAuth2 clients (auth.tf).
+    random = {
+      source  = "hashicorp/random"
+      version = ">= 3.6"
+    }
   }
 }

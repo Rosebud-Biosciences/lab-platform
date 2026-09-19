@@ -16,8 +16,9 @@ locals {
   webapp_effective_replicas = var.webapp_replicas
 
   # Plain env: caller-supplied plus the identity contract's (region, role ARN,
-  # token path, endpoint URL).
-  webapp_plain_env = merge(local.identity.webapp.env, local.service_urls_env, var.webapp_env)
+  # token path, endpoint URL) and the auth hints (IDENTITY_HEADER or OIDC_*,
+  # auth.tf).
+  webapp_plain_env = merge(local.identity.webapp.env, local.service_urls_env, local.webapp_auth_env, var.webapp_env)
 }
 
 resource "kubernetes_namespace_v1" "webapp" {
@@ -25,6 +26,8 @@ resource "kubernetes_namespace_v1" "webapp" {
 
   metadata {
     name = local.webapp_namespace
+    # NetworkPolicies admit client services by this label (netpol.tf).
+    labels = { "lab-platform.io/service" = "webapp" }
   }
 }
 
@@ -38,9 +41,10 @@ resource "kubernetes_service_account_v1" "webapp" {
   }
 }
 
-# Secret env: caller-supplied secret values (e.g. session secret, OIDC client
-# secret), the identity contract's static credentials, plus the shared
-# DATABASE_URL when set. Injected via envFrom.
+# Secret env: caller-supplied secret values, the identity contract's static
+# credentials, the auth secrets (OIDC_CLIENT_SECRET / SESSION_SECRET when the
+# webapp runs its own login, auth.tf), plus the shared DATABASE_URL when set.
+# Injected via envFrom.
 resource "kubernetes_secret_v1" "webapp_env" {
   count = var.enable_webapp ? 1 : 0
 
@@ -51,9 +55,17 @@ resource "kubernetes_secret_v1" "webapp_env" {
 
   data = merge(
     local.identity_secret_env.webapp,
+    local.webapp_auth_secret_env,
     var.webapp_secret_env,
     var.database_url != "" ? { DATABASE_URL = var.database_url } : {}
   )
+
+  lifecycle {
+    precondition {
+      condition     = length(local.auth_clients_missing) == 0
+      error_message = "auth.mode = \"oidc\" without auth.dex_namespace needs auth.clients for: ${join(", ", local.auth_clients_missing)}."
+    }
+  }
 }
 
 # Terraform-managed Deployment (previews / IaC-owned image + replicas).

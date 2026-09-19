@@ -12,6 +12,8 @@ resource "kubernetes_namespace_v1" "mlflow" {
 
   metadata {
     name = local.mlflow_namespace
+    # NetworkPolicies admit client services by this label (netpol.tf).
+    labels = { "lab-platform.io/service" = "mlflow" }
   }
 }
 

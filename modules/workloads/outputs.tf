@@ -89,6 +89,24 @@ output "argo_private_url" {
   value       = var.enable_private_ingress && var.enable_argo_workflows ? "https://${local.private_argo_host}.${local.private_dns_suffix}" : null
 }
 
+output "auth" {
+  description = "How this environment authenticates (var.auth resolved): the mode, the issuer, the OAuth2 client ids it registered or expects (with the redirect URIs to register when bringing your own), which services sit behind an oauth2-proxy, and the browser-facing URL each redirect is built from."
+  value = {
+    mode          = var.auth.mode
+    issuer_url    = local.auth_oidc ? var.auth.issuer_url : null
+    dex_namespace = local.auth_dex ? var.auth.dex_namespace : null
+    clients = {
+      for k in keys(local.auth_clients_needed) : k => {
+        client_id     = local.auth_client[k].id
+        redirect_uris = local.auth_redirect_uris[k]
+        dex_object    = local.auth_dex ? local.dex_client_object_name[k] : null
+      }
+    }
+    proxied_services = sort(keys(local.proxied_services))
+    external_urls    = local.auth_oidc ? local.auth_external_url : {}
+  }
+}
+
 output "webapp_public_url" {
   description = "Public HTTPS URL for the webapp (null unless the public ingress is enabled)"
   value       = local.webapp_public_enabled ? "https://${var.webapp_public_host}" : null

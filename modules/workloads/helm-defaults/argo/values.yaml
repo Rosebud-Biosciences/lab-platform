@@ -58,10 +58,33 @@ server:
   # ClusterIP only: the UI is reached through the module's private Ingress
   # (ingress.tf), never a controller-allocated load balancer.
   serviceType: ClusterIP
+%{ if sso ~}
+  # auth mode "oidc": Argo's native SSO against the environment's issuer. Who
+  # may do what is decided by the rbac-rule ServiceAccounts auth.tf creates
+  # (by group); a user matching none gets nothing.
+  authModes:
+    - sso
+  sso:
+    enabled: true
+    issuer: ${sso_issuer}
+    clientId:
+      name: ${sso_secret}
+      key: client-id
+    clientSecret:
+      name: ${sso_secret}
+      key: client-secret
+    redirectUrl: ${sso_redirect_url}
+    scopes: ${sso_scopes}
+    customGroupClaimName: ${sso_groups_claim}
+    sessionExpiry: 24h
+    rbac:
+      enabled: true
+%{ else ~}
   # Access is gated by the private network's ACL on that Ingress, as for
   # Dagster/MLflow; the server itself does not ask for a token.
   authModes:
     - server
+%{ endif ~}
   clusterWorkflowTemplates:
     enabled: false
   nodeSelector: ${node_selector}

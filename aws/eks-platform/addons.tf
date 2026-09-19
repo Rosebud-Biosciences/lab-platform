@@ -52,10 +52,15 @@ module "eks_blueprints_addons_core" {
       addon_version = "v1.14.3-eksbuild.3"
       preserve      = true
     }
-    vpc-cni = {
-      addon_version = "v1.23.0-eksbuild.1"
-      preserve      = true
-    }
+    vpc-cni = merge(
+      {
+        addon_version = "v1.23.0-eksbuild.1"
+        preserve      = true
+      },
+      # The CNI's network policy agent: without it every NetworkPolicy
+      # (modules/workloads network_policies) is accepted and ignored.
+      var.enable_network_policy ? { configuration_values = jsonencode({ enableNetworkPolicy = "true" }) } : {},
+    )
     kube-proxy = {
       addon_version = "v1.35.3-eksbuild.18"
       preserve      = true

@@ -6,6 +6,52 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added: OSS auth -- `modules/dex` and `modules/workloads` `auth`
+
+- New `modules/dex`: one Dex per cluster as the OIDC issuer every service
+  trusts. Connectors (Google, GitHub, LDAP, SAML, generic OIDC) or a password
+  DB for CI; `kubernetes` storage so environments register their own OAuth2
+  clients as `OAuth2Client` CRs; optional Ingress.
+- `modules/workloads` gains `var.auth` with three modes. `headers` (default:
+  the private network authenticates), `oidc` and `none`; the webapp receives
+  `AUTH_MODE` (plus `IDENTITY_HEADER` / `IDENTITY_GROUPS_HEADER` in `headers`
+  mode) and accepts only that mode's identity source. In `oidc` mode: an
+  `oauth2-proxy` per protected service (Dagster, MLflow, the Ray dashboard,
+  optionally the webapp) with per-service `allowed_groups` / `allowed_emails`
+  gates, host-only cookies refreshed every `session_refresh` (1h) and ending
+  after `session_lifetime` (24h), and the private Ingress re-pointed at it;
+  Argo Workflows on native SSO with `argo_rbac_rules` (name => `{ rule,
+  access = read | write, precedence }`, one Role per level, no catch-all);
+  JupyterHub's mechanism following `auth.mode`, against the same issuer, with
+  `jupyterhub_allowed_groups`; the webapp handed `OIDC_*` env and a
+  `SESSION_SECRET` to run its own login, or -- proxied -- `IDENTITY_JWT_*` to
+  verify the proxy's ID token. Default-deny throughout: a proxied service
+  must name groups, emails or `allowed_email_domains` (empty by default),
+  Argo SSO needs at least one rule, JupyterHub on OIDC needs allowed users or
+  groups or `jupyterhub_allow_all`. With `dex_namespace` the module registers
+  every client it needs (generated secrets, Dex object names computed in
+  HCL); without it, bring your own via `clients`. New output `auth`. The
+  module now requires the `hashicorp/random` provider (`tofu init -upgrade`).
+- `modules/workloads` `network_policies` (on by default): a NetworkPolicy per
+  UI service admitting only its namespace, its client services (by the new
+  `lab-platform.io/service` namespace label) and the ingress controller's
+  namespaces (or, for a proxied service, only its proxy). Needs an enforcing
+  CNI; `aws/eks-platform` gains `enable_network_policy` (the VPC CNI's policy
+  agent, off by default).
+- A public webapp Ingress is refused in `auth.mode = "headers"`;
+  `examples/complete` switches to `none` when it is public.
+- `jupyterhub_auth_mechanism` now defaults to null, meaning "follow
+  `auth.mode`" (`oidc` in `oidc` mode, `dummy` otherwise).
+- `modules/dex`: ID tokens last 1h (was 24h); connector secrets from
+  `connector_env` / `connector_env_secret_name` via Dex's `$VAR` expansion;
+  `client_admission`, a ValidatingAdmissionPolicy limiting restricted
+  principals (a preview's CI) to `pr<N>-` clients. Requires the
+  `gavinbunney/kubectl` provider.
+- `docs/auth.md`: the design, the group model, the network fence, which auth
+  state is global, stamped per environment, or branched with a preview (and
+  why the webapp's sessions are hashed), and what `oidc` mode still needs
+  before production use.
+
 ### Changed: `examples/kind` object store is SeaweedFS
 
 - MinIO's community edition was archived in April 2026 and receives no fixes,

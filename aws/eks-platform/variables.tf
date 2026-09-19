@@ -193,6 +193,12 @@ variable "enable_metrics_server" {
   default     = true
 }
 
+variable "enable_network_policy" {
+  description = "Enable the VPC CNI's network policy agent so NetworkPolicies are enforced (modules/workloads creates them to keep its login proxies and the tailnet Ingress the only way into the UIs). Off by default: turning it on makes existing policies bite, so check that modules/workloads network_policies.ingress_namespaces names this cluster's ingress namespace (the Tailscale operator's is \"tailscale\") first."
+  type        = bool
+  default     = false
+}
+
 variable "enable_cluster_autoscaler" {
   description = "Enable Cluster Autoscaler (leave off when using Karpenter for burst)"
   type        = bool

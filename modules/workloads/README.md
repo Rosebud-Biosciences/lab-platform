@@ -138,6 +138,68 @@ namespace, an AWS IAM role, an ALB) so adapters deriving names from it cannot
 overflow. Providers point at the target cluster and are configured by the
 caller.
 
+## Auth: who may open which UI
+
+`var.auth` decides how the UIs are gated and how the webapp learns who is
+calling. Full design in [`docs/auth.md`](../../docs/auth.md).
+
+- `mode = "headers"` (default): the private network is the authentication.
+  Behind the Tailscale operator every request already carries
+  `Tailscale-User-Login`; the webapp is told which header to trust
+  (`IDENTITY_HEADER`). Nothing is deployed. A public webapp Ingress is
+  refused in this mode (any internet client could send the header).
+- `mode = "oidc"`: OpenID Connect against one issuer -- [`modules/dex`](../dex)
+  or any other -- portable to any network and IngressClass:
+
+  | Service | How it authenticates | Authorization (default-deny) |
+  | --- | --- | --- |
+  | Dagster, MLflow, Ray dashboard, (webapp) | an `oauth2-proxy` per service in front of a UI with no login of its own; the private Ingress is re-pointed at it; host-only cookies, refreshed hourly, a day at most | `protect[svc].allowed_groups` / `allowed_emails`, or `allowed_email_domains` (empty by default: an ungated service fails the plan); absent from `protect` = not proxied |
+  | Argo Workflows | native SSO (`authModes: [sso]`) | `argo_rbac_rules`: name => `{ rule, access = read \| write, precedence }`, one ServiceAccount each bound to that level's Role; highest precedence wins; no catch-all |
+  | JupyterHub (mechanism follows `auth.mode`) | `GenericOAuthenticator` against the issuer; with `dex_namespace` the client is registered for you | `jupyterhub_allowed_groups` / `jupyterhub_allowed_users`, or `jupyterhub_allow_all` |
+  | webapp (not proxied) | its own OIDC login from the `OIDC_*` env; users, sessions and memberships live in its database and branch with it | the app's tables |
+  | webapp (proxied) | the proxy's ID token, verified by the app (`IDENTITY_JWT_*`) | the proxy's gate, then the app's tables |
+
+  With `dex_namespace` set, every client this environment needs
+  (`<prefix>oauth2-proxy`, `<prefix>argo`, `<prefix>jupyterhub`, `<prefix>webapp`)
+  is an `OAuth2Client` CR in Dex's namespace with a generated secret, created
+  and destroyed with the environment -- previews register their own. Without
+  it, bring clients registered by hand (`clients`); `output.auth` prints the
+  redirect URIs to register.
+- `mode = "none"`: nothing gates the UIs; the webapp identifies nobody.
+
+The webapp always receives `AUTH_MODE` (and `COOKIE_SECURE`) and accepts only
+that mode's identity source.
+
+```hcl
+auth = {
+  mode          = "oidc"
+  issuer_url    = module.dex.issuer_url
+  dex_namespace = module.dex.namespace
+  protect = {
+    dagster = { allowed_groups = ["pipelines"] } # only this group opens Dagster
+    mlflow  = { allowed_groups = ["lab"] }
+    ray     = { allowed_groups = ["pipelines"] }
+  }
+  argo_rbac_rules = {
+    admins = { rule = "'platform' in groups", access = "write", precedence = 10 }
+    lab    = { rule = "'lab' in groups", access = "read" }
+  }
+}
+```
+
+`network_policies` (on by default) fences each UI service so its gate is the
+way in: a service's pods accept only their own namespace, the services that
+call them (`clients`, by namespace label, any environment) and -- without a
+proxy -- the ingress controller's namespaces (`ingress_namespaces`, default
+`tailscale`); a proxy accepts only the ingress. Policies need an enforcing CNI
+(kind: yes; EKS: `aws/eks-platform` `enable_network_policy`).
+
+What is state here and what is not: identity (who exists, which groups) is
+the upstream IdP's and global; clients, cookie secrets, rbac ServiceAccounts
+and NetworkPolicies are stamped per environment; users and memberships the
+webapp writes are in its database and fork with the preview (its sessions are
+stored hashed with the environment's own secret, so forked copies are inert).
+
 <!-- BEGIN_TF_DOCS -->
 ## Requirements
 
@@ -147,13 +209,16 @@ caller.
 | <a name="requirement_helm"></a> [helm](#requirement\_helm) | ~> 3.0 |
 | <a name="requirement_kubectl"></a> [kubectl](#requirement\_kubectl) | >= 1.14 |
 | <a name="requirement_kubernetes"></a> [kubernetes](#requirement\_kubernetes) | >= 2.12.1 |
+| <a name="requirement_random"></a> [random](#requirement\_random) | >= 3.6 |
 
 ## Providers
 
 | Name | Version |
 |------|---------|
 | <a name="provider_helm"></a> [helm](#provider\_helm) | ~> 3.0 |
+| <a name="provider_kubectl"></a> [kubectl](#provider\_kubectl) | >= 1.14 |
 | <a name="provider_kubernetes"></a> [kubernetes](#provider\_kubernetes) | >= 2.12.1 |
+| <a name="provider_random"></a> [random](#provider\_random) | >= 3.6 |
 
 ## Resources
 
@@ -165,12 +230,15 @@ caller.
 | [helm_release.jupyterhub_shared_volume](https://registry.terraform.io/providers/hashicorp/helm/latest/docs/resources/release) | resource |
 | [helm_release.mlflow](https://registry.terraform.io/providers/hashicorp/helm/latest/docs/resources/release) | resource |
 | [helm_release.ray_cluster](https://registry.terraform.io/providers/hashicorp/helm/latest/docs/resources/release) | resource |
+| [kubectl_manifest.dex_client](https://registry.terraform.io/providers/gavinbunney/kubectl/latest/docs/resources/manifest) | resource |
 | [kubernetes_cluster_role_binding_v1.argo_workflow](https://registry.terraform.io/providers/hashicorp/kubernetes/latest/docs/resources/cluster_role_binding_v1) | resource |
 | [kubernetes_cluster_role_binding_v1.dagster_ray_ops](https://registry.terraform.io/providers/hashicorp/kubernetes/latest/docs/resources/cluster_role_binding_v1) | resource |
 | [kubernetes_cluster_role_v1.argo_workflow](https://registry.terraform.io/providers/hashicorp/kubernetes/latest/docs/resources/cluster_role_v1) | resource |
 | [kubernetes_cluster_role_v1.dagster_ray_ops](https://registry.terraform.io/providers/hashicorp/kubernetes/latest/docs/resources/cluster_role_v1) | resource |
 | [kubernetes_config_map_v1.analytics_config](https://registry.terraform.io/providers/hashicorp/kubernetes/latest/docs/resources/config_map_v1) | resource |
 | [kubernetes_config_map_v1.dagster_hello_code](https://registry.terraform.io/providers/hashicorp/kubernetes/latest/docs/resources/config_map_v1) | resource |
+| [kubernetes_config_map_v1.oauth2_proxy_emails](https://registry.terraform.io/providers/hashicorp/kubernetes/latest/docs/resources/config_map_v1) | resource |
+| [kubernetes_deployment_v1.oauth2_proxy](https://registry.terraform.io/providers/hashicorp/kubernetes/latest/docs/resources/deployment_v1) | resource |
 | [kubernetes_deployment_v1.webapp](https://registry.terraform.io/providers/hashicorp/kubernetes/latest/docs/resources/deployment_v1) | resource |
 | [kubernetes_deployment_v1.webapp_pinned](https://registry.terraform.io/providers/hashicorp/kubernetes/latest/docs/resources/deployment_v1) | resource |
 | [kubernetes_horizontal_pod_autoscaler_v2.webapp](https://registry.terraform.io/providers/hashicorp/kubernetes/latest/docs/resources/horizontal_pod_autoscaler_v2) | resource |
@@ -187,24 +255,36 @@ caller.
 | [kubernetes_namespace_v1.mlflow](https://registry.terraform.io/providers/hashicorp/kubernetes/latest/docs/resources/namespace_v1) | resource |
 | [kubernetes_namespace_v1.ray](https://registry.terraform.io/providers/hashicorp/kubernetes/latest/docs/resources/namespace_v1) | resource |
 | [kubernetes_namespace_v1.webapp](https://registry.terraform.io/providers/hashicorp/kubernetes/latest/docs/resources/namespace_v1) | resource |
+| [kubernetes_network_policy_v1.front_door](https://registry.terraform.io/providers/hashicorp/kubernetes/latest/docs/resources/network_policy_v1) | resource |
+| [kubernetes_network_policy_v1.upstream](https://registry.terraform.io/providers/hashicorp/kubernetes/latest/docs/resources/network_policy_v1) | resource |
 | [kubernetes_pod_disruption_budget_v1.webapp](https://registry.terraform.io/providers/hashicorp/kubernetes/latest/docs/resources/pod_disruption_budget_v1) | resource |
+| [kubernetes_role_binding_v1.argo_sso](https://registry.terraform.io/providers/hashicorp/kubernetes/latest/docs/resources/role_binding_v1) | resource |
+| [kubernetes_role_v1.argo_sso](https://registry.terraform.io/providers/hashicorp/kubernetes/latest/docs/resources/role_v1) | resource |
 | [kubernetes_secret_v1.argo_db](https://registry.terraform.io/providers/hashicorp/kubernetes/latest/docs/resources/secret_v1) | resource |
 | [kubernetes_secret_v1.argo_identity_env](https://registry.terraform.io/providers/hashicorp/kubernetes/latest/docs/resources/secret_v1) | resource |
+| [kubernetes_secret_v1.argo_sso](https://registry.terraform.io/providers/hashicorp/kubernetes/latest/docs/resources/secret_v1) | resource |
+| [kubernetes_secret_v1.argo_sso_token](https://registry.terraform.io/providers/hashicorp/kubernetes/latest/docs/resources/secret_v1) | resource |
 | [kubernetes_secret_v1.dagster_db_password](https://registry.terraform.io/providers/hashicorp/kubernetes/latest/docs/resources/secret_v1) | resource |
 | [kubernetes_secret_v1.dagster_identity_env](https://registry.terraform.io/providers/hashicorp/kubernetes/latest/docs/resources/secret_v1) | resource |
 | [kubernetes_secret_v1.dagster_user_code_env](https://registry.terraform.io/providers/hashicorp/kubernetes/latest/docs/resources/secret_v1) | resource |
 | [kubernetes_secret_v1.database_url](https://registry.terraform.io/providers/hashicorp/kubernetes/latest/docs/resources/secret_v1) | resource |
 | [kubernetes_secret_v1.jupyterhub_identity_env](https://registry.terraform.io/providers/hashicorp/kubernetes/latest/docs/resources/secret_v1) | resource |
 | [kubernetes_secret_v1.mlflow_identity_env](https://registry.terraform.io/providers/hashicorp/kubernetes/latest/docs/resources/secret_v1) | resource |
+| [kubernetes_secret_v1.oauth2_proxy](https://registry.terraform.io/providers/hashicorp/kubernetes/latest/docs/resources/secret_v1) | resource |
 | [kubernetes_secret_v1.ray_identity_env](https://registry.terraform.io/providers/hashicorp/kubernetes/latest/docs/resources/secret_v1) | resource |
 | [kubernetes_secret_v1.webapp_env](https://registry.terraform.io/providers/hashicorp/kubernetes/latest/docs/resources/secret_v1) | resource |
+| [kubernetes_service_account_v1.argo_sso](https://registry.terraform.io/providers/hashicorp/kubernetes/latest/docs/resources/service_account_v1) | resource |
 | [kubernetes_service_account_v1.argo_workflow](https://registry.terraform.io/providers/hashicorp/kubernetes/latest/docs/resources/service_account_v1) | resource |
 | [kubernetes_service_account_v1.dagster](https://registry.terraform.io/providers/hashicorp/kubernetes/latest/docs/resources/service_account_v1) | resource |
 | [kubernetes_service_account_v1.jupyterhub_single_user](https://registry.terraform.io/providers/hashicorp/kubernetes/latest/docs/resources/service_account_v1) | resource |
 | [kubernetes_service_account_v1.ray_cluster_sa](https://registry.terraform.io/providers/hashicorp/kubernetes/latest/docs/resources/service_account_v1) | resource |
 | [kubernetes_service_account_v1.webapp](https://registry.terraform.io/providers/hashicorp/kubernetes/latest/docs/resources/service_account_v1) | resource |
+| [kubernetes_service_v1.oauth2_proxy](https://registry.terraform.io/providers/hashicorp/kubernetes/latest/docs/resources/service_v1) | resource |
 | [kubernetes_service_v1.ray_dashboard](https://registry.terraform.io/providers/hashicorp/kubernetes/latest/docs/resources/service_v1) | resource |
 | [kubernetes_service_v1.webapp](https://registry.terraform.io/providers/hashicorp/kubernetes/latest/docs/resources/service_v1) | resource |
+| [random_password.auth_client](https://registry.terraform.io/providers/hashicorp/random/latest/docs/resources/password) | resource |
+| [random_password.auth_cookie_secret](https://registry.terraform.io/providers/hashicorp/random/latest/docs/resources/password) | resource |
+| [random_password.webapp_session](https://registry.terraform.io/providers/hashicorp/random/latest/docs/resources/password) | resource |
 
 ## Inputs
 
@@ -219,6 +299,7 @@ caller.
 | <a name="input_argo_server_url"></a> [argo\_server\_url](#input\_argo\_server\_url) | Use another environment's Argo server instead of running one here (enable\_argo\_workflows = false): its in-cluster URL. Workflows submitted through it run in THAT environment's namespace with its identity and data. | `string` | `""` | no |
 | <a name="input_argo_workflows_chart_version"></a> [argo\_workflows\_chart\_version](#input\_argo\_workflows\_chart\_version) | Version of the argo/argo-workflows Helm chart. Its appVersion must match the CRDs the platform installed (aws/eks-platform argo\_workflows\_version; 2.0.6 -> v4.1.3). | `string` | `"2.0.6"` | no |
 | <a name="input_argo_workflows_repository"></a> [argo\_workflows\_repository](#input\_argo\_workflows\_repository) | Helm repository for the Argo Workflows chart | `string` | `"https://argoproj.github.io/argo-helm"` | no |
+| <a name="input_auth"></a> [auth](#input\_auth) | How this environment's UIs are gated and how the webapp learns the<br/>caller's identity. Three modes:<br/><br/>"headers" (default) -- the private network is the authentication. Every<br/>  request arrives through a proxy that has already identified the caller<br/>  (the Tailscale operator's Ingress sets Tailscale-User-Login); nothing is<br/>  deployed here. identity\_header / identity\_groups\_header name the headers<br/>  the webapp should trust (its IDENTITY\_HEADER / IDENTITY\_GROUPS\_HEADER<br/>  env). Only meaningful when the proxy is the sole route to the pods.<br/><br/>"oidc" -- OpenID Connect against issuer\_url, portable to any network and<br/>  any IngressClass. Services that cannot authenticate on their own<br/>  (Dagster, MLflow, the Ray dashboard, optionally the webapp) get an<br/>  oauth2-proxy in front of them, one per service, that runs the login<br/>  and hands the upstream X-Forwarded-Email / -User / -Groups; the private<br/>  Ingress is re-pointed at the proxy. Argo Workflows uses its native SSO<br/>  (with group rbac-rules), JupyterHub's oidc mechanism points at the same<br/>  issuer, and the webapp gets OIDC\_* env to run its own login (its<br/>  users/sessions then live in ITS database and branch with it).<br/><br/>  dex\_namespace set: the issuer is modules/dex and this module registers<br/>  the environment's clients as OAuth2Client CRs there, with generated<br/>  secrets -- no static redirect-URI list anywhere, so previews mint their<br/>  own. Empty: bring your own clients, keyed oauth2-proxy / argo /<br/>  jupyterhub / webapp, registered at the issuer by hand with the redirect<br/>  URLs output.auth reports.<br/><br/>  Default-deny. protect maps each proxied service to its gate:<br/>  allowed\_groups (the groups\_claim must contain one), allowed\_emails (an<br/>  explicit list), or -- neither set -- allowed\_email\_domains, which is<br/>  empty by default so an ungated service fails the plan. ["*"] admits<br/>  everyone the issuer admits: choose it only when its connectors are<br/>  already restricted (a Dex GitHub connector without `orgs` admits all<br/>  of GitHub). A service absent from protect is not proxied.<br/><br/>  argo\_rbac\_rules maps a name to { rule, access = "read" \| "write",<br/>  precedence }: rule is an Argo rbac-rule expression (e.g.<br/>  "'platform' in groups"), access picks the Role its ServiceAccount is<br/>  bound to, and Argo tries rules from the numerically highest precedence<br/>  down, so broad rules get low numbers. A user matching no rule gets no<br/>  Argo, and Argo in this mode requires at least one rule.<br/><br/>  Sessions: proxy cookies are host-only and re-validated every<br/>  session\_refresh (so a revoked group stops working then), ending after<br/>  session\_lifetime. Cross-service single sign-on therefore comes from the<br/>  issuer's own session (Dex has none in any release yet; an upstream IdP<br/>  such as Google or Keycloak keeps one), not from a shared cookie domain.<br/><br/>"none" -- nothing gates the UIs and the webapp identifies nobody.<br/><br/>The webapp receives AUTH\_MODE and accepts only that mode's identity<br/>source; a public webapp Ingress is refused in "headers" mode, where any<br/>internet client could send the trusted header. | <pre>object({<br/>    mode                   = optional(string, "headers")<br/>    identity_header        = optional(string, "Tailscale-User-Login")<br/>    identity_groups_header = optional(string, "")<br/>    issuer_url             = optional(string, "")<br/>    dex_namespace          = optional(string, "")<br/>    clients = optional(map(object({<br/>      client_id     = string<br/>      client_secret = string<br/>    })), {})<br/>    protect = optional(map(object({<br/>      allowed_groups   = optional(list(string), [])<br/>      allowed_emails   = optional(list(string), [])<br/>      skip_auth_routes = optional(list(string), [])<br/>    })), { dagster = {}, mlflow = {}, ray = {} })<br/>    allowed_email_domains = optional(list(string), [])<br/>    scopes                = optional(list(string), ["openid", "email", "profile", "groups"])<br/>    groups_claim          = optional(string, "groups")<br/>    argo_rbac_rules = optional(map(object({<br/>      rule       = string<br/>      access     = optional(string, "read")<br/>      precedence = optional(number, 0)<br/>    })), {})<br/>    jupyterhub_allowed_groups = optional(list(string), [])<br/>    session_refresh           = optional(string, "1h")<br/>    session_lifetime          = optional(string, "24h")<br/>    cookie_secure             = optional(bool, true)<br/>    external_scheme           = optional(string, "https")<br/>  })</pre> | `{}` | no |
 | <a name="input_dagster_chart_version"></a> [dagster\_chart\_version](#input\_dagster\_chart\_version) | Version of the official dagster/dagster Helm chart. Must be >= 1.13.23: earlier images are amd64-only, and an arm64 cluster (kind on Apple Silicon, Graviton nodes) cannot pull them. | `string` | `"1.13.23"` | no |
 | <a name="input_dagster_db_host"></a> [dagster\_db\_host](#input\_dagster\_db\_host) | Dagster metadata Postgres host | `string` | `""` | no |
 | <a name="input_dagster_db_name"></a> [dagster\_db\_name](#input\_dagster\_db\_name) | Dagster metadata Postgres database name | `string` | `""` | no |
@@ -242,13 +323,14 @@ caller.
 | <a name="input_enable_webapp_public_ingress"></a> [enable\_webapp\_public\_ingress](#input\_enable\_webapp\_public\_ingress) | Create an internet-facing Ingress for the webapp (plus HPA and PodDisruptionBudget). Requires webapp\_public\_ingress\_class\_name. | `bool` | `false` | no |
 | <a name="input_environment"></a> [environment](#input\_environment) | Environment name (prod / dev / preview), published to pipelines as PIPELINE\_ENV | `string` | `"dev"` | no |
 | <a name="input_jupyterhub_admin_users"></a> [jupyterhub\_admin\_users](#input\_jupyterhub\_admin\_users) | JupyterHub usernames granted admin rights | `list(string)` | `[]` | no |
-| <a name="input_jupyterhub_allowed_users"></a> [jupyterhub\_allowed\_users](#input\_jupyterhub\_allowed\_users) | JupyterHub usernames allowed to log in. Empty allows any authenticated username (allow\_all). | `list(string)` | `[]` | no |
-| <a name="input_jupyterhub_auth_mechanism"></a> [jupyterhub\_auth\_mechanism](#input\_jupyterhub\_auth\_mechanism) | JupyterHub authentication: 'dummy' (shared password), 'firstuse' (each user sets their own password at first login), or 'oidc' (any OIDC provider — Google, Cognito, Okta, Keycloak — via the jupyterhub\_oidc\_* variables) | `string` | `"dummy"` | no |
+| <a name="input_jupyterhub_allow_all"></a> [jupyterhub\_allow\_all](#input\_jupyterhub\_allow\_all) | With the 'oidc' mechanism, let every account the issuer admits log in (and get a notebook server). Off by default: name jupyterhub\_allowed\_users or auth.jupyterhub\_allowed\_groups instead, or turn this on only when the issuer's connectors already restrict who can log in. The 'dummy' and 'firstuse' mechanisms keep allowing everyone when jupyterhub\_allowed\_users is empty. | `bool` | `false` | no |
+| <a name="input_jupyterhub_allowed_users"></a> [jupyterhub\_allowed\_users](#input\_jupyterhub\_allowed\_users) | JupyterHub usernames allowed to log in. Empty: with 'dummy'/'firstuse' any username; with 'oidc' only jupyterhub\_allow\_all or auth.jupyterhub\_allowed\_groups admit anyone. | `list(string)` | `[]` | no |
+| <a name="input_jupyterhub_auth_mechanism"></a> [jupyterhub\_auth\_mechanism](#input\_jupyterhub\_auth\_mechanism) | JupyterHub authentication: 'dummy' (shared password), 'firstuse' (each user sets their own password at first login), or 'oidc' (any OIDC provider -- Google, Cognito, Okta, Keycloak -- via the jupyterhub\_oidc\_* variables). Null (the default) follows auth.mode: 'oidc' when auth.mode is "oidc" (against the same issuer, a Dex client registered for it), 'dummy' otherwise. | `string` | `null` | no |
 | <a name="input_jupyterhub_chart_version"></a> [jupyterhub\_chart\_version](#input\_jupyterhub\_chart\_version) | JupyterHub Helm chart version | `string` | `"3.3.8"` | no |
 | <a name="input_jupyterhub_extra_values"></a> [jupyterhub\_extra\_values](#input\_jupyterhub\_extra\_values) | Additional YAML documents merged into the JupyterHub Helm values after the built-in template (highest precedence). Use for profiles, lifecycle hooks, resource limits, etc. | `list(string)` | `[]` | no |
 | <a name="input_jupyterhub_oidc_authorize_url"></a> [jupyterhub\_oidc\_authorize\_url](#input\_jupyterhub\_oidc\_authorize\_url) | OIDC authorization endpoint, e.g. https://accounts.google.com/o/oauth2/v2/auth | `string` | `""` | no |
 | <a name="input_jupyterhub_oidc_callback_url"></a> [jupyterhub\_oidc\_callback\_url](#input\_jupyterhub\_oidc\_callback\_url) | OAuth callback: https://<jupyterhub host>/hub/oauth\_callback (the host may be a tailnet ts.net name — the IdP only needs the browser to reach it, so private hubs work) | `string` | `""` | no |
-| <a name="input_jupyterhub_oidc_client_id"></a> [jupyterhub\_oidc\_client\_id](#input\_jupyterhub\_oidc\_client\_id) | OIDC client id (auth mechanism 'oidc') | `string` | `""` | no |
+| <a name="input_jupyterhub_oidc_client_id"></a> [jupyterhub\_oidc\_client\_id](#input\_jupyterhub\_oidc\_client\_id) | OIDC client id (auth mechanism 'oidc'). Leave empty with auth = { mode = "oidc", dex\_namespace = ... } and the module registers a client at Dex and fills in every jupyterhub\_oidc\_* endpoint itself. | `string` | `""` | no |
 | <a name="input_jupyterhub_oidc_client_secret"></a> [jupyterhub\_oidc\_client\_secret](#input\_jupyterhub\_oidc\_client\_secret) | OIDC client secret (auth mechanism 'oidc') | `string` | `""` | no |
 | <a name="input_jupyterhub_oidc_login_service"></a> [jupyterhub\_oidc\_login\_service](#input\_jupyterhub\_oidc\_login\_service) | Label on the JupyterHub login button, e.g. 'Google' | `string` | `"OIDC"` | no |
 | <a name="input_jupyterhub_oidc_scopes"></a> [jupyterhub\_oidc\_scopes](#input\_jupyterhub\_oidc\_scopes) | OAuth scopes to request | `list(string)` | <pre>[<br/>  "openid",<br/>  "email"<br/>]</pre> | no |
@@ -271,9 +353,11 @@ caller.
 | <a name="input_mlflow_repository"></a> [mlflow\_repository](#input\_mlflow\_repository) | Helm repository for the MLflow chart | `string` | `"https://community-charts.github.io/helm-charts"` | no |
 | <a name="input_mlflow_tracking_uri"></a> [mlflow\_tracking\_uri](#input\_mlflow\_tracking\_uri) | Use another environment's MLflow instead of running one here (enable\_mlflow = false): its in-cluster URL, e.g. http://mlflow.mlflow.svc.cluster.local:80. Experiments and artifacts then land in THAT environment's store. | `string` | `""` | no |
 | <a name="input_name_prefix"></a> [name\_prefix](#input\_name\_prefix) | Prefix applied to every namespace, Helm release, and private hostname so<br/>multiple workload environments can share one cluster. Empty ("")<br/>reproduces the base names. A preview uses e.g. "pr123-".<br/><br/>Backend adapters derive their own resource names (IAM roles, NodePools,<br/>filesystems) from the same prefix, so it is validated against the tightest<br/>downstream limits -- a Kubernetes namespace (63), an AWS IAM role name<br/>(64), an ALB name (32) -- rather than only what this module creates. | `string` | `""` | no |
+| <a name="input_network_policies"></a> [network\_policies](#input\_network\_policies) | Fence each UI service so its gate is the only way in (netpol.tf).<br/>ingress\_namespaces: where the ingress controller's proxies run -- the<br/>Tailscale operator's (default "tailscale"), ingress-nginx's, ... -- the<br/>only namespaces allowed to reach a login proxy, or a service that has<br/>none. clients: per service, which other services (by the<br/>lab-platform.io/service namespace label, any environment) may call it<br/>directly; defaults: dagster <- webapp; mlflow <- webapp, dagster, ray,<br/>argo, jupyterhub; ray <- dagster, argo; argo <- webapp; webapp <- none.<br/>extra\_namespaces: per service, other namespaces by name (default: ray <-<br/>kuberay-system). Policies are inert unless the CNI enforces them (kind's<br/>kindnet does; EKS needs aws/eks-platform enable\_network\_policy). | <pre>object({<br/>    enabled            = optional(bool, true)<br/>    ingress_namespaces = optional(list(string), ["tailscale"])<br/>    clients            = optional(map(list(string)), {})<br/>    extra_namespaces   = optional(map(list(string)), {})<br/>  })</pre> | `{}` | no |
+| <a name="input_oauth2_proxy_image"></a> [oauth2\_proxy\_image](#input\_oauth2\_proxy\_image) | oauth2-proxy image for the per-service login proxies (auth mode "oidc"); a pinned tag, bumped like the chart versions | `string` | `"quay.io/oauth2-proxy/oauth2-proxy:v7.15.4"` | no |
 | <a name="input_private_ingress_annotations"></a> [private\_ingress\_annotations](#input\_private\_ingress\_annotations) | Annotations for the private Ingresses, keyed by service ("dagster",<br/>"mlflow", "webapp", "ray", "argo"); the special key "*" applies to every service,<br/>with per-service entries winning on conflict.<br/><br/>The flagship use is Tailscale ACL scoping. The operator tags every proxy<br/>device tag:k8s by default, so one grant governs all UIs; per-service<br/>device tags let the tailnet policy grant them individually -- ops UIs to<br/>the platform group, the webapp (which authenticates users itself) to<br/>every member:<br/><br/>  private\_ingress\_annotations = {<br/>    dagster = { "tailscale.com/tags" = "tag:svc-dagster" }<br/>    mlflow  = { "tailscale.com/tags" = "tag:svc-mlflow" }<br/>    ray     = { "tailscale.com/tags" = "tag:svc-ray" }<br/>    webapp  = { "tailscale.com/tags" = "tag:svc-webapp" }<br/>  }<br/><br/>A preview stack instead collapses to one tag, so a single grant covers<br/>the whole environment:<br/><br/>  private\_ingress\_annotations = { "*" = { "tailscale.com/tags" = "tag:svc-preview" } }<br/><br/>Each tag needs the operator's tag as an owner in the policy's tagOwners<br/>("tag:svc-preview": ["tag:k8s-operator"]), applied BEFORE any Ingress<br/>uses it, or the operator cannot mint the device.<br/><br/>Tags apply only at provisioning. The operator reads tailscale.com/tags<br/>when it first creates a proxy device and never again, so editing the<br/>annotation on a live Ingress changes nothing on the tailnet -- and since<br/>the ACL grants by tag, that device silently falls out of the new grant.<br/>Whenever a tag changes (including the first time you set one on an<br/>existing environment), recreate the Ingress so a fresh device is minted:<br/><br/>  tofu apply -replace='module.workloads.kubernetes\_ingress\_v1.webapp\_private[0]'<br/><br/>The hostname is unaffected; the service blips while the new proxy pod<br/>starts. Only ProxyGroup-mode Ingresses reconcile tag changes in place. | `map(map(string))` | `{}` | no |
 | <a name="input_private_ingress_class_name"></a> [private\_ingress\_class\_name](#input\_private\_ingress\_class\_name) | IngressClass backing the private workload Ingresses. 'tailscale' uses the operator (a cluster prerequisite); set to your own private ingress controller to bring your own. | `string` | `"tailscale"` | no |
-| <a name="input_private_ingress_dns_suffix"></a> [private\_ingress\_dns\_suffix](#input\_private\_ingress\_dns\_suffix) | DNS suffix for the private hostnames (e.g. your MagicDNS tailnet suffix <tailnet>.ts.net). Used only to build output URLs. | `string` | `""` | no |
+| <a name="input_private_ingress_dns_suffix"></a> [private\_ingress\_dns\_suffix](#input\_private\_ingress\_dns\_suffix) | DNS suffix for the private hostnames (e.g. your MagicDNS tailnet suffix <tailnet>.ts.net). Used to build output URLs and, in auth mode "oidc", the OAuth redirect URLs. | `string` | `""` | no |
 | <a name="input_private_ingress_hostname_prefix"></a> [private\_ingress\_hostname\_prefix](#input\_private\_ingress\_hostname\_prefix) | Prefix for the private hostnames (keeps names unique per env). Usually equal to name\_prefix. | `string` | `""` | no |
 | <a name="input_ray_cluster_chart_version"></a> [ray\_cluster\_chart\_version](#input\_ray\_cluster\_chart\_version) | Version of the kuberay ray-cluster Helm chart | `string` | `"1.6.0"` | no |
 | <a name="input_ray_cluster_release_name"></a> [ray\_cluster\_release\_name](#input\_ray\_cluster\_release\_name) | Helm release name for the persistent Ray cluster (auto-prefixed) | `string` | `"ray-cluster"` | no |
@@ -317,6 +401,7 @@ caller.
 |------|-------------|
 | <a name="output_argo_namespace"></a> [argo\_namespace](#output\_argo\_namespace) | Argo Workflows namespace (if enabled) |
 | <a name="output_argo_private_url"></a> [argo\_private\_url](#output\_argo\_private\_url) | Private URL for the Argo Workflows UI |
+| <a name="output_auth"></a> [auth](#output\_auth) | How this environment authenticates (var.auth resolved): the mode, the issuer, the OAuth2 client ids it registered or expects (with the redirect URIs to register when bringing your own), which services sit behind an oauth2-proxy, and the browser-facing URL each redirect is built from. |
 | <a name="output_dagster_namespace"></a> [dagster\_namespace](#output\_dagster\_namespace) | Dagster namespace (if enabled) |
 | <a name="output_dagster_private_url"></a> [dagster\_private\_url](#output\_dagster\_private\_url) | Private URL for Dagit (if the private ingress + DNS suffix are set) |
 | <a name="output_identity_secret_names"></a> [identity\_secret\_names](#output\_identity\_secret\_names) | Per-service name of the <service>-identity-env Secret (in that service's namespace) carrying workload\_identity\_secret\_env; RayJobs launched by user code can envFrom the ray one. |

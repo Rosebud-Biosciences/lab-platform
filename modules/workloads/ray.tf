@@ -36,6 +36,8 @@ resource "kubernetes_namespace_v1" "ray" {
 
   metadata {
     name = local.ray_namespace
+    # NetworkPolicies admit client services by this label (netpol.tf).
+    labels = { "lab-platform.io/service" = "ray" }
   }
 }
 
@@ -140,7 +142,9 @@ resource "helm_release" "ray_cluster" {
 # ------------------------------------------------------------------------------
 
 resource "kubernetes_service_v1" "ray_dashboard" {
-  count = var.enable_ray && var.enable_private_ingress ? 1 : 0
+  # Also the upstream of the dashboard's oauth2-proxy (auth.tf), which may run
+  # without a private Ingress (kind).
+  count = var.enable_ray && (var.enable_private_ingress || contains(keys(local.proxied_services), "ray")) ? 1 : 0
 
   metadata {
     name      = local.ray_dashboard_service

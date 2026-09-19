@@ -29,6 +29,8 @@ resource "kubernetes_namespace_v1" "argo" {
 
   metadata {
     name = local.argo_namespace
+    # NetworkPolicies admit client services by this label (netpol.tf).
+    labels = { "lab-platform.io/service" = "argo" }
   }
 }
 
@@ -144,6 +146,13 @@ resource "helm_release" "argo_workflows" {
     db_secret     = local.argo_db_secret
     node_selector = jsonencode(local.scheduling.argo.node_selector)
     tolerations   = jsonencode(local.scheduling.argo.tolerations)
+    # auth mode "oidc" (auth.tf): native SSO against the environment's issuer.
+    sso              = local.argo_sso
+    sso_issuer       = jsonencode(var.auth.issuer_url)
+    sso_secret       = local.argo_sso_secret
+    sso_redirect_url = jsonencode(try(local.auth_redirect_uris.argo[0], ""))
+    sso_scopes       = jsonencode(var.auth.scopes)
+    sso_groups_claim = jsonencode(var.auth.groups_claim)
   })]
 
   depends_on = [
@@ -151,5 +160,8 @@ resource "helm_release" "argo_workflows" {
     kubernetes_cluster_role_binding_v1.argo_workflow,
     kubernetes_secret_v1.argo_identity_env,
     kubernetes_secret_v1.argo_db,
+    kubernetes_secret_v1.argo_sso,
+    kubernetes_service_account_v1.argo_sso,
+    kubernetes_role_binding_v1.argo_sso,
   ]
 }

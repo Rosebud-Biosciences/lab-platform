@@ -291,9 +291,160 @@ variable "private_ingress_annotations" {
 }
 
 variable "private_ingress_dns_suffix" {
-  description = "DNS suffix for the private hostnames (e.g. your MagicDNS tailnet suffix <tailnet>.ts.net). Used only to build output URLs."
+  description = "DNS suffix for the private hostnames (e.g. your MagicDNS tailnet suffix <tailnet>.ts.net). Used to build output URLs and, in auth mode \"oidc\", the OAuth redirect URLs."
   type        = string
   default     = ""
+}
+
+# ------------------------------------------------------------------------------
+# AUTH: who may open which UI, and how the webapp learns who is calling
+# ------------------------------------------------------------------------------
+
+variable "auth" {
+  description = <<-EOT
+    How this environment's UIs are gated and how the webapp learns the
+    caller's identity. Three modes:
+
+    "headers" (default) -- the private network is the authentication. Every
+      request arrives through a proxy that has already identified the caller
+      (the Tailscale operator's Ingress sets Tailscale-User-Login); nothing is
+      deployed here. identity_header / identity_groups_header name the headers
+      the webapp should trust (its IDENTITY_HEADER / IDENTITY_GROUPS_HEADER
+      env). Only meaningful when the proxy is the sole route to the pods.
+
+    "oidc" -- OpenID Connect against issuer_url, portable to any network and
+      any IngressClass. Services that cannot authenticate on their own
+      (Dagster, MLflow, the Ray dashboard, optionally the webapp) get an
+      oauth2-proxy in front of them, one per service, that runs the login
+      and hands the upstream X-Forwarded-Email / -User / -Groups; the private
+      Ingress is re-pointed at the proxy. Argo Workflows uses its native SSO
+      (with group rbac-rules), JupyterHub's oidc mechanism points at the same
+      issuer, and the webapp gets OIDC_* env to run its own login (its
+      users/sessions then live in ITS database and branch with it).
+
+      dex_namespace set: the issuer is modules/dex and this module registers
+      the environment's clients as OAuth2Client CRs there, with generated
+      secrets -- no static redirect-URI list anywhere, so previews mint their
+      own. Empty: bring your own clients, keyed oauth2-proxy / argo /
+      jupyterhub / webapp, registered at the issuer by hand with the redirect
+      URLs output.auth reports.
+
+      Default-deny. protect maps each proxied service to its gate:
+      allowed_groups (the groups_claim must contain one), allowed_emails (an
+      explicit list), or -- neither set -- allowed_email_domains, which is
+      empty by default so an ungated service fails the plan. ["*"] admits
+      everyone the issuer admits: choose it only when its connectors are
+      already restricted (a Dex GitHub connector without `orgs` admits all
+      of GitHub). A service absent from protect is not proxied.
+
+      argo_rbac_rules maps a name to { rule, access = "read" | "write",
+      precedence }: rule is an Argo rbac-rule expression (e.g.
+      "'platform' in groups"), access picks the Role its ServiceAccount is
+      bound to, and Argo tries rules from the numerically highest precedence
+      down, so broad rules get low numbers. A user matching no rule gets no
+      Argo, and Argo in this mode requires at least one rule.
+
+      Sessions: proxy cookies are host-only and re-validated every
+      session_refresh (so a revoked group stops working then), ending after
+      session_lifetime. Cross-service single sign-on therefore comes from the
+      issuer's own session (Dex has none in any release yet; an upstream IdP
+      such as Google or Keycloak keeps one), not from a shared cookie domain.
+
+    "none" -- nothing gates the UIs and the webapp identifies nobody.
+
+    The webapp receives AUTH_MODE and accepts only that mode's identity
+    source; a public webapp Ingress is refused in "headers" mode, where any
+    internet client could send the trusted header.
+  EOT
+  type = object({
+    mode                   = optional(string, "headers")
+    identity_header        = optional(string, "Tailscale-User-Login")
+    identity_groups_header = optional(string, "")
+    issuer_url             = optional(string, "")
+    dex_namespace          = optional(string, "")
+    clients = optional(map(object({
+      client_id     = string
+      client_secret = string
+    })), {})
+    protect = optional(map(object({
+      allowed_groups   = optional(list(string), [])
+      allowed_emails   = optional(list(string), [])
+      skip_auth_routes = optional(list(string), [])
+    })), { dagster = {}, mlflow = {}, ray = {} })
+    allowed_email_domains = optional(list(string), [])
+    scopes                = optional(list(string), ["openid", "email", "profile", "groups"])
+    groups_claim          = optional(string, "groups")
+    argo_rbac_rules = optional(map(object({
+      rule       = string
+      access     = optional(string, "read")
+      precedence = optional(number, 0)
+    })), {})
+    jupyterhub_allowed_groups = optional(list(string), [])
+    session_refresh           = optional(string, "1h")
+    session_lifetime          = optional(string, "24h")
+    cookie_secure             = optional(bool, true)
+    external_scheme           = optional(string, "https")
+  })
+  default = {}
+
+  validation {
+    condition     = contains(["headers", "oidc", "none"], var.auth.mode)
+    error_message = "auth.mode must be \"headers\", \"oidc\" or \"none\"."
+  }
+  validation {
+    condition     = var.auth.mode != "oidc" || can(regex("^https?://", var.auth.issuer_url))
+    error_message = "auth.issuer_url (an http(s) URL) is required in mode \"oidc\"."
+  }
+  validation {
+    condition     = alltrue([for svc in keys(var.auth.protect) : contains(["dagster", "mlflow", "ray", "webapp"], svc)])
+    error_message = "auth.protect keys must be among dagster, mlflow, ray, webapp (Argo and JupyterHub authenticate natively)."
+  }
+  validation {
+    condition     = contains(["http", "https"], var.auth.external_scheme)
+    error_message = "auth.external_scheme must be http or https."
+  }
+  validation {
+    condition     = alltrue([for r in values(var.auth.argo_rbac_rules) : contains(["read", "write"], r.access)])
+    error_message = "auth.argo_rbac_rules[*].access must be \"read\" or \"write\"."
+  }
+  validation {
+    condition     = alltrue([for d in [var.auth.session_refresh, var.auth.session_lifetime] : can(regex("^[0-9]+(s|m|h)$", d))])
+    error_message = "auth.session_refresh and auth.session_lifetime are durations like \"1h\" or \"30m\"."
+  }
+}
+
+variable "network_policies" {
+  description = <<-EOT
+    Fence each UI service so its gate is the only way in (netpol.tf).
+    ingress_namespaces: where the ingress controller's proxies run -- the
+    Tailscale operator's (default "tailscale"), ingress-nginx's, ... -- the
+    only namespaces allowed to reach a login proxy, or a service that has
+    none. clients: per service, which other services (by the
+    lab-platform.io/service namespace label, any environment) may call it
+    directly; defaults: dagster <- webapp; mlflow <- webapp, dagster, ray,
+    argo, jupyterhub; ray <- dagster, argo; argo <- webapp; webapp <- none.
+    extra_namespaces: per service, other namespaces by name (default: ray <-
+    kuberay-system). Policies are inert unless the CNI enforces them (kind's
+    kindnet does; EKS needs aws/eks-platform enable_network_policy).
+  EOT
+  type = object({
+    enabled            = optional(bool, true)
+    ingress_namespaces = optional(list(string), ["tailscale"])
+    clients            = optional(map(list(string)), {})
+    extra_namespaces   = optional(map(list(string)), {})
+  })
+  default = {}
+
+  validation {
+    condition     = alltrue([for svc in concat(keys(var.network_policies.clients), keys(var.network_policies.extra_namespaces)) : contains(["webapp", "dagster", "mlflow", "ray", "argo"], svc)])
+    error_message = "network_policies.clients / extra_namespaces keys must be among webapp, dagster, mlflow, ray, argo."
+  }
+}
+
+variable "oauth2_proxy_image" {
+  description = "oauth2-proxy image for the per-service login proxies (auth mode \"oidc\"); a pinned tag, bumped like the chart versions"
+  type        = string
+  default     = "quay.io/oauth2-proxy/oauth2-proxy:v7.15.4"
 }
 
 # ------------------------------------------------------------------------------
@@ -509,24 +660,24 @@ variable "jupyterhub_chart_version" {
 }
 
 variable "jupyterhub_auth_mechanism" {
-  description = "JupyterHub authentication: 'dummy' (shared password), 'firstuse' (each user sets their own password at first login), or 'oidc' (any OIDC provider — Google, Cognito, Okta, Keycloak — via the jupyterhub_oidc_* variables)"
+  description = "JupyterHub authentication: 'dummy' (shared password), 'firstuse' (each user sets their own password at first login), or 'oidc' (any OIDC provider -- Google, Cognito, Okta, Keycloak -- via the jupyterhub_oidc_* variables). Null (the default) follows auth.mode: 'oidc' when auth.mode is \"oidc\" (against the same issuer, a Dex client registered for it), 'dummy' otherwise."
   type        = string
-  default     = "dummy"
+  default     = null
 
   validation {
-    condition     = contains(["dummy", "firstuse", "oidc"], var.jupyterhub_auth_mechanism)
-    error_message = "jupyterhub_auth_mechanism must be 'dummy', 'firstuse', or 'oidc'."
+    condition     = var.jupyterhub_auth_mechanism == null || contains(["dummy", "firstuse", "oidc"], coalesce(var.jupyterhub_auth_mechanism, "dummy"))
+    error_message = "jupyterhub_auth_mechanism must be null, 'dummy', 'firstuse', or 'oidc'."
   }
 }
 
 variable "jupyterhub_oidc_client_id" {
-  description = "OIDC client id (auth mechanism 'oidc')"
+  description = "OIDC client id (auth mechanism 'oidc'). Leave empty with auth = { mode = \"oidc\", dex_namespace = ... } and the module registers a client at Dex and fills in every jupyterhub_oidc_* endpoint itself."
   type        = string
   default     = ""
 
   validation {
-    condition     = var.jupyterhub_auth_mechanism != "oidc" || var.jupyterhub_oidc_client_id != ""
-    error_message = "jupyterhub_oidc_client_id is required when jupyterhub_auth_mechanism is 'oidc'."
+    condition     = !var.enable_jupyterhub || coalesce(var.jupyterhub_auth_mechanism, var.auth.mode == "oidc" ? "oidc" : "dummy") != "oidc" || var.jupyterhub_oidc_client_id != "" || (var.auth.mode == "oidc" && var.auth.dex_namespace != "")
+    error_message = "jupyterhub_oidc_client_id is required when JupyterHub authenticates with 'oidc' (unless auth.mode = \"oidc\" with auth.dex_namespace, which registers one)."
   }
 }
 
@@ -592,8 +743,14 @@ variable "jupyterhub_admin_users" {
   default     = []
 }
 
+variable "jupyterhub_allow_all" {
+  description = "With the 'oidc' mechanism, let every account the issuer admits log in (and get a notebook server). Off by default: name jupyterhub_allowed_users or auth.jupyterhub_allowed_groups instead, or turn this on only when the issuer's connectors already restrict who can log in. The 'dummy' and 'firstuse' mechanisms keep allowing everyone when jupyterhub_allowed_users is empty."
+  type        = bool
+  default     = false
+}
+
 variable "jupyterhub_allowed_users" {
-  description = "JupyterHub usernames allowed to log in. Empty allows any authenticated username (allow_all)."
+  description = "JupyterHub usernames allowed to log in. Empty: with 'dummy'/'firstuse' any username; with 'oidc' only jupyterhub_allow_all or auth.jupyterhub_allowed_groups admit anyone."
   type        = list(string)
   default     = []
 }

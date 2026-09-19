@@ -21,9 +21,16 @@ hub:
       scope: ${oidc_scopes}
       username_claim: ${oidc_username_claim}
       login_service: ${oidc_login_service}
+%{ if oidc_allowed_groups != "[]" ~}
+      # auth.jupyterhub_allowed_groups: only members of these IdP groups (read
+      # from the groups claim) may log in, whatever allowed_users says.
+      claim_groups_key: ${oidc_groups_claim}
+      allowed_groups: ${oidc_allowed_groups}
+      manage_groups: true
+%{ endif ~}
     Authenticator:
       admin_users: ${admin_users}
-%{ if allow_all ~}
+%{ if allow_all && oidc_allowed_groups == "[]" ~}
       allow_all: true
 %{ else ~}
       allowed_users: ${allowed_users}

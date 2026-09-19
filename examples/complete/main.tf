@@ -191,6 +191,10 @@ module "workloads" {
   database_url                 = var.app_database_url
   enable_webapp_public_ingress = var.webapp_public_host != ""
   webapp_public_host           = var.webapp_public_host
+  # Once the webapp is public it must not trust the tailnet's identity header
+  # (anyone can send it through the ALB): "none" here, or "oidc" with an issuer
+  # (docs/auth.md) for logged-in users on both paths.
+  auth = { mode = var.webapp_public_host != "" ? "none" : "headers" }
 
   # --- JupyterHub ---
   enable_jupyterhub        = true
