@@ -29,6 +29,7 @@ Portable (any Kubernetes cluster, any data backend):
 | ------ | ---------- |
 | [`modules/workloads`](modules/workloads) | webapp / JupyterHub / Dagster / MLflow / Argo Workflows / Ray, `name_prefix`-stamped and toggleable; consumes the identity / scheduling / storage / public-ingress contract inputs |
 | [`modules/neon-branches`](modules/neon-branches) | Copy-on-write Neon Postgres branches per preview |
+| [`modules/dex`](modules/dex) | The cluster's OIDC issuer (Dex): brokers Google / GitHub / LDAP / SAML or a CI password DB; environments register their own OAuth2 clients as CRs. Pairs with `modules/workloads` `auth = { mode = "oidc" }` |
 
 AWS backend, data axis (usable from any compute):
 
@@ -68,6 +69,7 @@ flowchart LR
   subgraph portable [modules/]
     workloads[workloads<br/>enable_* toggles]
     neon[neon-branches]
+    dex[dex<br/>OIDC issuer]
   end
   buckets --> dataAdapter
   oidc --> dataAdapter
@@ -76,6 +78,7 @@ flowchart LR
   network --> platform --> computeAdapter
   computeAdapter -- scheduling, storage, edge --> workloads
   neon --> workloads
+  dex -- issuer, OAuth2Client CRs --> workloads
   kindCluster[kind / GKE / on-prem] -. compute .-> workloads
 ```
 

@@ -33,6 +33,7 @@ jobs:
         dir:
           - modules/workloads
           - modules/neon-branches
+          - modules/dex
           - aws/bootstrap
           - aws/network
           - aws/eks-platform
@@ -97,7 +98,7 @@ jobs:
       - name: Verify generated module docs are up to date
         uses: terraform-docs/gh-actions@v1
         with:
-          working-dir: modules/workloads,modules/neon-branches,aws/bootstrap,aws/network,aws/eks-platform,aws/s3-bucket,aws/preview-storage,aws/iceberg-branches,aws/data-access,aws/data-adapter,aws/compute-adapter,aws/oidc-provider
+          working-dir: modules/workloads,modules/neon-branches,modules/dex,aws/bootstrap,aws/network,aws/eks-platform,aws/s3-bucket,aws/preview-storage,aws/iceberg-branches,aws/data-access,aws/data-adapter,aws/compute-adapter,aws/oidc-provider
           config-file: .terraform-docs.yml
           output-format: markdown table
           fail-on-diff: true
@@ -111,6 +112,7 @@ jobs:
         dir:
           - modules/workloads
           - modules/neon-branches
+          - modules/dex
           - aws/bootstrap
           - aws/network
           - aws/iceberg-branches
