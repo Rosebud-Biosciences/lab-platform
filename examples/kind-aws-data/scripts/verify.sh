@@ -10,8 +10,9 @@ set -euo pipefail
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 example="$here/.."
 
-# Same health checks as the local example (NAME_PREFIX honoured).
-"$here/../../kind/scripts/verify.sh"
+# Same health checks as the local example (NAME_PREFIX honoured). This example
+# runs no Dex (auth stays in headers mode), so the OIDC checks are skipped.
+WITH_OIDC=0 "$here/../../kind/scripts/verify.sh"
 
 ns="$(tofu -chdir="$example" output -json namespaces | python3 -c 'import json,sys; print(json.load(sys.stdin)["dagster"])')"
 bucket="$(tofu -chdir="$example" output -raw data_bucket)"

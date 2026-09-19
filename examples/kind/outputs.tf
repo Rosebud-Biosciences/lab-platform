@@ -16,13 +16,27 @@ output "service_accounts" {
 }
 
 output "port_forwards" {
-  description = "Reach the UIs from the laptop"
+  description = "Reach the UIs from the laptop. The OIDC redirects point at in-cluster hostnames, so a browser login needs those names to resolve to the forwarded ports (see the README); the health endpoints work as-is."
   value = {
-    dagster = "kubectl -n ${module.workloads.dagster_namespace} port-forward svc/${var.name_prefix}dagster-dagster-webserver 3000:80   # http://localhost:3000"
-    mlflow  = "kubectl -n ${module.workloads.mlflow_namespace} port-forward svc/${var.name_prefix}mlflow 5000:80                      # http://localhost:5000"
+    dagster = "kubectl -n ${module.workloads.dagster_namespace} port-forward svc/${var.name_prefix}dagster-dagster-webserver 3000:80   # http://localhost:3000 (bypasses the auth proxy)"
+    mlflow  = "kubectl -n ${module.workloads.mlflow_namespace} port-forward svc/${var.name_prefix}mlflow 5000:80                      # http://localhost:5000 (bypasses the auth proxy)"
     webapp  = "kubectl -n ${module.workloads.webapp_namespace} port-forward svc/webapp 8080:80                                      # http://localhost:8080"
-    argo    = "kubectl -n ${module.workloads.argo_namespace} port-forward svc/${var.name_prefix}argo-server 2746:2746                 # http://localhost:2746"
+    argo    = "kubectl -n ${module.workloads.argo_namespace} port-forward svc/${var.name_prefix}argo-server 2746:2746                 # http://localhost:2746 (SSO: log in via Dex)"
     ray     = "kubectl -n ${module.workloads.ray_namespace} port-forward svc/${var.name_prefix}ray-cluster-head-svc 8265:8265  # http://localhost:8265"
+    dex     = "kubectl -n ${module.dex.namespace} port-forward svc/${module.dex.service_name} 5556:5556                                       # http://localhost:5556/dex/.well-known/openid-configuration"
     s3      = "kubectl -n seaweedfs port-forward svc/seaweedfs 8333:8333 8888:8888                                              # S3 API :8333, filer UI http://localhost:8888"
+  }
+}
+
+output "auth" {
+  description = "The environment's auth wiring: issuer, registered Dex clients (with their redirect URIs), proxied services"
+  value       = module.workloads.auth
+}
+
+output "logins" {
+  description = "How to log in through Dex"
+  value = {
+    password_db = "${var.dex_admin_email} / the password behind dex_admin_password_hash (\"password\" by default); no groups, so MLflow and Ray open, Dagster refuses"
+    mock        = "Dex's 'Example (mock user, group authors)' button: kilgore@kilgore.trout in group authors; opens everything"
   }
 }

@@ -198,4 +198,6 @@ module "workloads" {
   mlflow_db_password   = var.postgres_password
 
   enable_private_ingress = false
+  # verify.sh's probe namespace stands in for the ingress controller.
+  network_policies = { ingress_namespaces = ["verify"] }
 }

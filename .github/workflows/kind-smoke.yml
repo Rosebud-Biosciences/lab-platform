@@ -4,10 +4,13 @@ name: kind smoke
 #
 # local (free, runs on every PR that touches the module or the kind examples):
 #   a kind cluster on the runner, SeaweedFS + Postgres as the data backend,
-#   `tofu apply examples/kind`, every Deployment rolled out, the RayCluster
-#   ready, MLflow/Dagster/webapp answering health checks, then `tofu destroy`.
-#   No cloud account involved. This is the first non-mocked test of
-#   modules/workloads and it costs nothing.
+#   Dex as the OIDC issuer, `tofu apply examples/kind`, every Deployment
+#   rolled out, the RayCluster ready, MLflow/Dagster/webapp answering health
+#   checks, then the auth gates: anonymous requests bounce to Dex, a scripted
+#   login is admitted where the service allows it and refused where its group
+#   gate says no (Dagster), Argo's SSO is on. Then `tofu destroy`. No cloud
+#   account involved. This is the first non-mocked test of modules/workloads
+#   (and modules/dex) and it costs nothing.
 #
 # aws-data (gated): the "local compute, AWS data" cell. kind again, but the
 #   data is a real S3 bucket and the pods reach it through per-service IAM
@@ -30,6 +33,7 @@ on:
   pull_request:
     paths:
       - "modules/workloads/**"
+      - "modules/dex/**"
       - "examples/kind/**"
       - "examples/kind-aws-data/**"
       - "aws/data-adapter/**"
@@ -56,7 +60,7 @@ env:
 
 jobs:
   local:
-    name: kind + SeaweedFS + Postgres
+    name: kind + SeaweedFS + Postgres + Dex
     runs-on: ubuntu-latest
     timeout-minutes: 40
     steps:
@@ -95,9 +99,12 @@ jobs:
         run: |
           kubectl get pods -A -o wide
           kubectl get events -A --sort-by=.lastTimestamp | tail -60
-          for ns in webapp dagster mlflow ray; do
+          for ns in dex webapp dagster mlflow ray argo; do
             echo "== $ns"; kubectl -n "$ns" describe pods | rg -A6 'Events:' || true
           done
+          kubectl -n dex get oauth2clients.dex.coreos.com -o wide || true
+          kubectl get networkpolicies -A || true
+          kubectl get validatingadmissionpolicies,validatingadmissionpolicybindings || true
 
       - name: tofu destroy (the module must clean up after itself)
         if: always()

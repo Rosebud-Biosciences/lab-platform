@@ -47,6 +47,21 @@ variable "jupyterhub_storage_class" {
   default     = "standard"
 }
 
+# --- Dex's local user (scripts/verify.sh logs in as it) -----------------------
+
+variable "dex_admin_email" {
+  description = "Email of the password-DB user in Dex"
+  type        = string
+  default     = "admin@example.com"
+}
+
+variable "dex_admin_password_hash" {
+  description = "bcrypt hash of that user's password. The default is Dex's documented example hash for the word \"password\" (verify.sh DEX_PASSWORD)."
+  type        = string
+  default     = "$2a$10$2b2cU8CPhOTaGrs1HRQuAueS7JTT5ZHsHSzYiFPm1leZck7Mc8T4W"
+  sensitive   = true
+}
+
 # --- The local data backend (must match what scripts/prereqs.sh created) ----
 
 variable "s3_endpoint" {

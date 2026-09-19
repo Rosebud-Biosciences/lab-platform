@@ -3,9 +3,10 @@
 The whole workloads layer -- webapp, Dagster, a Ray cluster, MLflow, Argo
 Workflows (with its archive), optionally JupyterHub -- on a
 [kind](https://kind.sigs.k8s.io/) cluster on your laptop,
-with [SeaweedFS](https://github.com/seaweedfs/seaweedfs) as the S3 API and
-Postgres as the database. **No cloud account, no adapters, no `aws`
-provider.** This is the same `modules/workloads` the AWS
+with [SeaweedFS](https://github.com/seaweedfs/seaweedfs) as the S3 API,
+Postgres as the database and [Dex](../../modules/dex) as the OIDC issuer
+gating the UIs. **No cloud account, no adapters, no `aws` provider, no
+external identity provider.** This is the same `modules/workloads` the AWS
 examples deploy; the four contract inputs are simply written by hand here,
 which also makes this file the template for a `metal/` backend.
 
@@ -32,10 +33,48 @@ scripts/down.sh          # tofu destroy + delete the cluster
    (KubeRay operator, the Argo Workflows CRDs, metrics-server) plus the local
    data backend (SeaweedFS with `mlflow` and `data` buckets, Postgres with
    `app`/`dagster`/`mlflow`/`argo` databases). See the workloads README, "Cluster prerequisites";
-3. `tofu apply` of [`main.tf`](main.tf);
+3. `tofu apply` of [`main.tf`](main.tf): Dex first, then the workloads with
+   `auth = { mode = "oidc" }` against it;
 4. [`scripts/verify.sh`](scripts/verify.sh): every Deployment rolled out, the
-   RayCluster `ready`, and MLflow / Dagster / the webapp answering their health
-   endpoints from inside the cluster.
+   RayCluster `ready`, MLflow / Dagster / the webapp answering their health
+   endpoints from inside the cluster -- then the auth gates, the network
+   fence and client ownership (below).
+
+## Logging in
+
+Dex has two ways in, so both a plain login and a group gate can be exercised
+without any external IdP:
+
+| Login | Identity | Groups | Opens |
+| --- | --- | --- | --- |
+| password DB: `admin@example.com` / `password` (`dex_admin_password_hash`) | admin | none | MLflow, Ray dashboard; **Dagster refuses** (403) |
+| the "Example (mock user, group authors)" button | `kilgore@kilgore.trout` | `authors` | everything |
+
+`main.tf` gates Dagster on `allowed_groups = ["authors"]` and admits MLflow
+and Ray to the two test identities' email domains (gates are default-deny, so
+even "any user" is named); Argo runs its native SSO against Dex with one rule,
+authors may run workflows. `verify.sh` scripts exactly those outcomes with a
+curl pod ([`scripts/oidc-login.sh`](scripts/oidc-login.sh) runs the OIDC dance
+from inside the cluster) and asserts anonymous requests bounce to Dex. Two
+more checks:
+
+- **the fence** -- the probe pod runs in namespace `verify`, which `main.tf`
+  names as the ingress namespace (`network_policies`). From there the proxies
+  answer and Dagster's and MLflow's own pods refuse the connection; from the
+  webapp's namespace, a legitimate client, both answer. kind's kindnet
+  enforces NetworkPolicy, so this is the real behaviour.
+- **client ownership** -- impersonating `preview-ci` (Dex's
+  `client_admission` restricts that principal), it creates and deletes a
+  `pr9-` client, and is refused when it tries to rewrite this environment's
+  oauth2-proxy client.
+
+From a browser the redirects point at in-cluster hostnames
+(`dagster-auth.dagster.svc.cluster.local`, `dex.dex.svc.cluster.local`),
+because that is what both the curl pod and the proxies can reach. To click
+through a login from the laptop, port-forward Dex on 5556 and a proxy on 80
+and add those two hostnames to `/etc/hosts` as `127.0.0.1`; the
+`port_forwards` output for Dagster/MLflow bypasses the proxy (a plain
+port-forward to the service) when you only want the UI.
 
 ## What to look at
 
@@ -51,6 +90,13 @@ scripts/down.sh          # tofu destroy + delete the cluster
   dynamic-RWX branch of the storage contract (kind's local-path class is RWO
   but a single node mounts it everywhere).
 - `scheduling` is left at its default: one node, everything schedules anywhere.
+- `auth = { mode = "oidc", dex_namespace = module.dex.namespace, ... }`: the
+  module registers this environment's OAuth2 clients as `OAuth2Client` CRs in
+  Dex's namespace (`kubectl -n dex get oauth2clients`), puts an
+  `oauth2-proxy` in front of each service in `protect`, and switches Argo to
+  SSO. `tofu output auth` shows the clients and their redirect URIs. The same
+  block on EKS behind Tailscale gives defence in depth; `mode = "headers"`
+  (the default) is the tailnet-only setup. Design: [`docs/auth.md`](../../docs/auth.md).
 - No private ingress: port-forward instead (`tofu output port_forwards`). The
   Tailscale operator installs on kind too if you want the prod URLs.
 

@@ -33,6 +33,40 @@ locals {
   database_url = "postgresql://${var.postgres_user}:${var.postgres_password}@${var.postgres_host}:5432/app"
 }
 
+# ------------------------------------------------------------------------------
+# Dex: the cluster's OIDC issuer, with two ways to log in and no external IdP:
+#   - the password DB: admin@example.com (no groups), password from the hash
+#     variable ("password" by default);
+#   - the mockCallback connector: a fixed identity in group "authors".
+# Together they let scripts/verify.sh prove both a plain login and a group
+# gate. The in-cluster Service URL is the issuer because browsers (here:
+# curl pods) and the proxies both reach it there.
+# ------------------------------------------------------------------------------
+
+module "dex" {
+  source = "../../modules/dex"
+
+  providers = {
+    kubernetes = kubernetes
+    helm       = helm
+    kubectl    = kubectl
+  }
+
+  issuer_url         = "http://dex.dex.svc.cluster.local:5556/dex"
+  enable_password_db = true
+  static_passwords = [{
+    email    = var.dex_admin_email
+    hash     = var.dex_admin_password_hash
+    username = "admin"
+    user_id  = "08a8684b-db88-4b73-90a9-3cd1661f5466"
+  }]
+  connectors = [{ type = "mockCallback", id = "mock", name = "Example (mock user, group authors)" }]
+
+  # A stand-in for a preview's CI identity: verify.sh acts as "preview-ci"
+  # (kubectl --as) and must be able to manage only pr<N>- clients.
+  client_admission = { restricted_user_prefixes = ["preview-ci"] }
+}
+
 module "workloads" {
   source = "../../modules/workloads"
 
@@ -42,8 +76,38 @@ module "workloads" {
     kubectl    = kubectl
   }
 
+  # The OAuth2Client CRs need Dex's CRDs, which Dex registers on first start.
+  depends_on = [module.dex]
+
   environment = "local"
   name_prefix = var.name_prefix
+
+  # --- Auth: OIDC against Dex, no network in the loop ---------------------------
+  # Dagster is gated on group "authors" (only the mock user has it); MLflow and
+  # the Ray dashboard admit any authenticated user. Argo runs its native SSO.
+  # No private Ingress here, so the redirect URLs are the proxies' in-cluster
+  # Service URLs -- which is exactly what verify.sh's curl pod uses.
+  auth = {
+    mode          = "oidc"
+    issuer_url    = module.dex.issuer_url
+    dex_namespace = module.dex.namespace
+    protect = {
+      dagster = { allowed_groups = ["authors"] }
+      mlflow  = {}
+      ray     = {}
+    }
+    # Default-deny: an ungated service must name who it admits. Here, the two
+    # test identities' domains (the password-DB user and the mock user).
+    allowed_email_domains = ["example.com", "kilgore.trout"]
+    # Argo admits only rule matches: authors may run workflows.
+    argo_rbac_rules = { authors = { rule = "'authors' in groups", access = "write", precedence = 10 } }
+    cookie_secure   = false # plain http inside the cluster
+    external_scheme = "http"
+  }
+
+  # The fence: only the "ingress" may reach a login proxy (or an unproxied
+  # UI); here verify.sh's probe namespace plays the ingress controller.
+  network_policies = { ingress_namespaces = ["verify"] }
 
   # --- Contract inputs, by hand -------------------------------------------
   workload_identity            = { for svc in local.services : svc => { env = local.s3_env } }
@@ -84,6 +148,7 @@ module "workloads" {
   argo_db_ssl_mode             = "disable"
 
   enable_mlflow        = true
+  mlflow_workers       = 1 # one process is plenty here and keeps the node inside a laptop's memory
   mlflow_artifact_root = "s3://mlflow/artifacts"
   mlflow_db_host       = var.postgres_host
   mlflow_db_name       = "mlflow"
