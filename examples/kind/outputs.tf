@@ -35,8 +35,35 @@ output "auth" {
 
 output "logins" {
   description = "How to log in through Dex"
-  value = {
+  value = var.enable_keycloak ? {
+    for name, groups in local.kind_users : name => "${name}@example.com / kind_users_password (\"password\"); groups: ${length(groups) > 0 ? join(", ", groups) : "none"}"
+    } : {
     password_db = "${var.dex_admin_email} / the password behind dex_admin_password_hash (\"password\" by default); no groups, so MLflow and Ray open, Dagster refuses"
     mock        = "Dex's 'Example (mock user, group authors)' button: kilgore@kilgore.trout in group authors; opens everything"
   }
+}
+
+output "tenant_stamps" {
+  description = "Per tenant, the namespaces of its isolated services"
+  value = {
+    for t, stamp in module.tenancy.stamps : t => {
+      for svc, on in stamp.enable : svc => "${stamp.name_prefix}${svc}" if on
+    }
+  }
+}
+
+output "keycloak" {
+  description = "Keycloak (enable_keycloak): its in-cluster URL, the realm's issuer, and the realm's admin console from the host (log in as sam, the superadmin)"
+  value = var.enable_keycloak ? {
+    url           = local.keycloak_hostname
+    issuer        = module.realm[0].issuer_url
+    admin_console = "http://localhost:${var.keycloak_node_port}/admin/${module.realm[0].realm}/console"
+    admin_client  = module.keycloak[0].admin_client_id
+  } : null
+}
+
+output "group_role_urls" {
+  description = "Per data group, the Postgres URL of its nb_<tenant>__<group> role (verify-tenants.sh connects with one)"
+  value       = { for g, c in module.group_roles.credentials : g => c.url }
+  sensitive   = true
 }

@@ -1,5 +1,8 @@
-# Local Postgres for the kind example, standing in for Neon: one server, three
-# databases (app, dagster, mlflow), one superuser. Credentials come from the
+# Local Postgres for the kind example, standing in for Neon: one server, the
+# platform's databases (app, dagster, mlflow, argo), Keycloak's, acme's stamp's
+# Dagster, one superuser, and app_notebook (the NOLOGIN role the template's
+# row-level-security migration grants; created here too so the notebook group
+# roles can join it before the app's migrations ever run). Credentials come from the
 # postgres-root Secret that scripts/prereqs.sh creates. Ephemeral by design.
 apiVersion: v1
 kind: Namespace
@@ -17,6 +20,9 @@ data:
     CREATE DATABASE dagster;
     CREATE DATABASE mlflow;
     CREATE DATABASE argo;
+    CREATE DATABASE keycloak;
+    CREATE DATABASE dagster_acme;
+    CREATE ROLE app_notebook NOLOGIN;
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -62,6 +68,8 @@ metadata:
   name: postgres
   namespace: postgres
 spec:
+  # NodePort so tofu on the host can create roles (kind-config.yaml maps it).
+  type: NodePort
   selector: { app: postgres }
   ports:
-    - { name: pg, port: 5432, targetPort: 5432 }
+    - { name: pg, port: 5432, targetPort: 5432, nodePort: 30432 }

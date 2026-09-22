@@ -15,6 +15,9 @@ kubectl config use-context "kind-$CLUSTER" >/dev/null
 "$here/prereqs.sh"
 
 tofu -chdir="$example" init -input=false
+# Keycloak first: the realm's provider logs in to it (through the NodePort)
+# during the full apply. A no-op when enable_keycloak = false.
+tofu -chdir="$example" apply -input=false -auto-approve -target=module.keycloak "$@"
 tofu -chdir="$example" apply -input=false -auto-approve "$@"
 
 "$here/verify.sh"

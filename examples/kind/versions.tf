@@ -16,5 +16,15 @@ terraform {
       source  = "gavinbunney/kubectl"
       version = ">= 1.14"
     }
+    # The realm (enable_keycloak) and the notebook group roles, configured
+    # from the host through kind's NodePorts.
+    keycloak = {
+      source  = "keycloak/keycloak"
+      version = ">= 5.9"
+    }
+    postgresql = {
+      source  = "cyrilgdn/postgresql"
+      version = ">= 1.25"
+    }
   }
 }

@@ -101,3 +101,63 @@ variable "postgres_password" {
   default     = "postgres"
   sensitive   = true
 }
+
+# ------------------------------------------------------------------------------
+# Identity and tenants (tenants.tf)
+# ------------------------------------------------------------------------------
+
+variable "enable_keycloak" {
+  description = "Keycloak behind Dex with the lab / acme tenants and six local users (tenants.tf). false keeps Dex's password DB and mock connector only and drops the tenants, for 8 GiB laptops."
+  type        = bool
+  default     = true
+}
+
+variable "keycloak_node_port" {
+  description = "NodePort (mapped to localhost by kind-config.yaml) tofu configures the realm through"
+  type        = number
+  default     = 30080
+}
+
+variable "postgres_node_port" {
+  description = "NodePort (mapped to localhost by kind-config.yaml) tofu creates the notebook group roles through"
+  type        = number
+  default     = 30432
+}
+
+variable "kind_users_password" {
+  description = "Password of the six local Keycloak users (sam, ann, alice, bob, cara, dan @example.com)"
+  type        = string
+  default     = "password"
+  sensitive   = true
+}
+
+variable "tenants" {
+  description = "The tenancy matrix (modules/tenancy). verify-tenants.sh also plans an invalid one to show the refusal."
+  type        = any
+  default = {
+    lab = {
+      trust    = "internal"
+      groups   = { authors = {}, pipelines = {} }
+      services = { ray = "isolated", argo = "shared", dagster = "shared", mlflow = "shared", jupyterhub = "shared", webapp = "shared" }
+    }
+    acme = {
+      trust    = "external"
+      groups   = { research = {} }
+      services = { ray = "isolated", argo = "isolated", dagster = "isolated", mlflow = "shared", jupyterhub = "shared", webapp = "shared" }
+      data     = { database = "own_database", bucket = "own" }
+    }
+  }
+}
+
+variable "acme_s3_access_key" {
+  description = "acme's SeaweedFS identity (prereqs.sh ACME_S3_ACCESS_KEY): Read/Write/List on bucket tenant-acme only"
+  type        = string
+  default     = "acme"
+}
+
+variable "acme_s3_secret_key" {
+  description = "acme's SeaweedFS secret key (prereqs.sh ACME_S3_SECRET_KEY)"
+  type        = string
+  default     = "acme12345678"
+  sensitive   = true
+}

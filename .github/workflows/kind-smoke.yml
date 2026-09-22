@@ -34,6 +34,10 @@ on:
     paths:
       - "modules/workloads/**"
       - "modules/dex/**"
+      - "modules/keycloak/**"
+      - "modules/keycloak-realm/**"
+      - "modules/tenancy/**"
+      - "modules/postgres-group-roles/**"
       - "examples/kind/**"
       - "examples/kind-aws-data/**"
       - "aws/data-adapter/**"
@@ -85,8 +89,11 @@ jobs:
         working-directory: examples/kind
         env:
           TF_VAR_enable_jupyterhub: ${{ github.event.inputs.with_jupyterhub || 'false' }}
+        # Keycloak first: the realm's provider logs in to it during the full
+        # apply (scripts/up.sh does the same).
         run: |
           tofu init -input=false
+          tofu apply -input=false -auto-approve -target=module.keycloak
           tofu apply -input=false -auto-approve
 
       - name: Verify
@@ -99,7 +106,7 @@ jobs:
         run: |
           kubectl get pods -A -o wide
           kubectl get events -A --sort-by=.lastTimestamp | tail -60
-          for ns in dex webapp dagster mlflow ray argo; do
+          for ns in dex keycloak webapp dagster mlflow ray argo t-lab-ray t-acme-ray t-acme-argo t-acme-dagster; do
             echo "== $ns"; kubectl -n "$ns" describe pods | rg -A6 'Events:' || true
           done
           kubectl -n dex get oauth2clients.dex.coreos.com -o wide || true

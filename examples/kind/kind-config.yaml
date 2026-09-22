@@ -6,3 +6,8 @@ apiVersion: kind.x-k8s.io/v1alpha4
 name: lab-platform
 nodes:
   - role: control-plane
+    # tofu (on the host) configures Keycloak's realm and creates Postgres
+    # roles through these NodePorts (examples/kind tenants.tf).
+    extraPortMappings:
+      - { containerPort: 30080, hostPort: 30080, protocol: TCP }
+      - { containerPort: 30432, hostPort: 30432, protocol: TCP }

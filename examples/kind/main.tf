@@ -31,6 +31,8 @@ locals {
   services = ["webapp", "dagster", "ray", "argo", "mlflow", "jupyterhub"]
 
   database_url = "postgresql://${var.postgres_user}:${var.postgres_password}@${var.postgres_host}:5432/app"
+
+  dex_issuer = "http://dex.dex.svc.cluster.local:5556/dex"
 }
 
 # ------------------------------------------------------------------------------
@@ -52,15 +54,21 @@ module "dex" {
     kubectl    = kubectl
   }
 
-  issuer_url         = "http://dex.dex.svc.cluster.local:5556/dex"
-  enable_password_db = true
-  static_passwords = [{
+  issuer_url = local.dex_issuer
+  # With Keycloak (tenants.tf) it is Dex's one connector; without it, the
+  # password DB and the mock connector.
+  enable_password_db = !var.enable_keycloak
+  static_passwords = var.enable_keycloak ? [] : [{
     email    = var.dex_admin_email
     hash     = var.dex_admin_password_hash
     username = "admin"
     user_id  = "08a8684b-db88-4b73-90a9-3cd1661f5466"
   }]
-  connectors = [{ type = "mockCallback", id = "mock", name = "Example (mock user, group authors)" }]
+  connectors = concat(
+    module.realm[*].dex_connector,
+    var.enable_keycloak ? [] : [{ type = "mockCallback", id = "mock", name = "Example (mock user, group authors)" }],
+  )
+  connector_env = var.enable_keycloak ? module.realm[0].dex_connector_env : {}
 
   # A stand-in for a preview's CI identity: verify.sh acts as "preview-ci"
   # (kubectl --as) and must be able to manage only pr<N>- clients.
@@ -83,27 +91,39 @@ module "workloads" {
   name_prefix = var.name_prefix
 
   # --- Auth: OIDC against Dex, no network in the loop ---------------------------
-  # Dagster is gated on group "authors" (only the mock user has it); MLflow and
-  # the Ray dashboard admit any authenticated user. Argo runs its native SSO.
-  # No private Ingress here, so the redirect URLs are the proxies' in-cluster
-  # Service URLs -- which is exactly what verify.sh's curl pod uses.
+  # With Keycloak: gates from the tenancy matrix (tenants.tf), superadmins
+  # everywhere, MLflow on its own OIDC with per-experiment permissions.
+  # Without: Dagster gated on the mock user's group "authors", MLflow and the
+  # Ray dashboard on the two test identities' domains, Argo for authors.
+  # No private Ingress here, so the redirect URLs are the in-cluster Service
+  # URLs -- which is exactly what verify.sh's curl pod uses.
   auth = {
-    mode          = "oidc"
-    issuer_url    = module.dex.issuer_url
-    dex_namespace = module.dex.namespace
-    protect = {
+    mode             = "oidc"
+    issuer_url       = module.dex.issuer_url
+    dex_namespace    = module.dex.namespace
+    superadmin_group = var.enable_keycloak ? "/platform-admins" : ""
+    protect = var.enable_keycloak ? {
+      dagster = { allowed_groups = module.tenancy.shared.dagster_allowed_groups }
+      ray     = { allowed_groups = module.tenancy.shared.ray_allowed_groups }
+      } : {
       dagster = { allowed_groups = ["authors"] }
-      mlflow  = {}
-      ray     = {}
+      mlflow  = { allowed_groups = [] }
+      ray     = { allowed_groups = [] }
     }
-    # Default-deny: an ungated service must name who it admits. Here, the two
-    # test identities' domains (the password-DB user and the mock user).
-    allowed_email_domains = ["example.com", "kilgore.trout"]
-    # Argo admits only rule matches: authors may run workflows.
-    argo_rbac_rules = { authors = { rule = "'authors' in groups", access = "write", precedence = 10 } }
-    cookie_secure   = false # plain http inside the cluster
-    external_scheme = "http"
+    allowed_email_domains = var.enable_keycloak ? [] : ["example.com", "kilgore.trout"]
+    argo_rbac_rules = var.enable_keycloak ? module.tenancy.shared.argo_rbac_rules : {
+      authors = { rule = "'authors' in groups", access = "write", precedence = 10 }
+    }
+    mlflow_mode               = var.enable_keycloak ? "oidc" : "proxy"
+    mlflow_groups             = var.enable_keycloak ? module.tenancy.shared.mlflow_groups : []
+    mlflow_group_rules        = var.enable_keycloak ? module.tenancy.shared.mlflow_group_rules : []
+    jupyterhub_allowed_groups = var.enable_keycloak ? module.tenancy.shared.jupyterhub_allowed_groups : []
+    cookie_secure             = false # plain http inside the cluster
+    external_scheme           = "http"
   }
+  mlflow_service_accounts   = module.tenancy.shared.mlflow_service_accounts
+  dagster_code_locations    = module.tenancy.shared.dagster_code_locations
+  jupyterhub_group_profiles = var.enable_keycloak ? module.tenancy.shared.jupyterhub_group_profiles : {}
 
   # The fence: only the "ingress" may reach a login proxy (or an unproxied
   # UI); here verify.sh's probe namespace plays the ingress controller.
@@ -148,15 +168,17 @@ module "workloads" {
   argo_db_ssl_mode             = "disable"
 
   enable_mlflow        = true
-  mlflow_workers       = 1 # one process is plenty here and keeps the node inside a laptop's memory
+  mlflow_workers       = 1     # one process is plenty here and keeps the node inside a laptop's memory
+  mlflow_job_execution = false # MLflow 3's job runner + Huey consumers: over a GiB, unused here
   mlflow_artifact_root = "s3://mlflow/artifacts"
   mlflow_db_host       = var.postgres_host
   mlflow_db_name       = "mlflow"
   mlflow_db_user       = var.postgres_user
   mlflow_db_password   = var.postgres_password
 
-  enable_jupyterhub         = var.enable_jupyterhub
-  jupyterhub_auth_mechanism = "dummy"
+  enable_jupyterhub = var.enable_jupyterhub
+  # OIDC (the auth mode's default) with Keycloak; a shared password without.
+  jupyterhub_auth_mechanism = var.enable_keycloak ? null : "dummy"
   jupyterhub_user_password  = var.jupyterhub_user_password
   jupyterhub_admin_users    = ["admin"]
 

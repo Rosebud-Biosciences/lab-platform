@@ -11,10 +11,14 @@
 #   NAME_PREFIX          the workloads name_prefix (default empty)
 #   WITH_JUPYTERHUB=1    also check the hub
 #   WITH_OIDC=0          skip the auth checks (auth.mode != "oidc")
+#   WITH_TENANTS=0|1     Keycloak + tenants (enable_keycloak): run
+#                        verify-tenants.sh instead of the mock/password-DB
+#                        logins; default: whether a keycloak namespace exists
 #   DEX_EMAIL / DEX_PASSWORD   the password-DB user (admin@example.com / password)
 set -euo pipefail
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+example="$here/.."
 
 P="${NAME_PREFIX:-}"
 TIMEOUT="${TIMEOUT:-10m}"
@@ -23,6 +27,10 @@ DEX_EMAIL="${DEX_EMAIL:-admin@example.com}"
 DEX_PASSWORD="${DEX_PASSWORD:-password}"
 DEX_ISSUER="${DEX_ISSUER:-http://dex.dex.svc.cluster.local:5556/dex}"
 CURL_IMAGE="curlimages/curl:8.16.0"
+if [ -z "${WITH_TENANTS:-}" ]; then
+  WITH_TENANTS=0
+  kubectl get namespace keycloak >/dev/null 2>&1 && WITH_TENANTS=1
+fi
 
 rollout() {
   echo "-- $1: deployments"
@@ -34,6 +42,15 @@ rollout() {
 
 if [ "$WITH_OIDC" = "1" ]; then
   rollout dex
+fi
+if [ "$WITH_TENANTS" = "1" ]; then
+  echo "-- keycloak: statefulset"
+  kubectl -n keycloak rollout status statefulset/keycloak --timeout="$TIMEOUT"
+  for ns in t-lab-ray t-acme-ray t-acme-argo t-acme-dagster; do rollout "$ns"; done
+  for c in t-lab-ray t-acme-ray; do
+    echo "-- $c: RayCluster ready"
+    kubectl -n "$c" wait "raycluster/$c-cluster" --for=jsonpath='{.status.state}'=ready --timeout="$TIMEOUT"
+  done
 fi
 rollout "${P}webapp"
 rollout "${P}mlflow"
@@ -103,9 +120,13 @@ if [ "$WITH_OIDC" != "1" ]; then
   exit 0
 fi
 
+# MLflow is proxied only without tenants; with them it runs its own OIDC and
+# its front door is the ingress itself.
+proxied_urls=("http://${P}dagster-dagster-webserver.${P}dagster.svc.cluster.local/server_info")
+[ "$WITH_TENANTS" = "1" ] || proxied_urls+=("http://${P}mlflow.${P}mlflow.svc.cluster.local/health")
+
 echo "-- the fence: from the ingress namespace, proxied services are reachable only through their proxy"
-for url in "http://${P}dagster-dagster-webserver.${P}dagster.svc.cluster.local/server_info" \
-  "http://${P}mlflow.${P}mlflow.svc.cluster.local/health"; do
+for url in "${proxied_urls[@]}"; do
   got=$(status_from verify "$pod" "$url")
   echo "-- GET $url from verify -> $got (want 000: refused)"
   [ "$got" = "000" ]
@@ -120,8 +141,10 @@ probe "$DEX_ISSUER/.well-known/openid-configuration"
 
 echo "-- every protected UI sends an anonymous request to the login"
 expect_status "http://dagster-auth.${P}dagster.svc.cluster.local/" 302
-expect_status "http://mlflow-auth.${P}mlflow.svc.cluster.local/"   302
 expect_status "http://ray-auth.${P}ray.svc.cluster.local/"         302
+if [ "$WITH_TENANTS" != "1" ]; then
+  expect_status "http://mlflow-auth.${P}mlflow.svc.cluster.local/" 302
+fi
 
 echo "-- Argo: native SSO (API refuses anonymous callers, login goes to Dex)"
 expect_status "http://${P}argo-server.${P}argo.svc.cluster.local:2746/api/v1/info" 401
@@ -132,8 +155,14 @@ expect_status "http://${P}argo-server.${P}argo.svc.cluster.local:2746/oauth2/red
 login() {
   # login <service> <connector> [email] [password] -> prints "<status> <userinfo>"
   local svc="$1"; shift
-  kubectl -n verify exec -i "$pod" -- sh -s -- "http://${svc}-auth.${P}${svc}.svc.cluster.local" "$DEX_ISSUER" "$@" <"$here/oidc-login.sh" | tr '\n' ' '
+  local base="http://${svc}-auth.${P}${svc}.svc.cluster.local"
+  kubectl -n verify exec -i "$pod" -- env USERINFO_URL="$base/oauth2/userinfo" sh -s -- "$base/oauth2/start?rd=%2F" "$DEX_ISSUER" "$@" <"$here/oidc-login.sh" | tr '\n' ' '
 }
+
+if [ "$WITH_TENANTS" = "1" ]; then
+  # shellcheck source=verify-tenants.sh
+  source "$here/verify-tenants.sh"
+else
 
 echo "-- password-DB user (no groups): admitted to MLflow"
 out=$(login mlflow local "$DEX_EMAIL" "$DEX_PASSWORD"); echo "   $out"
@@ -146,6 +175,8 @@ out=$(login dagster local "$DEX_EMAIL" "$DEX_PASSWORD"); echo "   $out"
 echo "-- mock user (group authors): admitted to Dagster"
 out=$(login dagster mock); echo "   $out"
 [[ "$out" == 200* ]] && [[ "$out" == *authors* ]]
+
+fi
 
 # ------------------------------------------------------------------------------
 # Client ownership (modules/dex client_admission): a preview's CI identity may

@@ -23,6 +23,9 @@ ARGO_WORKFLOWS_VERSION="${ARGO_WORKFLOWS_VERSION:-v4.1.3}"
 WITH_S3="${WITH_S3:-1}"
 S3_ACCESS_KEY="${S3_ACCESS_KEY:-seaweedfs}"
 S3_SECRET_KEY="${S3_SECRET_KEY:-seaweedfs12345}"
+# The external tenant's identity: its own bucket only (examples/kind tenants.tf).
+ACME_S3_ACCESS_KEY="${ACME_S3_ACCESS_KEY:-acme}"
+ACME_S3_SECRET_KEY="${ACME_S3_SECRET_KEY:-acme12345678}"
 POSTGRES_USER="${POSTGRES_USER:-postgres}"
 POSTGRES_PASSWORD="${POSTGRES_PASSWORD:-postgres}"
 
@@ -57,8 +60,8 @@ if [ "$WITH_S3" = "1" ]; then
   kubectl apply -f "$prereqs/seaweedfs.yaml"
   # One Secret serves both: s3.json is SeaweedFS's identity file (mounted into
   # the server), the AWS_* keys feed the bucket Job's aws-cli via envFrom.
-  s3_json=$(printf '{"identities":[{"name":"admin","credentials":[{"accessKey":"%s","secretKey":"%s"}],"actions":["Admin","Read","Write","List","Tagging"]}]}' \
-    "$S3_ACCESS_KEY" "$S3_SECRET_KEY")
+  s3_json=$(printf '{"identities":[{"name":"admin","credentials":[{"accessKey":"%s","secretKey":"%s"}],"actions":["Admin","Read","Write","List","Tagging"]},{"name":"acme","credentials":[{"accessKey":"%s","secretKey":"%s"}],"actions":["Read:tenant-acme","Write:tenant-acme","List:tenant-acme"]}]}' \
+    "$S3_ACCESS_KEY" "$S3_SECRET_KEY" "$ACME_S3_ACCESS_KEY" "$ACME_S3_SECRET_KEY")
   kubectl -n seaweedfs create secret generic seaweedfs-s3 \
     --from-literal=s3.json="$s3_json" \
     --from-literal=AWS_ACCESS_KEY_ID="$S3_ACCESS_KEY" \

@@ -40,7 +40,37 @@ scripts/down.sh          # tofu destroy + delete the cluster
    endpoints from inside the cluster -- then the auth gates, the network
    fence and client ownership (below).
 
-## Logging in
+## Tenants and admins (the default: `enable_keycloak = true`)
+
+Keycloak holds the users behind Dex ([`tenants.tf`](tenants.tf)), and
+[`modules/tenancy`](../../modules/tenancy) places two tenants: **lab**
+(internal) shares everything but runs its own Ray (`t-lab-ray`); **acme**
+(external) shares only the webapp, JupyterHub and MLflow and runs its own
+Ray, Argo and Dagster (`t-acme-*`), with a bucket and a SeaweedFS identity
+of its own. MLflow runs its own OIDC with per-experiment permissions.
+
+| User (`@example.com`, password `password`) | Groups | Is |
+| --- | --- | --- |
+| sam | `/platform-admins` | superadmin |
+| ann | `/lab/authors` | member |
+| alice | `/lab/authors/admins` | group admin |
+| bob | none | nobody -- until alice adds him |
+| cara | `/acme/research` | member of the external tenant |
+| dan | `/acme/admins` | tenant admin |
+
+[`scripts/verify-tenants.sh`](scripts/verify-tenants.sh) proves each rule
+from inside the cluster: who opens which Ray, Dagster and Argo (and who may
+submit), what alice and dan may change in Keycloak (and what not), which
+MLflow experiments each sees and that acme's compute got its service-account
+token, that Ray scales a worker from zero, that `nb_lab__authors` connects,
+that acme's identity cannot read lab's bucket nor lab's namespaces reach
+acme's Ray, and that an external tenant on a shared Dagster fails `tofu plan`.
+sam administers the realm at `http://localhost:30080/admin/lab/console`
+(`tofu output keycloak`); the master realm has no users at all, only the
+admin client tofu configures the realm with. This flow needs about 7.5 GiB
+for the node; `enable_keycloak = false` runs the smaller flow below.
+
+## Logging in (`enable_keycloak = false`)
 
 Dex has two ways in, so both a plain login and a group gate can be exercised
 without any external IdP:

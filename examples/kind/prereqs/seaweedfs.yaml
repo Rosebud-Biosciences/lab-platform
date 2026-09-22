@@ -95,7 +95,7 @@ spec:
             - -c
             - |
               set -e
-              for bucket in mlflow data; do
+              for bucket in mlflow data tenant-acme; do
                 aws s3api head-bucket --bucket "$bucket" 2>/dev/null || aws s3api create-bucket --bucket "$bucket"
               done
               aws s3 ls
