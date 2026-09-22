@@ -17,7 +17,7 @@ resource "kubernetes_namespace_v1" "dagster" {
   metadata {
     name = local.dagster_namespace
     # NetworkPolicies admit client services by this label (netpol.tf).
-    labels = { "lab-platform.io/service" = "dagster" }
+    labels = merge({ "lab-platform.io/service" = "dagster" }, local.tenant_labels)
   }
 
   lifecycle {
@@ -150,6 +150,34 @@ locals {
   )
 }
 
+locals {
+  dagster_default_location = {
+    name = var.dagster_user_code_image != "" ? "user-code" : "hello"
+    image = var.dagster_user_code_image != "" ? local.dagster_default_image : {
+      repository = "dagster/dagster-k8s"
+      tag        = var.dagster_chart_version
+      pullPolicy = "IfNotPresent"
+    }
+    dagsterApiGrpcArgs = ["--python-file", "/opt/dagster/app/repo.py"]
+    port               = 3030
+    serviceAccountName = local.dagster_service_account
+    # Plain values inline (identity contract + caller's); secrets
+    # (DATABASE_URL, the caller's, the identity contract's static
+    # credentials, MLflow's service-account token) from Secrets. All reach
+    # launched run pods as well (includeConfigInLaunchedRuns).
+    env = merge(local.identity.dagster.env, local.service_urls_env, var.dagster_user_code_env)
+    envSecrets = concat(
+      var.dagster_user_code_image != "" ? [{ name = local.dagster_user_code_env_secret }] : [],
+      [{ name = local.identity_secret_name.dagster }],
+      local.mlflow_client_credentials ? [{ name = "mlflow-credentials" }] : [],
+    )
+    volumes      = local.dagster_user_code_volumes
+    volumeMounts = local.dagster_user_code_volume_mounts
+    nodeSelector = local.scheduling.dagster.node_selector
+    tolerations  = local.scheduling.dagster.tolerations
+  }
+}
+
 resource "kubernetes_config_map_v1" "dagster_hello_code" {
   count = local.dagster_hello_code ? 1 : 0
 
@@ -179,12 +207,7 @@ resource "helm_release" "dagster" {
     db_host                 = var.dagster_db_host
     db_user                 = var.dagster_db_user
     db_name                 = var.dagster_db_name
-    chart_version           = var.dagster_chart_version
-    user_code_image         = var.dagster_user_code_image
-    user_code_env           = merge(local.identity.dagster.env, local.service_urls_env, var.dagster_user_code_env)
-    user_code_env_secret    = local.dagster_user_code_env_secret
-    user_code_volumes       = jsonencode(local.dagster_user_code_volumes)
-    user_code_volume_mounts = jsonencode(local.dagster_user_code_volume_mounts)
+    user_deployments        = jsonencode(concat([local.dagster_default_location], local.dagster_extra_locations))
     identity_env_secret     = kubernetes_secret_v1.dagster_identity_env[0].metadata[0].name
     identity_env            = jsonencode(local.identity_env_list.dagster)
     identity_volumes        = jsonencode(local.identity_volumes.dagster)

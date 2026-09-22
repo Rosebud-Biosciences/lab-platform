@@ -37,7 +37,7 @@ resource "kubernetes_namespace_v1" "ray" {
   metadata {
     name = local.ray_namespace
     # NetworkPolicies admit client services by this label (netpol.tf).
-    labels = { "lab-platform.io/service" = "ray" }
+    labels = merge({ "lab-platform.io/service" = "ray" }, local.tenant_labels)
   }
 }
 
@@ -120,14 +120,20 @@ resource "helm_release" "ray_cluster" {
     head_resources          = jsonencode(var.ray_head_resources)
     worker_resources        = jsonencode(var.ray_worker_resources)
     worker_max_replicas     = var.ray_worker_max_replicas
-    identity_env            = jsonencode(local.identity_env_list.ray)
-    identity_env_secret     = kubernetes_secret_v1.ray_identity_env[0].metadata[0].name
-    volumes                 = jsonencode(concat(local.ray_log_volume, local.identity_volumes.ray))
-    volume_mounts           = jsonencode(concat(local.ray_log_volume_mount, local.identity_volume_mounts.ray))
-    head_node_selector      = jsonencode(local.scheduling.ray_head.node_selector)
-    head_tolerations        = jsonencode(local.scheduling.ray_head.tolerations)
-    worker_node_selector    = jsonencode(local.scheduling.ray_worker.node_selector)
-    worker_tolerations      = jsonencode(local.scheduling.ray_worker.tolerations)
+    enable_autoscaler       = var.ray_enable_autoscaler
+    mlflow_credentials      = local.mlflow_client_credentials
+    head_start_params = jsonencode(merge(
+      var.ray_head_num_cpus == null ? {} : { "num-cpus" = tostring(var.ray_head_num_cpus) },
+      var.ray_head_start_params,
+    ))
+    identity_env         = jsonencode(local.identity_env_list.ray)
+    identity_env_secret  = kubernetes_secret_v1.ray_identity_env[0].metadata[0].name
+    volumes              = jsonencode(concat(local.ray_log_volume, local.identity_volumes.ray))
+    volume_mounts        = jsonencode(concat(local.ray_log_volume_mount, local.identity_volume_mounts.ray))
+    head_node_selector   = jsonencode(local.scheduling.ray_head.node_selector)
+    head_tolerations     = jsonencode(local.scheduling.ray_head.tolerations)
+    worker_node_selector = jsonencode(local.scheduling.ray_worker.node_selector)
+    worker_tolerations   = jsonencode(local.scheduling.ray_worker.tolerations)
   })]
 
   depends_on = [kubernetes_secret_v1.ray_identity_env]

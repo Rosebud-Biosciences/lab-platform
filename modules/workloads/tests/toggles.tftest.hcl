@@ -1054,6 +1054,28 @@ run "jupyterhub_follows_the_auth_mode" {
     condition     = !strcontains(helm_release.jupyterhub[0].values[0], "allow_all: true")
     error_message = "a named user list, not allow_all"
   }
+  assert {
+    condition     = alltrue([for want in ["enable_auth_state: true", "refresh_pre_spawn: true", "auth_refresh_age: 300", "cookie_max_age_days: 1", "offline_access"] : strcontains(helm_release.jupyterhub[0].values[0], want)])
+    error_message = "the hub refreshes tokens and groups before spawning (a refresh token from Dex's offline_access) and a login lasts a day"
+  }
+  assert {
+    condition     = anytrue([for v in helm_release.jupyterhub[0].values : strcontains(v, "\"maxAge\": 86400")])
+    error_message = "the culler ends servers a day after they start"
+  }
+}
+
+run "jupyterhub_age_cull_is_an_oidc_default" {
+  command = plan
+
+  variables {
+    enable_jupyterhub         = true
+    jupyterhub_shared_storage = { storage_class_name = "standard" }
+  }
+
+  assert {
+    condition     = !anytrue([for v in helm_release.jupyterhub[0].values : strcontains(v, "maxAge")])
+    error_message = "without OIDC (no group credentials to lose) busy servers are not ended by age"
+  }
 }
 
 run "jupyterhub_oidc_admitting_nobody_is_refused" {
@@ -1071,4 +1093,218 @@ run "jupyterhub_oidc_admitting_nobody_is_refused" {
   }
 
   expect_failures = [helm_release.jupyterhub]
+}
+
+# ------------------------------------------------------------------------------
+# Superadmins, MLflow on its own OIDC, Ray autoscaling, shared-instance hooks
+# ------------------------------------------------------------------------------
+
+run "superadmin_group_closes_what_is_left_open" {
+  command = plan
+
+  variables {
+    enable_webapp             = true
+    webapp_image              = "nginx"
+    enable_ray                = true
+    enable_argo_workflows     = true
+    enable_jupyterhub         = true
+    jupyterhub_shared_storage = { storage_class_name = "standard" }
+    auth = {
+      mode             = "oidc"
+      issuer_url       = "http://dex.dex.svc.cluster.local:5556/dex"
+      dex_namespace    = "dex"
+      protect          = { ray = {} }
+      superadmin_group = "/platform-admins"
+    }
+  }
+
+  assert {
+    condition     = contains(kubernetes_deployment_v1.oauth2_proxy["ray"].spec[0].template[0].spec[0].container[0].args, "--allowed-group=/platform-admins")
+    error_message = "an ungated Ray dashboard becomes superadmins-only"
+  }
+  assert {
+    condition     = kubernetes_service_account_v1.argo_sso["platform-admins"].metadata[0].annotations["workflows.argoproj.io/rbac-rule"] == "'/platform-admins' in groups" && kubernetes_service_account_v1.argo_sso["platform-admins"].metadata[0].annotations["workflows.argoproj.io/rbac-rule-precedence"] == "100"
+    error_message = "superadmins get an Argo write rule at the top, which also satisfies SSO's at-least-one-rule"
+  }
+  assert {
+    condition     = strcontains(helm_release.jupyterhub[0].values[0], "admin_groups: [\"/platform-admins\"]")
+    error_message = "superadmins administer (and may log in to) JupyterHub"
+  }
+  assert {
+    condition     = local.webapp_plain_env["APP_ADMIN_GROUP"] == "/platform-admins"
+    error_message = "the webapp learns who its superadmins are"
+  }
+}
+
+run "mlflow_on_its_own_oidc" {
+  command = plan
+
+  variables {
+    name_prefix         = "pr7-"
+    enable_webapp       = true
+    webapp_image        = "nginx"
+    enable_ray          = true
+    enable_ray_cluster  = true
+    enable_dagster      = true
+    dagster_db_host     = "db.example.com"
+    dagster_db_name     = "dagster"
+    dagster_db_user     = "dagster"
+    dagster_db_password = "test"
+    enable_mlflow       = true
+    mlflow_db_host      = "db.example.com"
+    mlflow_db_name      = "mlflow"
+    mlflow_db_user      = "mlflow"
+    mlflow_db_password  = "p@ss word"
+    dagster_code_locations = {
+      acme = { image = "registry.local:5000/acme/code:1.2", mlflow_account = "svc-acme", service_account_annotations = { "eks.amazonaws.com/role-arn" = "arn:aws:iam::1:role/acme" } }
+    }
+    auth = {
+      mode               = "oidc"
+      issuer_url         = "http://dex.dex.svc.cluster.local:5556/dex"
+      dex_namespace      = "dex"
+      protect            = { dagster = { allowed_groups = ["/lab/authors"] }, mlflow = {} }
+      superadmin_group   = "/platform-admins"
+      mlflow_mode        = "oidc"
+      mlflow_groups      = ["/lab/authors"]
+      mlflow_group_rules = [{ group = "/lab/authors", regex = "^lab/", permission = "EDIT" }]
+    }
+  }
+
+  assert {
+    condition     = !contains(keys(kubernetes_deployment_v1.oauth2_proxy), "mlflow") && contains(keys(kubectl_manifest.dex_client), "mlflow")
+    error_message = "MLflow leaves the proxy and gets a Dex client of its own"
+  }
+  assert {
+    condition     = output.auth.clients["mlflow"].redirect_uris == ["http://pr7-mlflow.pr7-mlflow.svc.cluster.local/callback"]
+    error_message = "the plugin's callback at MLflow's own URL"
+  }
+  assert {
+    condition     = strcontains(helm_release.mlflow[0].values[1], "\"defaultPermission\": \"NO_PERMISSIONS\"") && strcontains(helm_release.mlflow[0].values[1], "\"adminGroupName\":\n  - \"/platform-admins\"") && strcontains(helm_release.mlflow[0].values[1], "CREATE SCHEMA IF NOT EXISTS mlflow_auth")
+    error_message = "the plugin starts everyone at NO_PERMISSIONS, superadmins administer, and its schema is created first"
+  }
+  assert {
+    condition     = contains(keys(kubernetes_secret_v1.mlflow_oidc[0].data), "SECRET_KEY") && strcontains(helm_release.mlflow[0].values[1], "pr7-mlflow-oidc")
+    error_message = "every server process signs sessions with the same key"
+  }
+  assert {
+    condition     = strcontains(kubernetes_secret_v1.mlflow_auth_db[0].data["OIDC_USERS_DB_URI"], "mlflow:p%40ss+word@db.example.com:5432/mlflow?options=-csearch_path%3Dmlflow_auth")
+    error_message = "the plugin's store is the MLflow database, schema mlflow_auth, credentials URL-encoded"
+  }
+  assert {
+    condition     = sort(keys(jsondecode(kubernetes_config_map_v1.mlflow_auth_sync[0].data["config.json"]).service_accounts)) == tolist(["svc-acme", "svc-pr7-dagster", "svc-pr7-ray", "svc-pr7-webapp"])
+    error_message = "one service account per client service, plus the code location's"
+  }
+  assert {
+    condition     = jsondecode(kubernetes_config_map_v1.mlflow_auth_sync[0].data["config.json"]).service_accounts["svc-acme"].experiment_patterns[0].regex == "^acme/" && jsondecode(kubernetes_config_map_v1.mlflow_auth_sync[0].data["config.json"]).group_rules["/lab/authors"][0].permission == "EDIT"
+    error_message = "a code location's account is scoped to its prefix; group rules become patterns"
+  }
+  assert {
+    condition     = sort(keys(kubernetes_secret_v1.mlflow_credentials)) == tolist(["pr7-dagster/mlflow-credentials", "pr7-dagster/mlflow-credentials-acme", "pr7-ray/mlflow-credentials", "pr7-webapp/mlflow-credentials"]) && kubernetes_role_v1.mlflow_credentials["pr7-dagster"].rule[0].resource_names == toset(["mlflow-credentials", "mlflow-credentials-acme"])
+    error_message = "each client's Secret is pre-created, and only those Secrets are writable by the sync job"
+  }
+  assert {
+    condition     = kubernetes_role_binding_v1.mlflow_credentials["pr7-ray"].subject[0].name == "mlflow-auth-sync" && kubernetes_role_binding_v1.mlflow_credentials["pr7-ray"].subject[0].namespace == "pr7-mlflow"
+    error_message = "the writer is this MLflow's sync ServiceAccount"
+  }
+  assert {
+    condition = (
+      local.mlflow_auth_providers[1].type == "k8s" && local.mlflow_auth_providers[1].namespace_allowlist == ["pr7-mlflow"]
+      && local.mlflow_auth_providers[1].issuer == "https://kubernetes.default.svc.cluster.local"
+      && local.mlflow_auth_providers[1].audience == kubernetes_cron_job_v1.mlflow_auth_sync[0].spec[0].job_template[0].spec[0].template[0].spec[0].volume[1].projected[0].sources[0].service_account_token[0].audience
+      && strcontains(helm_release.mlflow[0].values[1], "AUTH_PROVIDERS")
+    )
+    error_message = "MLflow accepts ServiceAccount tokens for its own audience from its own namespace only, and the sync job mounts one"
+  }
+  assert {
+    condition     = local.mlflow_auth_providers[0].id == "default" && local.mlflow_auth_providers[0].audience == local.auth_client.mlflow.id && local.mlflow_auth_providers[0].issuer == "http://dex.dex.svc.cluster.local:5556/dex"
+    error_message = "the issuer stays the default provider, its tokens pinned to MLflow's client"
+  }
+  assert {
+    condition     = strcontains(helm_release.mlflow[0].values[1], "admin-auth-sync") && strcontains(helm_release.mlflow[0].values[1], "burakince/mlflow:3.16.0") && strcontains(helm_release.mlflow[0].values[1], "mlflow-auth-sync.pr7-mlflow@serviceaccount.cluster.local") && strcontains(helm_release.mlflow[0].values[0], "tag: \"3.16.0\"")
+    error_message = "an init container of the server's own image makes the sync account an admin"
+  }
+  assert {
+    condition     = alltrue([for e in kubernetes_cron_job_v1.mlflow_auth_sync[0].spec[0].job_template[0].spec[0].template[0].spec[0].container[0].env : length(e.value_from) == 0])
+    error_message = "the sync job reads no MLflow credential from a Secret"
+  }
+  assert {
+    condition     = strcontains(helm_release.ray_cluster[0].values[0], "name: mlflow-credentials") && local.dagster_extra_locations[0].envSecrets[1].name == "mlflow-credentials-acme" && contains([for s in local.dagster_default_location.envSecrets : s.name], "mlflow-credentials")
+    error_message = "clients read their token through envFrom"
+  }
+}
+
+run "dagster_code_locations_run_as_their_own_identity" {
+  command = plan
+
+  variables {
+    enable_ray          = true
+    enable_dagster      = true
+    dagster_db_host     = "db.example.com"
+    dagster_db_name     = "dagster"
+    dagster_db_user     = "dagster"
+    dagster_db_password = "test"
+    dagster_code_locations = {
+      acme = { image = "registry.local:5000/acme/code:1.2", secret_env = { TOKEN = "t" }, service_account_annotations = { "eks.amazonaws.com/role-arn" = "arn:aws:iam::1:role/acme" } }
+    }
+  }
+
+  assert {
+    condition     = kubernetes_service_account_v1.dagster_location["acme"].metadata[0].name == "dagster-acme" && kubernetes_service_account_v1.dagster_location["acme"].metadata[0].annotations["eks.amazonaws.com/role-arn"] == "arn:aws:iam::1:role/acme"
+    error_message = "a location has its own ServiceAccount (its cloud role)"
+  }
+  assert {
+    condition     = local.dagster_extra_locations[0].image.repository == "registry.local:5000/acme/code" && local.dagster_extra_locations[0].image.tag == "1.2" && local.dagster_extra_locations[0].serviceAccountName == "dagster-acme" && local.dagster_extra_locations[0].includeConfigInLaunchedRuns.enabled
+    error_message = "the location runs, and launches its runs, as its own identity (a registry port is not a tag)"
+  }
+  assert {
+    condition     = [for s in local.dagster_extra_locations[0].envSecrets : s.name] == ["dagster-location-acme-env"] && !contains([for s in local.dagster_extra_locations[0].envSecrets : s.name], "dagster-identity-env")
+    error_message = "the location gets its own Secret, never the platform's identity"
+  }
+  assert {
+    condition     = local.dagster_default_location.name == "hello" && strcontains(helm_release.dagster[0].values[0], "\"name\":\"acme\"")
+    error_message = "the default location stays, the extra one is rendered next to it"
+  }
+}
+
+run "ray_autoscales_workers" {
+  command = plan
+
+  variables {
+    enable_ray         = true
+    enable_ray_cluster = true
+    ray_head_num_cpus  = 0
+  }
+
+  assert {
+    condition     = strcontains(helm_release.ray_cluster[0].values[0], "enableInTreeAutoscaling: true") && strcontains(helm_release.ray_cluster[0].values[0], "{\"num-cpus\":\"0\"}")
+    error_message = "the autoscaler runs (workers scale from 0) and the head keeps tasks off itself"
+  }
+}
+
+run "jupyterhub_group_profiles" {
+  command = plan
+
+  variables {
+    enable_jupyterhub         = true
+    jupyterhub_shared_storage = { storage_class_name = "standard" }
+    jupyterhub_group_profiles = {
+      "/acme/research" = { service_account_annotations = { "eks.amazonaws.com/role-arn" = "arn:aws:iam::1:role/acme" }, mount_shared = false }
+    }
+    auth = {
+      mode                      = "oidc"
+      issuer_url                = "http://dex.dex.svc.cluster.local:5556/dex"
+      dex_namespace             = "dex"
+      protect                   = {}
+      jupyterhub_allowed_groups = ["/acme/research"]
+    }
+  }
+
+  assert {
+    condition     = kubernetes_service_account_v1.jupyterhub_profile["/acme/research"].metadata[0].name == "jh-acme-research" && kubernetes_secret_v1.jupyterhub_profile["/acme/research"].metadata[0].name == "jh-acme-research-env"
+    error_message = "a ServiceAccount and a Secret per group profile"
+  }
+  assert {
+    condition     = strcontains(helm_release.jupyterhub[0].values[1], "10-group-profiles") && strcontains(helm_release.jupyterhub[0].values[1], "groups/acme/research") && strcontains(helm_release.jupyterhub[0].values[1], "\"mount_shared\":false") && strcontains(helm_release.jupyterhub[0].values[1], "is not a member of")
+    error_message = "the hub offers the profile to the group, on the home volume's group sub-path, without the shared dir"
+  }
 }

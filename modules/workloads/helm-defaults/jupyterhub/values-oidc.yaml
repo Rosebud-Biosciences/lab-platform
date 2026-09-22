@@ -11,7 +11,16 @@ hub:
   config:
     JupyterHub:
       authenticator_class: generic-oauth
+      # A hub login lasts this long (default 14 days); the IdP decides again after.
+      cookie_max_age_days: ${cookie_max_age_days}
     GenericOAuthenticator:
+      # Keep the tokens (encrypted; the chart generates CryptKeeper's key) and
+      # refresh the user -- groups included -- before every spawn once they are
+      # older than auth_refresh_age: removing someone from a group stops their
+      # next server, not their next hub login.
+      enable_auth_state: true
+      refresh_pre_spawn: true
+      auth_refresh_age: ${auth_refresh_age}
       client_id: ${oidc_client_id}
       client_secret: ${oidc_client_secret}
       oauth_callback_url: ${oidc_callback_url}
@@ -21,12 +30,19 @@ hub:
       scope: ${oidc_scopes}
       username_claim: ${oidc_username_claim}
       login_service: ${oidc_login_service}
-%{ if oidc_allowed_groups != "[]" ~}
-      # auth.jupyterhub_allowed_groups: only members of these IdP groups (read
-      # from the groups claim) may log in, whatever allowed_users says.
+%{ if oidc_allowed_groups != "[]" || oidc_admin_groups != "[]" ~}
+      # Groups come from the issuer's groups claim.
       claim_groups_key: ${oidc_groups_claim}
-      allowed_groups: ${oidc_allowed_groups}
       manage_groups: true
+%{ endif ~}
+%{ if oidc_allowed_groups != "[]" ~}
+      # auth.jupyterhub_allowed_groups: only members of these IdP groups may
+      # log in, whatever allowed_users says.
+      allowed_groups: ${oidc_allowed_groups}
+%{ endif ~}
+%{ if oidc_admin_groups != "[]" ~}
+      # auth.superadmin_group administers the hub (and may log in).
+      admin_groups: ${oidc_admin_groups}
 %{ endif ~}
     Authenticator:
       admin_users: ${admin_users}

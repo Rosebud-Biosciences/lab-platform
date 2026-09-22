@@ -53,40 +53,12 @@ runLauncher:
           nodeSelector: ${node_selector}
           tolerations: ${tolerations}
 
-# One code location. With dagster_user_code_image it is the caller's image,
-# expected to expose /opt/dagster/app/repo.py; without it, the module mounts
-# its own hello-world repo.py from a ConfigMap into the stock dagster-k8s image
-# (multi-arch), so a fresh platform has something to materialize and the
-# example never depends on upstream's example image staying put.
+# Code locations (dagster.tf / dagster_locations.tf): the default one -- the
+# caller's dagster_user_code_image, or the module's hello-world repo.py
+# mounted into the stock dagster-k8s image -- plus one per
+# dagster_code_locations entry, each running (and, through
+# includeConfigInLaunchedRuns, launching runs) as its own ServiceAccount with
+# its own Secrets.
 dagster-user-deployments:
   enabled: true
-  deployments:
-    - name: ${user_code_image != "" ? "user-code" : "hello"}
-      image:
-        repository: "${user_code_image != "" ? split(":", user_code_image)[0] : "dagster/dagster-k8s"}"
-        tag: "${user_code_image != "" ? try(split(":", user_code_image)[1], "latest") : chart_version}"
-        pullPolicy: IfNotPresent
-      dagsterApiGrpcArgs:
-        - "--python-file"
-        - "/opt/dagster/app/repo.py"
-      port: 3030
-      serviceAccountName: ${service_account_name}
-      # Plain values inline (identity contract + caller's); secrets
-      # (DATABASE_URL, the caller's, the identity contract's static
-      # credentials) from the module-managed Secrets. All reach launched run
-      # pods as well (includeConfigInLaunchedRuns is on by default).
-%{ if length(user_code_env) > 0 ~}
-      env:
-%{ for k, v in user_code_env ~}
-        ${k}: ${jsonencode(v)}
-%{ endfor ~}
-%{ endif ~}
-      envSecrets:
-%{ if user_code_image != "" ~}
-        - name: ${user_code_env_secret}
-%{ endif ~}
-        - name: ${identity_env_secret}
-      volumes: ${user_code_volumes}
-      volumeMounts: ${user_code_volume_mounts}
-      nodeSelector: ${node_selector}
-      tolerations: ${tolerations}
+  deployments: ${user_deployments}

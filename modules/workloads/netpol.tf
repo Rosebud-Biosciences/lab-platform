@@ -19,13 +19,16 @@
 #                    ingress controller's namespaces.
 #
 # Clients are matched by label, not name, so an app-only preview's webapp can
-# still reach prod's Dagster (the documented stamp-or-share trade-off). A
+# still reach prod's Dagster (the documented stamp-or-share trade-off); a
+# tenant's stamp (network_policies.tenant) narrows that to its own tenant. A
 # NetworkPolicy is inert unless the CNI enforces it: kind's kindnet does; on
 # EKS enable the VPC CNI's policy agent (aws/eks-platform
 # enable_network_policy).
 # ------------------------------------------------------------------------------
 
 locals {
+  tenant_labels = var.network_policies.tenant != "" ? { "lab-platform.io/tenant" = var.network_policies.tenant } : {}
+
   netpol_default_clients = {
     webapp  = []
     dagster = ["webapp"]
@@ -60,6 +63,7 @@ locals {
       namespace  = local.netpol_service_namespace[svc]
       clients    = lookup(var.network_policies.clients, svc, local.netpol_default_clients[svc])
       namespaces = lookup(var.network_policies.extra_namespaces, svc, local.netpol_default_namespaces[svc])
+      peers      = lookup(var.network_policies.extra_peers, svc, [])
       proxied    = contains(keys(local.proxied_services), svc)
       # A public webapp's front door is the internet (its load balancer).
       public = svc == "webapp" && local.webapp_public_enabled
@@ -100,6 +104,27 @@ resource "kubernetes_network_policy_v1" "upstream" {
               operator = "In"
               values   = from.value
             }
+            # A tenant's stamp: only that tenant's client namespaces.
+            dynamic "match_expressions" {
+              for_each = var.network_policies.tenant != "" ? [var.network_policies.tenant] : []
+              content {
+                key      = "lab-platform.io/tenant"
+                operator = "In"
+                values   = [match_expressions.value]
+              }
+            }
+          }
+        }
+      }
+
+      dynamic "from" {
+        for_each = each.value.peers
+        content {
+          namespace_selector {
+            match_labels = from.value.namespace_labels
+          }
+          pod_selector {
+            match_labels = from.value.pod_labels
           }
         }
       }

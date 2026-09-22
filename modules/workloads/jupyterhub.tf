@@ -16,6 +16,10 @@ locals {
   # One switch for the environment: JupyterHub logs in through the same
   # issuer as everything else in auth mode "oidc", unless told otherwise.
   jupyterhub_mechanism = coalesce(var.jupyterhub_auth_mechanism, var.auth.mode == "oidc" ? "oidc" : "dummy")
+  jupyterhub_server_max_age = coalesce(
+    var.jupyterhub_server_max_age_seconds,
+    local.jupyterhub_mechanism == "oidc" ? 86400 : 0,
+  )
   # With OIDC, admitting every account the issuer admits is an explicit choice.
   jupyterhub_allow_all = length(var.jupyterhub_allowed_users) == 0 && (
     local.jupyterhub_mechanism != "oidc" || var.jupyterhub_allow_all
@@ -59,7 +63,7 @@ resource "kubernetes_namespace_v1" "jupyterhub" {
   metadata {
     name = local.jupyterhub_namespace
     # NetworkPolicies admit client services by this label (netpol.tf).
-    labels = { "lab-platform.io/service" = "jupyterhub" }
+    labels = merge({ "lab-platform.io/service" = "jupyterhub" }, local.tenant_labels)
   }
 }
 
@@ -155,6 +159,9 @@ resource "helm_release" "jupyterhub" {
       oidc_username_claim = jsonencode(var.jupyterhub_oidc_username_claim)
       oidc_login_service  = jsonencode(local.jupyterhub_oidc.login_service)
       oidc_allowed_groups = jsonencode(var.auth.jupyterhub_allowed_groups)
+      auth_refresh_age    = var.jupyterhub_auth_refresh_seconds
+      cookie_max_age_days = var.jupyterhub_cookie_max_age_days
+      oidc_admin_groups   = jsonencode(compact([var.auth.superadmin_group]))
       oidc_groups_claim   = jsonencode(var.auth.groups_claim)
       # Storage + identity + scheduling contracts (shared by all three templates).
       home_claim               = local.jupyterhub_home_claim
@@ -167,13 +174,17 @@ resource "helm_release" "jupyterhub" {
       singleuser_node_selector = jsonencode(local.scheduling.jupyterhub_singleuser.node_selector)
       singleuser_tolerations   = jsonencode(local.scheduling.jupyterhub_singleuser.tolerations)
     })],
+    compact([local.jupyterhub_profiles_values]),
+    # Running servers keep what they were started with (a group's credentials,
+    # its cloud role): on OIDC, end them after a day even if busy.
+    local.jupyterhub_server_max_age > 0 ? [yamlencode({ cull = { maxAge = local.jupyterhub_server_max_age } })] : [],
     # Caller overrides win (later documents take precedence in Helm).
     var.jupyterhub_extra_values,
   )
 
   lifecycle {
     precondition {
-      condition     = local.jupyterhub_mechanism != "oidc" || local.jupyterhub_allow_all || length(var.jupyterhub_allowed_users) > 0 || length(var.auth.jupyterhub_allowed_groups) > 0
+      condition     = local.jupyterhub_mechanism != "oidc" || local.jupyterhub_allow_all || length(var.jupyterhub_allowed_users) > 0 || length(var.auth.jupyterhub_allowed_groups) > 0 || var.auth.superadmin_group != ""
       error_message = "JupyterHub on OIDC admits nobody: set jupyterhub_allowed_users or auth.jupyterhub_allowed_groups, or jupyterhub_allow_all = true if the issuer's connectors already restrict who can log in."
     }
   }

@@ -45,8 +45,18 @@ locals {
     ray     = var.enable_ray
     webapp  = var.enable_webapp
   }
+  # superadmin_group closes what the caller left open: an ungated Ray
+  # dashboard becomes superadmins-only. MLflow on its own OIDC leaves the proxy.
+  mlflow_oidc = local.auth_oidc && var.enable_mlflow && var.auth.mlflow_mode == "oidc"
+  auth_protect = {
+    for svc, gate in var.auth.protect : svc => (
+      svc == "ray" && var.auth.superadmin_group != "" && length(gate.allowed_groups) == 0 && length(gate.allowed_emails) == 0
+      ? merge(gate, { allowed_groups = [var.auth.superadmin_group] })
+      : gate
+    ) if !(svc == "mlflow" && var.auth.mlflow_mode == "oidc")
+  }
   proxied_services = {
-    for svc, gate in var.auth.protect : svc => gate
+    for svc, gate in local.auth_protect : svc => gate
     if local.auth_oidc && lookup(local.auth_service_enabled, svc, false)
   }
   webapp_proxied = contains(keys(local.proxied_services), "webapp")
@@ -83,6 +93,8 @@ locals {
       jupyterhub = var.jupyterhub_public_host != "" ? "https://${var.jupyterhub_public_host}" : "http://proxy-public.${local.jupyterhub_namespace}.svc.cluster.local"
     },
   )
+  # MLflow on its own OIDC is reached at its own Service (or private host).
+  mlflow_login_url = local.auth_private_urls_known ? "${var.auth.external_scheme}://${local.private_mlflow_host}.${var.private_ingress_dns_suffix}" : "http://${local.mlflow_service}.${local.mlflow_namespace}.svc.cluster.local"
   # An unproxied webapp runs its own login at its own URL.
   webapp_login_url = local.auth_private_urls_known ? "${var.auth.external_scheme}://${local.private_webapp_host}.${var.private_ingress_dns_suffix}" : "http://${var.webapp_app_name}.${local.webapp_namespace}.svc.cluster.local"
 
@@ -95,6 +107,7 @@ locals {
       argo           = var.enable_argo_workflows
       jupyterhub     = local.jupyterhub_oidc_from_dex
       webapp         = var.enable_webapp && !local.webapp_proxied
+      mlflow         = local.mlflow_oidc
     } : k => needed if local.auth_oidc && needed
   }
 
@@ -105,6 +118,7 @@ locals {
     argo           = ["${local.auth_external_url.argo}/oauth2/callback"]
     jupyterhub     = ["${local.auth_external_url.jupyterhub}/hub/oauth_callback"]
     webapp         = ["${local.webapp_login_url}/auth/callback"]
+    mlflow         = ["${local.mlflow_login_url}/callback"]
   }
 
   # Resolved id + secret per client: generated (Dex) or brought (auth.clients).
@@ -147,7 +161,12 @@ locals {
   # Group -> ServiceAccount rules for Argo's SSO RBAC, exactly as given: no
   # implicit catch-all (a user matching no rule gets no Argo). Argo evaluates
   # the numerically HIGHEST precedence first, so broad rules want low values.
-  argo_rbac_rules = local.argo_sso ? var.auth.argo_rbac_rules : {}
+  argo_rbac_rules = local.argo_sso ? merge(
+    var.auth.superadmin_group != "" ? {
+      platform-admins = { rule = "'${var.auth.superadmin_group}' in groups", access = "write", precedence = 100 }
+    } : {},
+    var.auth.argo_rbac_rules,
+  ) : {}
   argo_access_levels = {
     read  = ["get", "list", "watch"]
     write = ["get", "list", "watch", "create", "update", "patch", "delete"]
@@ -161,7 +180,8 @@ locals {
     authorize_url = "${var.auth.issuer_url}/auth"
     token_url     = "${var.auth.issuer_url}/token"
     userdata_url  = "${var.auth.issuer_url}/userinfo"
-    scopes        = var.auth.scopes
+    # offline_access: Dex issues a refresh token, which refresh_pre_spawn uses.
+    scopes        = distinct(concat(var.auth.scopes, ["offline_access"]))
     login_service = "Dex"
     } : {
     client_id     = var.jupyterhub_oidc_client_id
@@ -193,6 +213,7 @@ locals {
       IDENTITY_JWT_AUDIENCE = local.auth_client["oauth2-proxy"].id
       OIDC_GROUPS_CLAIM     = var.auth.groups_claim
     } : {},
+    var.auth.superadmin_group != "" ? { APP_ADMIN_GROUP = var.auth.superadmin_group } : {},
     contains(keys(local.auth_clients_needed), "webapp") ? {
       OIDC_ISSUER_URL   = var.auth.issuer_url
       OIDC_CLIENT_ID    = local.auth_client.webapp.id

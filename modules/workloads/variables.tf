@@ -344,6 +344,20 @@ variable "auth" {
       down, so broad rules get low numbers. A user matching no rule gets no
       Argo, and Argo in this mode requires at least one rule.
 
+      superadmin_group (e.g. "/platform-admins") is the platform's
+      superadmins everywhere unless a service is told otherwise: the Ray
+      dashboard's gate when protect.ray names nobody, an Argo "write" rule at
+      precedence 100 (added to argo_rbac_rules), MLflow's and JupyterHub's
+      admin group, and the webapp's APP_ADMIN_GROUP.
+
+      mlflow_mode: "proxy" (an oauth2-proxy gate like Dagster's) or "oidc"
+      (MLflow's own login through the mlflow-oidc-auth plugin, with per-
+      experiment permissions): mlflow_groups may log in, superadmin_group
+      administers, everyone else has NO_PERMISSIONS until a permission or a
+      mlflow_group_rules pattern (group, experiment-name regex, READ | EDIT |
+      MANAGE) grants it. Permissions live in the MLflow database (schema
+      mlflow_auth), so they branch with its experiments.
+
       Sessions: proxy cookies are host-only and re-validated every
       session_refresh (so a revoked group stops working then), ending after
       session_lifetime. Cross-service single sign-on therefore comes from the
@@ -380,10 +394,19 @@ variable "auth" {
       precedence = optional(number, 0)
     })), {})
     jupyterhub_allowed_groups = optional(list(string), [])
-    session_refresh           = optional(string, "1h")
-    session_lifetime          = optional(string, "24h")
-    cookie_secure             = optional(bool, true)
-    external_scheme           = optional(string, "https")
+    superadmin_group          = optional(string, "")
+    mlflow_mode               = optional(string, "proxy")
+    mlflow_groups             = optional(list(string), [])
+    mlflow_group_rules = optional(list(object({
+      group      = string
+      regex      = string
+      permission = optional(string, "READ")
+      priority   = optional(number, 10)
+    })), [])
+    session_refresh  = optional(string, "1h")
+    session_lifetime = optional(string, "24h")
+    cookie_secure    = optional(bool, true)
+    external_scheme  = optional(string, "https")
   })
   default = {}
 
@@ -404,6 +427,14 @@ variable "auth" {
     error_message = "auth.external_scheme must be http or https."
   }
   validation {
+    condition     = contains(["proxy", "oidc"], var.auth.mlflow_mode)
+    error_message = "auth.mlflow_mode must be \"proxy\" or \"oidc\"."
+  }
+  validation {
+    condition     = alltrue([for r in var.auth.mlflow_group_rules : contains(["READ", "EDIT", "MANAGE", "NO_PERMISSIONS"], r.permission)])
+    error_message = "auth.mlflow_group_rules[*].permission must be READ, EDIT, MANAGE or NO_PERMISSIONS."
+  }
+  validation {
     condition     = alltrue([for r in values(var.auth.argo_rbac_rules) : contains(["read", "write"], r.access)])
     error_message = "auth.argo_rbac_rules[*].access must be \"read\" or \"write\"."
   }
@@ -411,6 +442,76 @@ variable "auth" {
     condition     = alltrue([for d in [var.auth.session_refresh, var.auth.session_lifetime] : can(regex("^[0-9]+(s|m|h)$", d))])
     error_message = "auth.session_refresh and auth.session_lifetime are durations like \"1h\" or \"30m\"."
   }
+}
+
+variable "mlflow_service_accounts" {
+  description = <<-EOT
+    auth.mlflow_mode = "oidc": MLflow service accounts for in-cluster clients,
+    keyed by account name, merged over the ones the module derives (one per
+    enabled client service of this environment -- svc-<prefix>dagster,
+    -ray, -webapp, EDIT on every experiment -- and one per Dagster code
+    location with an mlflow_account). mlflow-auth-sync creates each one,
+    keeps its token (renewed a month before MLflow's one-year cap) in each of
+    its secrets (MLFLOW_TRACKING_USERNAME / MLFLOW_TRACKING_PASSWORD), and
+    grants its experiment_patterns. A secret outside this environment must be
+    pre-created, and writable by this MLflow's mlflow-auth-sync
+    ServiceAccount, by the environment that owns its namespace
+    (mlflow_client_credentials there).
+  EOT
+  type = map(object({
+    secrets = list(object({
+      namespace = string
+      name      = optional(string, "mlflow-credentials")
+    }))
+    experiment_patterns = optional(list(object({
+      regex      = string
+      permission = optional(string, "EDIT")
+      priority   = optional(number, 100)
+    })), [])
+  }))
+  default = {}
+}
+
+variable "mlflow_job_execution" {
+  description = "Run MLflow's server-side job execution (MLflow >= 3.x: a job runner and Huey consumers for GenAI jobs, about 200 MiB each). Off saves over a GiB on a tracking server that runs none."
+  type        = bool
+  default     = true
+}
+
+variable "mlflow_client_credentials" {
+  description = "Give this environment's MLflow clients (Dagster, Ray, the webapp) an mlflow-credentials Secret through envFrom, filled by an MLflow's mlflow-auth-sync. Null: on when this environment runs MLflow with auth.mlflow_mode = \"oidc\". Set it on stamps whose clients use a shared MLflow on OIDC, with mlflow_auth_sync_namespace naming that MLflow's namespace."
+  type        = bool
+  default     = null
+}
+
+variable "mlflow_auth_sync_namespace" {
+  description = "Namespace of the mlflow-auth-sync ServiceAccount allowed to fill this environment's mlflow-credentials Secrets; empty = this environment's MLflow namespace"
+  type        = string
+  default     = ""
+}
+
+variable "kubernetes_service_account_issuer" {
+  description = "The cluster's ServiceAccount token issuer (`kubectl get --raw /.well-known/openid-configuration`): on EKS https://<aws/eks-platform's oidc_provider>, on a cluster started with --service-account-issuer that URL (examples/kind-aws-data), otherwise the default. MLflow on OIDC accepts mlflow-auth-sync's projected token from it."
+  type        = string
+  default     = "https://kubernetes.default.svc.cluster.local"
+}
+
+variable "mlflow_auth_sync_schedule" {
+  description = "Cron schedule of mlflow-auth-sync"
+  type        = string
+  default     = "*/15 * * * *"
+}
+
+variable "python_image" {
+  description = "Image with a Python 3 standard library, for small platform jobs (mlflow-auth-sync)"
+  type        = string
+  default     = "python:3.14-alpine"
+}
+
+variable "postgres_client_image" {
+  description = "Image with psql, for schema set-up (MLflow's mlflow_auth schema)"
+  type        = string
+  default     = "postgres:17-alpine"
 }
 
 variable "network_policies" {
@@ -424,7 +525,11 @@ variable "network_policies" {
     directly; defaults: dagster <- webapp; mlflow <- webapp, dagster, ray,
     argo, jupyterhub; ray <- dagster, argo; argo <- webapp; webapp <- none.
     extra_namespaces: per service, other namespaces by name (default: ray <-
-    kuberay-system). Policies are inert unless the CNI enforces them (kind's
+    kuberay-system). tenant (a tenant's stamp, modules/tenancy): the
+    namespaces also carry lab-platform.io/tenant = <tenant>, and clients
+    match only namespaces of the same tenant. extra_peers: per service, more
+    callers as namespace + pod label selectors (e.g. the platform's
+    JupyterHub pods labelled with this tenant). Policies are inert unless the CNI enforces them (kind's
     kindnet does; EKS needs aws/eks-platform enable_network_policy).
   EOT
   type = object({
@@ -432,6 +537,11 @@ variable "network_policies" {
     ingress_namespaces = optional(list(string), ["tailscale"])
     clients            = optional(map(list(string)), {})
     extra_namespaces   = optional(map(list(string)), {})
+    tenant             = optional(string, "")
+    extra_peers = optional(map(list(object({
+      namespace_labels = optional(map(string), {})
+      pod_labels       = optional(map(string), {})
+    }))), {})
   })
   default = {}
 
@@ -749,6 +859,56 @@ variable "jupyterhub_allow_all" {
   default     = false
 }
 
+variable "jupyterhub_auth_refresh_seconds" {
+  description = "JupyterHub on OIDC: refresh a user's tokens and groups before a spawn when they are older than this, so a group removed at the IdP stops the next server"
+  type        = number
+  default     = 300
+}
+
+variable "jupyterhub_cookie_max_age_days" {
+  description = "How long a JupyterHub login lasts before the IdP is asked again (JupyterHub's default is 14)"
+  type        = number
+  default     = 1
+}
+
+variable "jupyterhub_server_max_age_seconds" {
+  description = "The culler stops a notebook server this long after it started, busy or not (0 = never). Bounds how long a server keeps credentials its user has since lost. Default: a day with the oidc mechanism (group profiles, refreshed groups), never otherwise."
+  type        = number
+  default     = null
+
+  validation {
+    condition     = var.jupyterhub_server_max_age_seconds == null || coalesce(var.jupyterhub_server_max_age_seconds, 0) >= 0
+    error_message = "jupyterhub_server_max_age_seconds must be null, 0, or a positive number of seconds."
+  }
+}
+
+variable "jupyterhub_group_profiles" {
+  description = <<-EOT
+    Per-group notebook server profiles, keyed by IdP group path (e.g.
+    "/acme/research"). Members of the group are offered it; its server runs
+    as ServiceAccount <prefix>jh-<tenant>-<group> (service_account_annotations,
+    e.g. an IRSA role), with env and secret_env, the group's directory at
+    ~/group (group_directory), without the platform's identity Secret
+    (replace_identity) and, with mount_shared = false, without /home/shared.
+    Requires JupyterHub on OIDC.
+  EOT
+  type = map(object({
+    display_name                = optional(string)
+    service_account_annotations = optional(map(string), {})
+    env                         = optional(map(string), {})
+    secret_env                  = optional(map(string), {})
+    group_directory             = optional(bool, true)
+    replace_identity            = optional(bool, true)
+    mount_shared                = optional(bool, true)
+  }))
+  default = {}
+
+  validation {
+    condition     = alltrue([for k in keys(var.jupyterhub_group_profiles) : can(regex("^(/[a-z][a-z0-9_-]*)+$", k))])
+    error_message = "jupyterhub_group_profiles keys are group paths like /tenant/group."
+  }
+}
+
 variable "jupyterhub_allowed_users" {
   description = "JupyterHub usernames allowed to log in. Empty: with 'dummy'/'firstuse' any username; with 'oidc' only jupyterhub_allow_all or auth.jupyterhub_allowed_groups admit anyone."
   type        = list(string)
@@ -850,6 +1010,38 @@ variable "dagster_user_code_image" {
   default     = ""
 }
 
+variable "dagster_code_locations" {
+  description = <<-EOT
+    More Dagster code locations, keyed by name (a tenant's, a team's). Each
+    runs -- and launches its runs -- as its own ServiceAccount
+    (<prefix>dagster-<name>, with service_account_annotations such as an IRSA
+    role) with its own secret_env; the platform's Dagster identity is not
+    given to it. image must expose /opt/dagster/app/repo.py unless grpc_args
+    says otherwise. mlflow_account (auth.mlflow_mode = "oidc"): the MLflow
+    service account its runs use, delivered in mlflow-credentials-<name>;
+    mlflow_experiment_patterns scope it (default: EDIT on "^<name>/").
+  EOT
+  type = map(object({
+    image                       = string
+    grpc_args                   = optional(list(string), ["--python-file", "/opt/dagster/app/repo.py"])
+    env                         = optional(map(string), {})
+    secret_env                  = optional(map(string), {})
+    service_account_annotations = optional(map(string), {})
+    mlflow_account              = optional(string, "")
+    mlflow_experiment_patterns = optional(list(object({
+      regex      = string
+      permission = optional(string, "EDIT")
+      priority   = optional(number, 50)
+    })))
+  }))
+  default = {}
+
+  validation {
+    condition     = alltrue([for k in keys(var.dagster_code_locations) : can(regex("^[a-z][a-z0-9-]{0,30}$", k)) && !contains(["hello", "user-code"], k)])
+    error_message = "dagster_code_locations keys are DNS labels (^[a-z][a-z0-9-]{0,30}$), and hello / user-code are the default location's names."
+  }
+}
+
 variable "dagster_user_code_env" {
   description = <<-EOT
     Plain environment variables for the Dagster user-code deployment and, through
@@ -887,6 +1079,15 @@ variable "mlflow_repository" {
   description = "Helm repository for the MLflow chart"
   type        = string
   default     = "https://community-charts.github.io/helm-charts"
+}
+
+variable "mlflow_image" {
+  description = "MLflow server image (the chart's burakince/mlflow, which bundles mlflow-oidc-auth); on OIDC also the init container that makes mlflow-auth-sync an MLflow admin. Keep tag at the chart's appVersion when bumping mlflow_chart_version."
+  type = object({
+    repository = optional(string, "burakince/mlflow")
+    tag        = optional(string, "3.16.0") # renovate: datasource=docker depName=burakince/mlflow
+  })
+  default = {}
 }
 
 variable "mlflow_artifact_root" {
@@ -1066,6 +1267,24 @@ variable "ray_worker_resources" {
     limits   = optional(map(string), { cpu = "2", memory = "4Gi" })
   })
   default = {}
+}
+
+variable "ray_enable_autoscaler" {
+  description = "Run the Ray autoscaler in the head pod, so workers scale from 0 to ray_worker_max_replicas with demand (and back)"
+  type        = bool
+  default     = true
+}
+
+variable "ray_head_num_cpus" {
+  description = "CPUs the head advertises to Ray (rayStartParams num-cpus); null keeps Ray's default (all of the pod's). 0 keeps tasks off the head: a small head, work on autoscaled workers."
+  type        = number
+  default     = null
+}
+
+variable "ray_head_start_params" {
+  description = "More `ray start` parameters for the head (rayStartParams), e.g. { \"object-store-memory\" = \"100000000\" } -- Ray otherwise sizes its object store at 30% of the pod's memory"
+  type        = map(string)
+  default     = {}
 }
 
 variable "ray_worker_max_replicas" {

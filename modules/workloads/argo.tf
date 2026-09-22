@@ -30,7 +30,7 @@ resource "kubernetes_namespace_v1" "argo" {
   metadata {
     name = local.argo_namespace
     # NetworkPolicies admit client services by this label (netpol.tf).
-    labels = { "lab-platform.io/service" = "argo" }
+    labels = merge({ "lab-platform.io/service" = "argo" }, local.tenant_labels)
   }
 }
 

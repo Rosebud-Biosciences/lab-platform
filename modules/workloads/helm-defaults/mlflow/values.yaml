@@ -2,6 +2,10 @@
 # S3-compatible artifact root, and the module's identity + scheduling contract
 # (lists/maps rendered as JSON, which YAML accepts inline).
 
+image:
+  repository: ${image_repository}
+  tag: "${image_tag}"
+
 serviceAccount:
   create: true
   name: ${service_account_name}

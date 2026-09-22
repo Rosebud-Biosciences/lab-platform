@@ -195,6 +195,8 @@ module "workloads" {
   # (anyone can send it through the ALB): "none" here, or "oidc" with an issuer
   # (docs/auth.md) for logged-in users on both paths.
   auth = { mode = var.webapp_public_host != "" ? "none" : "headers" }
+  # Whom MLflow on OIDC (auth.mlflow_mode) trusts for its sync job's token.
+  kubernetes_service_account_issuer = "https://${module.platform.oidc_provider}"
 
   # --- JupyterHub ---
   enable_jupyterhub        = true

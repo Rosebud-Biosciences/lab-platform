@@ -15,11 +15,23 @@ image:
 head:
   serviceAccountName: ${ray_single_user_sa_name}
   rayVersion: ${ray_version}
+  # The chart declares workers 0..maxReplicas but leaves the autoscaler off,
+  # so without it no worker ever starts.
+  enableInTreeAutoscaling: ${enable_autoscaler}
+%{ if head_start_params != "{}" ~}
+  # num-cpus 0 keeps tasks off the head (a small head, work on workers).
+  rayStartParams: ${head_start_params}
+%{ endif ~}
   resources: ${head_resources}
   containerEnv: ${identity_env}
   envFrom:
     - secretRef:
         name: ${identity_env_secret}
+%{ if mlflow_credentials ~}
+    - secretRef:
+        name: mlflow-credentials
+        optional: true
+%{ endif ~}
   volumes: ${volumes}
   volumeMounts: ${volume_mounts}
   nodeSelector: ${head_node_selector}
@@ -36,6 +48,11 @@ worker:
   envFrom:
     - secretRef:
         name: ${identity_env_secret}
+%{ if mlflow_credentials ~}
+    - secretRef:
+        name: mlflow-credentials
+        optional: true
+%{ endif ~}
   volumes: ${volumes}
   volumeMounts: ${volume_mounts}
   nodeSelector: ${worker_node_selector}

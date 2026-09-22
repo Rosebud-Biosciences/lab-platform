@@ -13,7 +13,7 @@ resource "kubernetes_namespace_v1" "mlflow" {
   metadata {
     name = local.mlflow_namespace
     # NetworkPolicies admit client services by this label (netpol.tf).
-    labels = { "lab-platform.io/service" = "mlflow" }
+    labels = merge({ "lab-platform.io/service" = "mlflow" }, local.tenant_labels)
   }
 }
 
@@ -57,6 +57,7 @@ locals {
   mlflow_env = merge(
     local.identity.mlflow.env,
     { MLFLOW_SERVER_ALLOWED_HOSTS = join(",", local.mlflow_allowed_hosts) },
+    var.mlflow_job_execution ? {} : { MLFLOW_SERVER_ENABLE_JOB_EXECUTION = "false" },
   )
 }
 
@@ -70,7 +71,9 @@ resource "helm_release" "mlflow" {
   version    = var.mlflow_chart_version
   timeout    = 600
 
-  values = [templatefile("${local.helm_defaults}/mlflow/values.yaml", {
+  values = concat([templatefile("${local.helm_defaults}/mlflow/values.yaml", {
+    image_repository            = var.mlflow_image.repository
+    image_tag                   = var.mlflow_image.tag
     service_account_name        = local.mlflow_service_account_name
     service_account_annotations = jsonencode(local.identity.mlflow.service_account_annotations)
     artifact_bucket             = local.mlflow_artifact_bucket
@@ -86,5 +89,5 @@ resource "helm_release" "mlflow" {
     identity_volume_mounts      = jsonencode(local.identity_volume_mounts.mlflow)
     node_selector               = jsonencode(local.scheduling.mlflow.node_selector)
     tolerations                 = jsonencode(local.scheduling.mlflow.tolerations)
-  })]
+  })], compact([local.mlflow_oidc_values]))
 }

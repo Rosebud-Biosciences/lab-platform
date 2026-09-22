@@ -27,7 +27,7 @@ resource "kubernetes_namespace_v1" "webapp" {
   metadata {
     name = local.webapp_namespace
     # NetworkPolicies admit client services by this label (netpol.tf).
-    labels = { "lab-platform.io/service" = "webapp" }
+    labels = merge({ "lab-platform.io/service" = "webapp" }, local.tenant_labels)
   }
 }
 
@@ -139,6 +139,18 @@ resource "kubernetes_deployment_v1" "webapp" {
           env_from {
             secret_ref {
               name = kubernetes_secret_v1.webapp_env[0].metadata[0].name
+            }
+          }
+
+          # The MLflow service account's token (mlflow_auth.tf), when MLflow
+          # runs its own OIDC.
+          dynamic "env_from" {
+            for_each = local.mlflow_client_credentials ? [1] : []
+            content {
+              secret_ref {
+                name     = "mlflow-credentials"
+                optional = true
+              }
             }
           }
 
@@ -259,6 +271,18 @@ resource "kubernetes_deployment_v1" "webapp_pinned" {
           env_from {
             secret_ref {
               name = kubernetes_secret_v1.webapp_env[0].metadata[0].name
+            }
+          }
+
+          # The MLflow service account's token (mlflow_auth.tf), when MLflow
+          # runs its own OIDC.
+          dynamic "env_from" {
+            for_each = local.mlflow_client_credentials ? [1] : []
+            content {
+              secret_ref {
+                name     = "mlflow-credentials"
+                optional = true
+              }
             }
           }
 
