@@ -48,10 +48,14 @@ module "eks_blueprints_addons_core" {
       addon_version            = "v1.63.1-eksbuild.1"
       service_account_role_arn = module.ebs_csi_driver_irsa.arn
     }
-    coredns = {
-      addon_version = "v1.14.3-eksbuild.3"
-      preserve      = true
-    }
+    coredns = merge(
+      {
+        addon_version = "v1.14.3-eksbuild.3"
+        preserve      = true
+      },
+      # Tailnet names (a tailnet-only issuer) resolve for pods too (tailscale.tf).
+      local.tailscale_dnsconfig ? { configuration_values = jsonencode({ corefile = local.coredns_corefile }) } : {},
+    )
     vpc-cni = merge(
       {
         addon_version = "v1.23.0-eksbuild.1"

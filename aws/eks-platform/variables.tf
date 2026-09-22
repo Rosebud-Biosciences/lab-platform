@@ -193,6 +193,24 @@ variable "enable_metrics_server" {
   default     = true
 }
 
+variable "enable_tailscale_dnsconfig" {
+  description = "Let pods resolve tailnet names (e.g. a tailnet-only Dex or Keycloak issuer at https://dex.<tailnet>.ts.net) the way browsers do: the Tailscale operator's DNSConfig nameserver, a Service for it at tailscale_nameserver_cluster_ip, and a CoreDNS stub zone for tailscale_dns_zone forwarding there. Needs the Tailscale operator."
+  type        = bool
+  default     = false
+}
+
+variable "tailscale_nameserver_cluster_ip" {
+  description = "A free ClusterIP inside the cluster's service CIDR for the tailnet nameserver (fixed, so CoreDNS's stub zone is known at plan time), e.g. 172.20.0.53"
+  type        = string
+  default     = ""
+}
+
+variable "tailscale_dns_zone" {
+  description = "Zone CoreDNS forwards to the tailnet nameserver"
+  type        = string
+  default     = "ts.net"
+}
+
 variable "enable_network_policy" {
   description = "Enable the VPC CNI's network policy agent so NetworkPolicies are enforced (modules/workloads creates them to keep its login proxies and the tailnet Ingress the only way into the UIs). Off by default: turning it on makes existing policies bite, so check that modules/workloads network_policies.ingress_namespaces names this cluster's ingress namespace (the Tailscale operator's is \"tailscale\") first."
   type        = bool

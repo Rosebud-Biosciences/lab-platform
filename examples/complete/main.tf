@@ -161,6 +161,19 @@ module "compute" {
   tags = var.tags
 }
 
+# A tailnet-only issuer (docs/auth.md): Dex behind the Tailscale Ingress, and
+# pods resolving the tailnet name through the operator's nameserver
+# (module.platform: enable_tailscale_dnsconfig = true,
+# tailscale_nameserver_cluster_ip = "<free ClusterIP>"). Then point
+# `auth = { mode = "oidc", issuer_url = module.dex.issuer_url, ... }` below at it.
+#
+# module "dex" {
+#   source     = "../../modules/dex"
+#   issuer_url = "https://dex.${var.tailscale_dns_suffix}/dex"
+#   ingress    = { enabled = true, class_name = "tailscale", host = "dex" }
+#   connectors = [module.realm.dex_connector] # or a Google / GitHub connector
+# }
+
 module "workloads" {
   source = "../../modules/workloads"
 
