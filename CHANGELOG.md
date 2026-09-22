@@ -6,6 +6,68 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added: groups, admins, tenants -- `modules/keycloak`, `modules/keycloak-realm`, `modules/tenancy`, `modules/postgres-group-roles`, `aws/tenant-data`
+
+- New `modules/keycloak`: Keycloak (codecentric/keycloakx 7.3.2, Keycloak
+  26.7.4) on an external Postgres, hostname v2 with a dynamic back-channel,
+  fine-grained admin permissions v2, a bootstrap admin that is a
+  service-account client (no master-realm user or password), optional
+  NodePort, a public Ingress serving the platform realms (`/realms/<realm>`,
+  never master) and `/resources` only, and an optional admin hostname +
+  Ingress for the console.
+- New `modules/keycloak-realm`: tenants as group subtrees with admins groups,
+  superadmins in `/platform-admins` (authoritative), delegated tenant and
+  group admins fenced to their own groups, a Dex client whose tokens carry
+  full-path groups (`dex_connector` / `dex_connector_env`), brokered Google /
+  GitHub / OIDC logins (linking a first login to an existing user by email
+  opt-in per provider and only on trusted emails; generic OIDC always
+  issuer- and signature-checked), SSO sessions that outlast the relying
+  parties' refreshes (`sso_session_idle_timeout` 4h,
+  `sso_session_max_lifespan` 24h), optional `smtp` and `verify_email`,
+  brute-force protection, local users for CI.
+- New `modules/tenancy`: the tenancy matrix (shared / isolated / off per
+  service and tenant), refused at plan time where a shared service cannot
+  isolate an external tenant; outputs the shared instance's hooks and each
+  tenant's stamp spec.
+- New `modules/postgres-group-roles`: `nb_<tenant>__<group>` login roles,
+  created by SQL, members of `app_notebook` only.
+- New `aws/tenant-data`: per tenant an IAM role for its own ServiceAccounts, a
+  prefix of the shared bucket or a bucket of its own, and optionally its own
+  database.
+- `modules/workloads`: `auth.superadmin_group` (the Ray dashboard's default
+  gate, a top-precedence Argo write rule, MLflow's and JupyterHub's admin
+  group, the webapp's `APP_ADMIN_GROUP`); `auth.mlflow_mode = "oidc"` (the
+  chart's mlflow-oidc-auth plugin with per-experiment permissions in the
+  MLflow database, `mlflow_groups`, `mlflow_group_rules`, and the
+  `mlflow-auth-sync` CronJob keeping service-account tokens in
+  `mlflow-credentials` Secrets, itself authenticated by its projected
+  ServiceAccount token -- `kubernetes_service_account_issuer` -- and made an
+  MLflow admin by an init container; `mlflow_image` pins the server);
+  `dagster_code_locations` (each with its own
+  ServiceAccount, Secret and MLflow account); `jupyterhub_group_profiles`
+  (per-group identity, DB role, directory, labels; membership re-checked at
+  spawn) and, on OIDC, a hub that refreshes tokens and groups before each
+  spawn (`jupyterhub_auth_refresh_seconds`), one-day logins
+  (`jupyterhub_cookie_max_age_days`) and servers culled a day after start
+  (`jupyterhub_server_max_age_seconds`, never by default on the other
+  mechanisms); `ray_enable_autoscaler`
+  (default on: workers now actually scale from 0) and `ray_head_num_cpus`;
+  `network_policies.tenant` and `extra_peers`; `python_image`,
+  `postgres_client_image`; `ray_head_start_params`; `mlflow_job_execution`
+  (MLflow 3's server-side job runner and Huey consumers, over a GiB idle,
+  can be turned off).
+- `aws/eks-platform`: `enable_tailscale_dnsconfig` -- the operator's DNSConfig
+  nameserver at a fixed ClusterIP and a CoreDNS stub zone, so pods resolve a
+  tailnet-only issuer like browsers do.
+- `examples/kind`: Keycloak behind Dex with tenants lab (internal) and acme
+  (external), six users across every admin level, tenant stamps, MLflow on
+  OIDC; `verify-tenants.sh` checks gates, Argo rules, delegated admins,
+  MLflow permissions, Ray autoscaling, data scoping, the tenant fence, and the
+  refusal of an invalid matrix. `enable_keycloak = false` keeps the smaller
+  password-DB flow.
+- `docs/tenancy.md`; `docs/auth.md` covers the user store, MLflow's own
+  login, the tailnet-only issuer and the extended state map.
+
 ### Added: OSS auth -- `modules/dex` and `modules/workloads` `auth`
 
 - New `modules/dex`: one Dex per cluster as the OIDC issuer every service

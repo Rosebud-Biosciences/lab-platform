@@ -30,6 +30,10 @@ Portable (any Kubernetes cluster, any data backend):
 | [`modules/workloads`](modules/workloads) | webapp / JupyterHub / Dagster / MLflow / Argo Workflows / Ray, `name_prefix`-stamped and toggleable; consumes the identity / scheduling / storage / public-ingress contract inputs |
 | [`modules/neon-branches`](modules/neon-branches) | Copy-on-write Neon Postgres branches per preview |
 | [`modules/dex`](modules/dex) | The cluster's OIDC issuer (Dex): brokers Google / GitHub / LDAP / SAML or a CI password DB; environments register their own OAuth2 clients as CRs. Pairs with `modules/workloads` `auth = { mode = "oidc" }` |
+| [`modules/keycloak`](modules/keycloak) | The cluster's user store (Keycloak) behind Dex: users, tenants, delegated admins, brokered upstream logins |
+| [`modules/keycloak-realm`](modules/keycloak-realm) | The platform realm: tenants as group subtrees, superadmins, tenant and group admins (fine-grained admin permissions v2), the Dex client with full-path groups |
+| [`modules/tenancy`](modules/tenancy) | Which tenant runs where: validates the tenancy matrix against what each service can isolate and returns the shared instance's hooks and each tenant's stamp spec ([docs/tenancy.md](docs/tenancy.md)) |
+| [`modules/postgres-group-roles`](modules/postgres-group-roles) | `nb_<tenant>__<group>` login roles for notebooks and tenant compute, scoped by the app's row-level security |
 
 AWS backend, data axis (usable from any compute):
 
@@ -41,6 +45,7 @@ AWS backend, data axis (usable from any compute):
 | [`aws/preview-storage`](aws/preview-storage) | Ephemeral per-preview bucket |
 | [`aws/iceberg-branches`](aws/iceberg-branches) | Ephemeral per-preview Iceberg (S3 Tables) namespace with namespace-scoped IAM |
 | [`aws/data-access`](aws/data-access) | Read/write-no-delete IAM on prod store prefixes and Iceberg tables, for previews whose data is forked by a dataset tool (tether mode) |
+| [`aws/tenant-data`](aws/tenant-data) | One tenant's IAM role (its ServiceAccounts only), its prefix of the shared bucket or a bucket of its own, and optionally its own database |
 
 AWS backend, compute axis (an EKS cluster):
 

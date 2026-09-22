@@ -77,7 +77,10 @@ URLs). Its sessions:
   `session_lifetime = "24h"`): the proxy asks Dex for `offline_access` and
   refreshes, re-reading groups, so removing someone from a group takes
   effect within the hour rather than oauth2-proxy's week-long default. Dex's
-  ID tokens last an hour (`id_token_expiry`).
+  ID tokens last an hour (`id_token_expiry`). A refresh that fails -- the
+  user disabled, their upstream session over -- ends the session when the ID
+  token it holds expires, not on the spot: Dex reports the upstream's refusal
+  as a server error, which oauth2-proxy treats as transient.
 
 **Services that speak OIDC talk to Dex directly.** Argo's server runs
 `authModes: [sso]`; JupyterHub's `GenericOAuthenticator` gets the issuer's
@@ -91,13 +94,57 @@ and the app verifies it against Dex's keys (`IDENTITY_JWT_ISSUER`,
 `IDENTITY_JWT_AUDIENCE`) -- the signed-assertion pattern of IAP or an ALB --
 so its identity does not rest on the network path.
 
+**A user store behind Dex.** [`modules/keycloak`](../modules/keycloak) and
+[`modules/keycloak-realm`](../modules/keycloak-realm) put Keycloak in Dex's
+connector slot: Keycloak holds the users, the tenants as group subtrees and
+the delegated admins, and brokers the upstream logins (Google, GitHub, any
+OIDC); Dex keeps issuing to every service, with Keycloak's full-path groups
+(`/lab/authors`) in its tokens. [docs/tenancy.md](tenancy.md) has the model.
+Two things about Keycloak itself: a first login is linked to an existing
+account by email only for providers that opt in (`link_existing_by_email`,
+off by default) -- whoever controls such a provider becomes any account it
+can assert an address for, so it is for your own Workspace, never a tenant's
+IdP -- and its admin console is not published with the logins: the public
+Ingress serves the platform realm (`/realms/lab`) and `/resources`, never the
+master realm; the console lives on `admin_hostname`, and tofu configures the
+realm as a master-realm service account rather than an admin user (the
+module README has the recovery path if that client is lost). Keycloak's
+database is the one piece of auth state tofu cannot rebuild (memberships set
+at runtime, which upstream login is which account): give it point-in-time
+recovery.
+
+Keycloak's session is what every refresh rides on: Dex's refresh tokens from
+the realm are online ones and end with the realm's SSO session, so the
+realm keeps a login alive for `sso_session_idle_timeout` (4h) unused and
+`sso_session_max_lifespan` (24h) at most -- above oauth2-proxy's hourly
+refresh, where Keycloak's 30-minute default would send users back to log in.
+A provider whose emails the realm does not trust (`trust_email = false`, the
+default for generic OIDC) needs `smtp` and `verify_email`: Dex refuses
+unverified addresses, so without Keycloak's own verification its users
+cannot log in.
+
 **Single sign-on is per issuer session, not per cookie.** Dex keeps no
 browser session in any release yet (its auth-sessions work, with per-client
 `ssoSharedWith`, merged in March-April 2026 after v2.45.1): each relying
-party's login goes back to the connector, and is silent only when the
-upstream IdP has a session of its own (Google, GitHub, Keycloak do; Dex's
-password DB does not). When a Dex release ships sessions, enabling them is a
-config change here, not a redesign.
+party's login goes back to the connector, and is silent when the upstream
+has a session of its own -- which is what Keycloak provides: logged in once,
+every other service's login bounces through Keycloak without a prompt.
+(Dex's password DB keeps none.) When a Dex release ships sessions, enabling
+them is a config change here, not a redesign.
+
+**MLflow can log users in itself** (`auth.mlflow_mode = "oidc"`): the
+chart's mlflow-oidc-auth plugin replaces the proxy, with per-experiment
+permissions -- `mlflow_groups` may log in, `superadmin_group` administers,
+everyone else starts at NO_PERMISSIONS until a permission or a
+`mlflow_group_rules` pattern grants it. In-cluster clients authenticate as
+MLflow service accounts whose tokens `mlflow-auth-sync` keeps in an
+`mlflow-credentials` Secret per client. The sync job itself holds no MLflow
+credential: it presents its projected ServiceAccount token, which the
+plugin's Kubernetes provider accepts from MLflow's namespace only (issuer
+`kubernetes_service_account_issuer`, audience MLflow's in-cluster URL), and
+an init container in MLflow's pod -- the one place with the plugin's
+database -- keeps that account an admin. Nothing to mint, store or renew,
+and nobody's personal token behind the automation.
 
 ## Authorization: groups, default-deny
 
@@ -152,7 +199,10 @@ after checking `ingress_namespaces` names your ingress namespace.
 | Dex's own records (clients, refresh tokens, signing keys) | Dex's CRDs | no; the environment's clients are **stamped** with it and deleted on destroy |
 | proxy sessions | an encrypted, host-only cookie | no state |
 | Argo rbac ServiceAccounts, JupyterHub allowed lists, proxy gates, NetworkPolicies | the environment's Kubernetes objects | stamped per environment |
-| users, memberships, record ownership, roles | the webapp's database (`db/app`) | **yes** -- a Neon branch (tofu) or a tether fork; preview signups and permission experiments never touch prod |
+| Keycloak's users, groups, tenant tree, admin permissions | Keycloak's own database | no: identity is global. Its structure (tenants, admin groups, superadmins) is in tofu; memberships below the admins are runtime state |
+| users, memberships, app-managed groups, record ownership, roles | the webapp's database (`db/app`) | **yes** -- a Neon branch (tofu) or a tether fork; preview signups and permission experiments never touch prod |
+| MLflow permissions (users, groups, patterns) | the MLflow database, schema `mlflow_auth` | **yes**, with the experiments they govern |
+| notebook / tenant-compute roles `nb_<tenant>__<group>` | the Postgres server | created per environment (`modules/postgres-group-roles`). A Neon branch copies them **with their passwords** (roles made by SQL are data to Neon; only its own roles get new passwords, and only on protected parents), so prod's notebook credentials would open every preview branch; the template's preview-up turns their logins off on the branch |
 | the webapp's login sessions | the webapp's database | **a hazard of branching, neutralized**: a preview's branch starts with prod's rows, prod's live sessions included, in a database PR code can read. The app stores only `HMAC(SESSION_SECRET, id)`, and each environment has its own `SESSION_SECRET`, so the copies cannot log anyone in to the preview or, replayed, to prod; preview-up also deletes them right after migrating |
 
 This is the same split Neon draws with its Managed Better Auth: the auth
@@ -183,6 +233,16 @@ Dagster's Ray access and Argo's workflows) or a pre-created set of them;
 until then the policy is a guard against mistakes, not against a malicious
 PR.
 
+## Dex and Keycloak, or Keycloak alone
+
+Keycloak can be the issuer by itself. Dex stays in front because it keeps
+what the environments rely on: per-environment clients as `OAuth2Client`
+custom resources that a preview creates and destroys with itself (Keycloak's
+clients are realm objects behind an admin API), one issuer URL for every
+service whatever the user store is, and `client_admission`. The cost is one
+more hop and a second place to look when a login fails. Keycloak alone is
+reasonable for a platform without previews.
+
 ## Choosing an issuer
 
 - **Dex** (recommended): one per cluster, `enable_password_db` for CI, a
@@ -207,10 +267,17 @@ a public cluster). It does not remove the reason to have a private network:
 Kubernetes API access, databases and object stores are still reached over it,
 and in `headers` mode the tailnet's ACL remains a perfectly good gate.
 
-**Status.** `oidc` mode has run end to end on kind (the smoke test), not yet
-on EKS. Before relying on it in production, run it on a sandbox cluster and
-settle one open problem: with a tailnet-only Dex hostname, pods (the proxies,
-Argo, the webapp) must reach the issuer at the same URL browsers use, which
-needs either the Tailscale egress proxy for pods or a split-horizon DNS name
-pointing pods at Dex's Service. Until then `headers` is the production mode
-on a tailnet.
+**A tailnet-only issuer.** Put Dex (and Keycloak) behind the private
+Ingress (`ingress = { enabled = true, class_name = "tailscale", host = "dex" }`,
+issuer `https://dex.<tailnet>.ts.net/dex`) and let pods resolve tailnet names
+the way browsers do: `aws/eks-platform`'s `enable_tailscale_dnsconfig` runs
+the operator's DNSConfig nameserver behind a Service at a ClusterIP you
+choose (`tailscale_nameserver_cluster_ip`) and adds a CoreDNS stub zone for
+`ts.net` forwarding to it, so the proxies, Argo, MLflow and the webapp reach
+the issuer at the same URL. Moving between private and public is then a
+change of Ingress and issuer URL, not of design.
+
+**Status.** `oidc` mode, Keycloak and the tenants have run end to end on
+kind (the smoke test), not yet on EKS. Before relying on them in production,
+run them on a sandbox cluster, including the tailnet-only issuer above;
+until then `headers` is the production mode on a tailnet.
