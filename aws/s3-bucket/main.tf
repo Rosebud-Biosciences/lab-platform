@@ -138,6 +138,7 @@ resource "aws_s3_bucket_versioning" "this" {
 # ------------------------------------------------------------------------------
 
 resource "aws_s3_bucket_lifecycle_configuration" "this" {
+  #checkov:skip=CKV_AWS_300:the abort-multipart rule below aborts incomplete uploads bucket-wide; checkov also wants it repeated in each other whole-bucket rule (the versioning one)
   bucket = aws_s3_bucket.this.id
 
   rule {
