@@ -117,11 +117,14 @@ the modules provision the substrate these examples assume:
   CRDs when `enable_argo_workflows = true`).
 - `workloads` creates the **`<name_prefix>ray` namespace** and the
   **`ray-s3-sa`** service account (IRSA → S3) that the Ray pods run as.
-- `workloads` grants each orchestrator's service account a ClusterRole that can
-  manage `rayjobs`/`rayclusters` in the Ray namespace (cross-namespace, since
-  each orchestrator runs in its own):
-  - Argo → namespace `<prefix>argo`, service account `argo-workflow`, ClusterRole `<prefix>argo-workflow-role`
-  - Dagster → service account `dagster`, ClusterRole `<prefix>dagster-ray-cluster-ops`
+- `workloads` grants each orchestrator's service account a Role **in its own
+  environment's Ray namespace** (bound there to the ServiceAccount of the
+  orchestrator's namespace) to manage `rayjobs`/`rayclusters`, and nowhere
+  else -- a RayCluster's pods may name any ServiceAccount of the namespace
+  they run in, so the right to create one elsewhere would be the right to run
+  as another environment:
+  - Argo → namespace `<prefix>argo`, service account `argo-workflow`, Role `<prefix>argo-workflow-ray` (plus `<prefix>argo-workflow-role` for its own pods in `<prefix>argo`)
+  - Dagster → service account `dagster`, Role `<prefix>dagster-ray-cluster-ops`
 
 > The RBAC intentionally grants **both** `rayjobs` and `rayclusters`. `rayjobs`
 > is the ephemeral primitive documented here; `rayclusters` is retained for

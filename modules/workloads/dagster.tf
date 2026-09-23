@@ -38,12 +38,16 @@ resource "kubernetes_service_account_v1" "dagster" {
   }
 }
 
-# RBAC so Dagster runs can create/delete Ray clusters in the ray namespace.
-resource "kubernetes_cluster_role_v1" "dagster_ray_ops" {
-  count = local.enable_dagster ? 1 : 0
+# RBAC so Dagster runs can create/delete Ray clusters in this environment's Ray
+# namespace -- only there: a RayCluster's pods may name any ServiceAccount of
+# the namespace they run in, so the right to create one anywhere else would be
+# the right to run as another environment's identity.
+resource "kubernetes_role_v1" "dagster_ray_ops" {
+  count = local.enable_dagster && var.enable_ray ? 1 : 0
 
   metadata {
-    name = "${local.prefix}dagster-ray-cluster-ops"
+    name      = "${local.prefix}dagster-ray-cluster-ops"
+    namespace = kubernetes_namespace_v1.ray[0].metadata[0].name
   }
 
   rule {
@@ -62,17 +66,18 @@ resource "kubernetes_cluster_role_v1" "dagster_ray_ops" {
   }
 }
 
-resource "kubernetes_cluster_role_binding_v1" "dagster_ray_ops" {
-  count = local.enable_dagster ? 1 : 0
+resource "kubernetes_role_binding_v1" "dagster_ray_ops" {
+  count = local.enable_dagster && var.enable_ray ? 1 : 0
 
   metadata {
-    name = "${local.prefix}dagster-ray-cluster-ops-binding"
+    name      = "${local.prefix}dagster-ray-cluster-ops"
+    namespace = kubernetes_namespace_v1.ray[0].metadata[0].name
   }
 
   role_ref {
     api_group = "rbac.authorization.k8s.io"
-    kind      = "ClusterRole"
-    name      = kubernetes_cluster_role_v1.dagster_ray_ops[0].metadata[0].name
+    kind      = "Role"
+    name      = kubernetes_role_v1.dagster_ray_ops[0].metadata[0].name
   }
 
   subject {
@@ -218,7 +223,7 @@ resource "helm_release" "dagster" {
 
   depends_on = [
     kubernetes_service_account_v1.dagster,
-    kubernetes_cluster_role_binding_v1.dagster_ray_ops,
+    kubernetes_role_binding_v1.dagster_ray_ops,
     kubernetes_secret_v1.dagster_db_password,
     kubernetes_secret_v1.dagster_identity_env,
     kubernetes_secret_v1.dagster_user_code_env,

@@ -1308,3 +1308,51 @@ run "jupyterhub_group_profiles" {
     error_message = "the hub offers the profile to the group, on the home volume's group sub-path, without the shared dir"
   }
 }
+
+# Dagster and Argo reach Ray only in their own environment's Ray namespace:
+# the right to create a RayCluster (or a pod) in a namespace is the right to
+# run as any of its ServiceAccounts, so none is granted cluster-wide.
+run "ray_access_is_namespaced" {
+  command = plan
+
+  variables {
+    name_prefix           = "pr7-"
+    enable_ray            = true
+    enable_dagster        = true
+    dagster_db_host       = "db.example.com"
+    dagster_db_name       = "dagster"
+    dagster_db_user       = "dagster"
+    dagster_db_password   = "test"
+    enable_argo_workflows = true
+  }
+
+  assert {
+    condition = (
+      kubernetes_role_v1.dagster_ray_ops[0].metadata[0].namespace == "pr7-ray"
+      && kubernetes_role_binding_v1.dagster_ray_ops[0].metadata[0].namespace == "pr7-ray"
+      && kubernetes_role_binding_v1.dagster_ray_ops[0].subject[0].namespace == "pr7-dagster"
+    )
+    error_message = "Dagster's runs manage Ray only in this environment's Ray namespace"
+  }
+  assert {
+    condition = (
+      kubernetes_role_v1.argo_workflow[0].metadata[0].namespace == "pr7-argo"
+      && kubernetes_role_v1.argo_workflow_ray[0].metadata[0].namespace == "pr7-ray"
+      && kubernetes_role_binding_v1.argo_workflow_ray[0].subject[0].namespace == "pr7-argo"
+    )
+    error_message = "workflows run pods in Argo's namespace and manage Ray in this environment's Ray namespace only"
+  }
+}
+
+run "argo_without_ray_gets_no_ray_access" {
+  command = plan
+
+  variables {
+    enable_argo_workflows = true
+  }
+
+  assert {
+    condition     = length(kubernetes_role_v1.argo_workflow_ray) == 0 && length(kubernetes_role_v1.argo_workflow) == 1
+    error_message = "without Ray in the environment, nothing grants Ray access"
+  }
+}

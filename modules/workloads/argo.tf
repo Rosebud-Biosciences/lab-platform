@@ -5,12 +5,12 @@
 # controller + server (singleNamespace), an optional workflow archive on the
 # environment's Postgres, and its own private UI. The cluster-scoped CRDs are
 # a cluster prerequisite (aws/eks-platform enable_argo_workflows), installed
-# once; this release installs none and creates no other cluster-scoped object
-# beyond its name-prefixed ClusterRole.
+# once; this release installs none and creates no cluster-scoped object.
 #
 # Workflows run as the `argo-workflow` ServiceAccount (identity contract key
-# "argo"), which the module-owned ClusterRole lets create RayJobs/RayClusters
-# in this environment's Ray namespace -- the ephemeral-Ray pattern in
+# "argo"), which the module's namespaced Roles let run pods in Argo's namespace
+# and create RayJobs/RayClusters in this environment's Ray namespace -- the
+# ephemeral-Ray pattern in
 # docs/ephemeral-ray.md. Static credentials for workflow pods are in the
 # argo-identity-env Secret; templates envFrom it (and add the projected token
 # volume when federating).
@@ -44,20 +44,59 @@ resource "kubernetes_service_account_v1" "argo_workflow" {
   }
 }
 
-# What a workflow may do to the cluster: manage RayJobs/RayClusters (in this
-# environment's Ray namespace -- cross-namespace, hence a ClusterRole) and the
-# pods/services around them. Name-prefixed so environments never collide.
-resource "kubernetes_cluster_role_v1" "argo_workflow" {
+# What a workflow may do, and where: its own pods in Argo's namespace, and
+# RayJobs/RayClusters in this environment's Ray namespace. Namespaced Roles, not
+# a ClusterRole: the right to create pods (or RayClusters, whose pods may name
+# any ServiceAccount of their namespace) anywhere would be the right to run as
+# any identity in the cluster -- another environment's, or prod's.
+resource "kubernetes_role_v1" "argo_workflow" {
   count = var.enable_argo_workflows ? 1 : 0
 
   metadata {
-    name = "${local.prefix}argo-workflow-role"
+    name      = "${local.prefix}argo-workflow-role"
+    namespace = kubernetes_namespace_v1.argo[0].metadata[0].name
   }
 
   rule {
     api_groups = [""]
     resources  = ["pods", "pods/log", "configmaps", "services"]
     verbs      = ["get", "watch", "patch", "list", "create", "delete"]
+  }
+
+  rule {
+    api_groups = ["argoproj.io"]
+    resources  = ["workflowtaskresults"]
+    verbs      = ["create", "patch"]
+  }
+}
+
+resource "kubernetes_role_binding_v1" "argo_workflow" {
+  count = var.enable_argo_workflows ? 1 : 0
+
+  metadata {
+    name      = "${local.prefix}argo-workflow-binding"
+    namespace = kubernetes_namespace_v1.argo[0].metadata[0].name
+  }
+
+  role_ref {
+    api_group = "rbac.authorization.k8s.io"
+    kind      = "Role"
+    name      = kubernetes_role_v1.argo_workflow[0].metadata[0].name
+  }
+
+  subject {
+    kind      = "ServiceAccount"
+    name      = kubernetes_service_account_v1.argo_workflow[0].metadata[0].name
+    namespace = kubernetes_namespace_v1.argo[0].metadata[0].name
+  }
+}
+
+resource "kubernetes_role_v1" "argo_workflow_ray" {
+  count = var.enable_argo_workflows && var.enable_ray ? 1 : 0
+
+  metadata {
+    name      = "${local.prefix}argo-workflow-ray"
+    namespace = kubernetes_namespace_v1.ray[0].metadata[0].name
   }
 
   rule {
@@ -70,23 +109,24 @@ resource "kubernetes_cluster_role_v1" "argo_workflow" {
   }
 
   rule {
-    api_groups = ["argoproj.io"]
-    resources  = ["workflowtaskresults"]
-    verbs      = ["create", "patch"]
+    api_groups = [""]
+    resources  = ["pods", "pods/log", "services"]
+    verbs      = ["get", "list", "watch"]
   }
 }
 
-resource "kubernetes_cluster_role_binding_v1" "argo_workflow" {
-  count = var.enable_argo_workflows ? 1 : 0
+resource "kubernetes_role_binding_v1" "argo_workflow_ray" {
+  count = var.enable_argo_workflows && var.enable_ray ? 1 : 0
 
   metadata {
-    name = "${local.prefix}argo-workflow-binding"
+    name      = "${local.prefix}argo-workflow-ray"
+    namespace = kubernetes_namespace_v1.ray[0].metadata[0].name
   }
 
   role_ref {
     api_group = "rbac.authorization.k8s.io"
-    kind      = "ClusterRole"
-    name      = kubernetes_cluster_role_v1.argo_workflow[0].metadata[0].name
+    kind      = "Role"
+    name      = kubernetes_role_v1.argo_workflow_ray[0].metadata[0].name
   }
 
   subject {
@@ -157,7 +197,8 @@ resource "helm_release" "argo_workflows" {
 
   depends_on = [
     kubernetes_service_account_v1.argo_workflow,
-    kubernetes_cluster_role_binding_v1.argo_workflow,
+    kubernetes_role_binding_v1.argo_workflow,
+    kubernetes_role_binding_v1.argo_workflow_ray,
     kubernetes_secret_v1.argo_identity_env,
     kubernetes_secret_v1.argo_db,
     kubernetes_secret_v1.argo_sso,
