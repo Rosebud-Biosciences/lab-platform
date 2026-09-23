@@ -245,7 +245,7 @@ resource "aws_s3_bucket_intelligent_tiering_configuration" "this" {
 
 resource "aws_iam_policy" "put" {
   name        = "bucket-${local.name}-put"
-  path        = "/"
+  path        = var.iam_path
   description = "Allow users to put objects in the ${local.name} bucket"
 
   policy = templatefile("${path.module}/policies/bucket_put.json", {
@@ -256,7 +256,7 @@ resource "aws_iam_policy" "put" {
 
 resource "aws_iam_policy" "get" {
   name        = "bucket-${local.name}-get"
-  path        = "/"
+  path        = var.iam_path
   description = "Allow users to get objects from the ${local.name} bucket"
 
   policy = templatefile("${path.module}/policies/bucket_get.json", {
@@ -277,7 +277,7 @@ data "aws_iam_policy_document" "putget" {
 
 resource "aws_iam_policy" "putget" {
   name        = "bucket-${local.name}-putget"
-  path        = "/"
+  path        = var.iam_path
   description = "Allow users to put and get objects in the ${local.name} bucket"
 
   policy = data.aws_iam_policy_document.putget.json

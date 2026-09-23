@@ -61,6 +61,8 @@ locals {
   }
 
   roles = { for svc, on in local.enabled : svc => svc if on }
+
+  mlflow_artifact_objects = var.mlflow_artifact_prefix != "" ? "${var.mlflow_artifact_bucket_arn}/${trim(var.mlflow_artifact_prefix, "/")}/*" : "${var.mlflow_artifact_bucket_arn}/*"
 }
 
 module "role" {
@@ -68,9 +70,11 @@ module "role" {
   source   = "terraform-aws-modules/iam/aws//modules/iam-role-for-service-accounts"
   version  = "~> 6.8"
 
-  name            = "${var.cluster_name}-${local.prefix}${local.role_segment[each.key]}"
-  use_name_prefix = false
-  description     = "modules/workloads ${each.key} service account${local.iam_desc_suffix}"
+  name                 = "${var.cluster_name}-${local.prefix}${local.role_segment[each.key]}"
+  use_name_prefix      = false
+  path                 = var.iam_path
+  permissions_boundary = var.permissions_boundary_arn
+  description          = "modules/workloads ${each.key} service account${local.iam_desc_suffix}"
 
   policies = local.policies[each.key]
 
@@ -89,6 +93,7 @@ module "role" {
 resource "aws_iam_policy" "ecr_read" {
   count       = var.enable_ecr_pull && (var.enable_ray || var.enable_argo_workflows || var.enable_dagster) ? 1 : 0
   name        = "${var.cluster_name}-${local.prefix}ecr-read"
+  path        = var.iam_path
   description = "ECR read policy for Ray, Argo Workflows and Dagster${local.iam_desc_suffix}"
 
   policy = jsonencode({
@@ -119,6 +124,7 @@ resource "aws_iam_policy" "ecr_read" {
 resource "aws_iam_policy" "mlflow_s3" {
   count       = var.enable_mlflow ? 1 : 0
   name        = "${var.cluster_name}-${local.prefix}mlflow-s3"
+  path        = var.iam_path
   description = "Access to the MLflow artifact bucket for the tracking server${local.iam_desc_suffix}"
 
   policy = jsonencode({
@@ -131,9 +137,11 @@ resource "aws_iam_policy" "mlflow_s3" {
           Resource = var.mlflow_artifact_bucket_arn
         },
         {
-          Effect   = "Allow"
-          Action   = ["s3:GetObject", "s3:PutObject", "s3:DeleteObject"]
-          Resource = "${var.mlflow_artifact_bucket_arn}/*"
+          Effect = "Allow"
+          Action = ["s3:GetObject", "s3:PutObject", "s3:DeleteObject"]
+          # Only the artifact prefix: a preview's MLflow may keep its
+          # artifacts inside a bucket that holds prod data.
+          Resource = local.mlflow_artifact_objects
         }
       ],
       var.mlflow_artifact_kms_key_arn != "" ? [{

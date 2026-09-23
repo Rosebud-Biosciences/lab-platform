@@ -108,3 +108,59 @@ run "operator_role_requires_principals" {
 
   expect_failures = [aws_iam_role.operator_admin[0]]
 }
+
+# The preview role runs whatever a PR's workflow says: it manages only roles
+# and policies under preview_iam_path, and only roles capped by the boundary.
+run "preview_iam_is_confined_and_bounded" {
+  command = plan
+
+  assert {
+    condition     = endswith(local.preview_managed_role_arns[0], ":role/preview/*") && endswith(local.preview_managed_policy_arns[0], ":policy/preview/*")
+    error_message = "preview IAM is confined to the /preview/ path, never a name pattern prod roles can match"
+  }
+  assert {
+    condition = alltrue([
+      for s in data.aws_iam_policy_document.preview_deployer[0].statement : anytrue([for c in s.condition : c.variable == "iam:PermissionsBoundary"])
+      if length(setintersection(toset(s.actions), toset(["iam:CreateRole", "iam:PutRolePolicy", "iam:AttachRolePolicy", "iam:PutRolePermissionsBoundary"]))) > 0
+    ])
+    error_message = "creating a role, or giving one permissions, requires the preview boundary on it"
+  }
+  assert {
+    condition = length([
+      for s in data.aws_iam_policy_document.preview_deployer[0].statement : s.sid
+      if length(setintersection(toset(s.actions), toset(["iam:CreateRole", "iam:PutRolePolicy", "iam:AttachRolePolicy", "iam:PutRolePermissionsBoundary"]))) > 0
+    ]) == 2
+    error_message = "exactly the two boundary-conditioned statements grant role creation and permissions"
+  }
+  assert {
+    condition = anytrue([
+      for s in data.aws_iam_policy_document.preview_deployer[0].statement :
+      contains(s.actions, "iam:AttachRolePolicy") && anytrue([for c in s.condition : c.variable == "iam:PolicyARN" && alltrue([for v in c.values : endswith(v, ":policy/preview/*")])])
+    ])
+    error_message = "only the preview stack's own policies may be attached"
+  }
+  assert {
+    condition     = !anytrue([for a in local.preview_boundary_actions : can(regex("^(iam|sts):", a))]) && output.preview_iam_path == "/preview/"
+    error_message = "the boundary grants no IAM or STS"
+  }
+}
+
+run "preview_iam_path_is_not_the_root" {
+  command = plan
+
+  variables {
+    preview_iam_path = "/"
+  }
+
+  expect_failures = [var.preview_iam_path]
+}
+
+run "preview_boundary_refuses_iam_actions" {
+  command = plan
+
+  variables {
+    preview_boundary_extra_actions = ["iam:PassRole"]
+  }
+
+  expect_failures = [var.preview_boundary_extra_actions]
+}

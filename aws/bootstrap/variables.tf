@@ -117,16 +117,38 @@ variable "preview_state_key_prefix" {
   default     = "preview/*"
 }
 
-variable "preview_managed_role_pattern" {
-  description = "IAM role name pattern the preview stack (workloads module) creates and the role may manage"
+variable "preview_iam_path" {
+  description = "IAM path of every role and policy the preview stack creates (the modules' iam_path). The preview role may create and change roles and policies under it only -- nothing of prod's, which must never use it -- and only roles carrying the preview permissions boundary."
   type        = string
-  default     = "eks-*"
+  default     = "/preview/"
+
+  validation {
+    condition     = can(regex("^/([A-Za-z0-9_+=,.@-]+/)+$", var.preview_iam_path))
+    error_message = "preview_iam_path is an IAM path other than the root: it starts and ends with /, e.g. /preview/."
+  }
 }
 
-variable "preview_managed_policy_patterns" {
-  description = "IAM policy name patterns the preview stack creates and the role may manage (e.g. eks-*, bucket-preview-processeddata-*, iceberg-*)"
+variable "preview_attachable_policy_arns" {
+  description = "Policies outside preview_iam_path that the preview role may also attach to preview roles (e.g. a shared read-only policy on prod data). The permissions boundary still caps what they grant."
   type        = list(string)
-  default     = ["eks-*", "bucket-preview-processeddata-*", "iceberg-*"]
+  default     = []
+}
+
+variable "preview_boundary_resources" {
+  description = "Resources the preview permissions boundary allows its actions on. Narrow it to your data buckets, table buckets, KMS keys and ECR repositories to cap previews further."
+  type        = list(string)
+  default     = ["*"]
+}
+
+variable "preview_boundary_extra_actions" {
+  description = "Actions beyond object-level S3, the S3 Tables data plane, KMS data keys and ECR pulls that preview workloads may be granted (e.g. \"secretsmanager:GetSecretValue\"). Never IAM or STS."
+  type        = list(string)
+  default     = []
+
+  validation {
+    condition     = alltrue([for a in var.preview_boundary_extra_actions : !can(regex("^(iam|sts|organizations):", lower(a))) && a != "*"])
+    error_message = "preview_boundary_extra_actions must not include iam:, sts:, organizations: actions or *: a preview role that can use them can escape the boundary."
+  }
 }
 
 variable "preview_ephemeral_bucket_pattern" {

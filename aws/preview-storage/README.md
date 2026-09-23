@@ -47,6 +47,7 @@ module "storage" {
 |------|-------------|------|---------|:--------:|
 | <a name="input_name_prefix"></a> [name\_prefix](#input\_name\_prefix) | Unique per-preview prefix (e.g. the PR/preview name). Used to name the ephemeral bucket so it never collides with prod. | `string` | n/a | yes |
 | <a name="input_bucket_base_name"></a> [bucket\_base\_name](#input\_bucket\_base\_name) | Base name for the ephemeral bucket; the final name is "<bucket\_base\_name>-<name\_prefix>" | `string` | `"preview-processeddata"` | no |
+| <a name="input_iam_path"></a> [iam\_path](#input\_iam\_path) | IAM path of the bucket's access policies: aws/bootstrap's preview\_iam\_path, which the preview role is confined to | `string` | `"/preview/"` | no |
 | <a name="input_tags"></a> [tags](#input\_tags) | Tags applied to the created resources | `map(string)` | `{}` | no |
 
 ## Outputs

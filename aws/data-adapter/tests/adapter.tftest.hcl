@@ -135,3 +135,34 @@ run "binding_is_validated" {
 
   expect_failures = [var.binding]
 }
+
+# A preview's IAM lives under aws/bootstrap's preview path with its boundary,
+# and its MLflow reaches only its own artifact prefix of a shared bucket.
+run "preview_iam_is_pathed_and_scoped" {
+  command = plan
+
+  variables {
+    name_prefix                = "pr7-"
+    iam_path                   = "/preview/"
+    permissions_boundary_arn   = "arn:aws:iam::123456789012:policy/preview-boundary"
+    enable_ray                 = true
+    enable_mlflow              = true
+    enable_jupyterhub          = true
+    mlflow_artifact_bucket     = "lab-data"
+    mlflow_artifact_bucket_arn = "arn:aws:s3:::lab-data"
+    mlflow_artifact_prefix     = "tether/mlflow/pr7"
+  }
+
+  assert {
+    condition     = aws_iam_policy.ecr_read[0].path == "/preview/" && aws_iam_policy.mlflow_s3[0].path == "/preview/"
+    error_message = "the preview's policies are created under the preview path"
+  }
+  assert {
+    condition     = local.mlflow_artifact_objects == "arn:aws:s3:::lab-data/tether/mlflow/pr7/*"
+    error_message = "MLflow reads, writes and deletes its own prefix only, not the bucket's prod data"
+  }
+  assert {
+    condition     = length(local.policies["jupyterhub"]) == 0
+    error_message = "notebooks get no account-wide S3 read by default"
+  }
+}

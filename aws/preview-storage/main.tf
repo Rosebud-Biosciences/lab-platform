@@ -18,8 +18,9 @@ locals {
 module "processeddata" {
   source = "../s3-bucket"
 
-  name = local.bucket_name
-  tags = var.tags
+  name     = local.bucket_name
+  iam_path = var.iam_path
+  tags     = var.tags
 
   # Ephemeral: never protect, always allow a non-empty destroy.
   prevent_destroy = false

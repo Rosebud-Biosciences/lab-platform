@@ -28,8 +28,8 @@ locals {
   state_bucket_arn = aws_s3_bucket.state.arn
   lock_table_arn   = aws_dynamodb_table.locks.arn
 
-  preview_managed_role_arns   = ["arn:aws:iam::${local.account_id}:role/${var.preview_managed_role_pattern}"]
-  preview_managed_policy_arns = [for p in var.preview_managed_policy_patterns : "arn:aws:iam::${local.account_id}:policy/${p}"]
+  preview_managed_role_arns   = ["arn:aws:iam::${local.account_id}:role${var.preview_iam_path}*"]
+  preview_managed_policy_arns = ["arn:aws:iam::${local.account_id}:policy${var.preview_iam_path}*"]
   preview_bucket_arn          = "arn:aws:s3:::${var.preview_ephemeral_bucket_pattern}"
 }
 
@@ -130,10 +130,80 @@ resource "aws_iam_role_policy" "ci_deployer" {
 # PREVIEW DEPLOYER ROLE (Terraform state + tightly-scoped IAM/S3/KMS)
 #
 # Scoped to only what the preview stack touches: its own Terraform state
-# (writes limited to preview_state_key_prefix), EKS describe, IAM create/delete
-# limited to the workloads module's role/policy name patterns, and the ephemeral
-# bucket + its KMS key (KMS mutations gated on the preview tag).
+# (writes limited to preview_state_key_prefix), EKS describe, IAM roles and
+# policies under preview_iam_path (roles only with the preview permissions
+# boundary), and the ephemeral bucket + its KMS key (KMS mutations gated on the
+# preview tag).
 # ------------------------------------------------------------------------------
+
+locals {
+  preview_attachable_policy_arns = concat(local.preview_managed_policy_arns, var.preview_attachable_policy_arns)
+
+  # The most a preview workload may ever do, whatever its role is given: the
+  # union of what the preview stack's modules grant (aws/s3-bucket,
+  # aws/data-access, aws/iceberg-branches, aws/data-adapter). No IAM, no STS,
+  # no compute, no bucket or key configuration.
+  preview_boundary_actions = concat(
+    [
+      "s3:GetObject",
+      "s3:GetObjectVersion",
+      "s3:PutObject",
+      "s3:DeleteObject",
+      "s3:AbortMultipartUpload",
+      "s3:ListMultipartUploadParts",
+      "s3:ListBucket",
+      "s3:ListBucketVersions",
+      "s3:ListBucketMultipartUploads",
+      "s3:GetBucketLocation",
+      "s3tables:GetTableBucket",
+      "s3tables:GetNamespace",
+      "s3tables:ListNamespaces",
+      "s3tables:ListTables",
+      "s3tables:GetTable",
+      "s3tables:CreateTable",
+      "s3tables:DeleteTable",
+      "s3tables:RenameTable",
+      "s3tables:GetTableData",
+      "s3tables:PutTableData",
+      "s3tables:GetTableMetadataLocation",
+      "s3tables:UpdateTableMetadataLocation",
+      "s3tables:GetTableMaintenanceConfiguration",
+      "s3tables:PutTableMaintenanceConfiguration",
+      "kms:Decrypt",
+      "kms:Encrypt",
+      "kms:GenerateDataKey*",
+      "kms:DescribeKey",
+      "ecr:GetAuthorizationToken",
+      "ecr:BatchCheckLayerAvailability",
+      "ecr:BatchGetImage",
+      "ecr:GetDownloadUrlForLayer",
+    ],
+    var.preview_boundary_extra_actions,
+  )
+}
+
+data "aws_iam_policy_document" "preview_boundary" {
+  #checkov:skip=CKV_AWS_356:a permissions boundary grants nothing; it caps the actions of the preview policies it bounds, which name their resources (preview_boundary_resources narrows it further)
+  #checkov:skip=CKV_AWS_108:same: object reads are granted, and scoped, by each preview policy; the boundary only caps them
+  count = var.enable_preview_deployer_role ? 1 : 0
+
+  statement {
+    sid       = "PreviewWorkloads"
+    effect    = "Allow"
+    actions   = local.preview_boundary_actions
+    resources = var.preview_boundary_resources
+  }
+}
+
+# Outside preview_iam_path, so the preview role cannot edit it.
+resource "aws_iam_policy" "preview_boundary" {
+  count = var.enable_preview_deployer_role ? 1 : 0
+
+  name        = "${var.preview_deployer_role_name}-workload-boundary"
+  description = "Permissions boundary on every IAM role the preview stack creates: the most a preview workload may do"
+  policy      = data.aws_iam_policy_document.preview_boundary[0].json
+  tags        = var.tags
+}
 
 data "aws_iam_policy_document" "preview_assume" {
   count = var.enable_preview_deployer_role ? 1 : 0
@@ -171,6 +241,8 @@ resource "aws_iam_role" "preview_deployer" {
 }
 
 data "aws_iam_policy_document" "preview_deployer" {
+  #checkov:skip=CKV_AWS_356:the "*" statements are IAM Get*/List*, kms:CreateKey and its read-backs (no key ARN exists yet), and key mutations gated on the preview tag; every other statement names its resources
+  #checkov:skip=CKV_AWS_111:the unconstrained writes are KMS key creation (no ARN yet) and tag-gated key mutations; IAM writes are confined to preview_iam_path and the boundary
   count = var.enable_preview_deployer_role ? 1 : 0
 
   # --- Terraform remote state ---
@@ -215,25 +287,60 @@ data "aws_iam_policy_document" "preview_deployer" {
     resources = ["*"]
   }
 
-  # --- Mutating IAM, restricted to the roles the workloads module owns ---
+  # --- Mutating IAM: the preview stack's own roles, under preview_iam_path ---
+  # Anyone who can push a branch runs this role (a PR's workflow is its own),
+  # so it must not be able to mint more than a preview needs: every role it
+  # creates or changes carries the preview boundary, which caps whatever
+  # policy the role is given, and it attaches only the stack's own policies.
   statement {
-    sid    = "IamManageRoles"
+    sid    = "IamRolesUnderBoundary"
     effect = "Allow"
     actions = [
       "iam:CreateRole",
+      "iam:PutRolePermissionsBoundary",
+      "iam:PutRolePolicy",
+      "iam:DeleteRolePolicy",
+      "iam:DetachRolePolicy",
+    ]
+    resources = local.preview_managed_role_arns
+
+    condition {
+      test     = "StringEquals"
+      variable = "iam:PermissionsBoundary"
+      values   = [aws_iam_policy.preview_boundary[0].arn]
+    }
+  }
+  statement {
+    sid       = "IamAttachPreviewPolicies"
+    effect    = "Allow"
+    actions   = ["iam:AttachRolePolicy"]
+    resources = local.preview_managed_role_arns
+
+    condition {
+      test     = "StringEquals"
+      variable = "iam:PermissionsBoundary"
+      values   = [aws_iam_policy.preview_boundary[0].arn]
+    }
+    condition {
+      test     = "ArnLike"
+      variable = "iam:PolicyARN"
+      values   = local.preview_attachable_policy_arns
+    }
+  }
+  statement {
+    sid    = "IamRolesLifecycle"
+    effect = "Allow"
+    actions = [
       "iam:DeleteRole",
       "iam:TagRole",
       "iam:UntagRole",
       "iam:UpdateAssumeRolePolicy",
-      "iam:AttachRolePolicy",
-      "iam:DetachRolePolicy",
-      "iam:PutRolePolicy",
-      "iam:DeleteRolePolicy",
+      "iam:UpdateRoleDescription",
     ]
     resources = local.preview_managed_role_arns
   }
 
-  # --- Mutating IAM, restricted to the customer-managed policies it owns ---
+  # --- Mutating IAM: the preview stack's own policies, under preview_iam_path ---
   statement {
     sid    = "IamManagePolicies"
     effect = "Allow"

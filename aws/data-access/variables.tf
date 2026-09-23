@@ -62,3 +62,14 @@ variable "tags" {
   type        = map(string)
   default     = {}
 }
+
+variable "iam_path" {
+  description = "IAM path of the policy; a preview's goes under aws/bootstrap's preview_iam_path"
+  type        = string
+  default     = "/"
+
+  validation {
+    condition     = can(regex("^/([A-Za-z0-9_+=,.@-]+/)*$", var.iam_path))
+    error_message = "iam_path starts and ends with /, e.g. / or /preview/."
+  }
+}

@@ -104,6 +104,7 @@ data "aws_iam_policy_document" "this" {
 
 resource "aws_iam_policy" "this" {
   name        = var.name
+  path        = var.iam_path
   description = "Read/write (no delete) on production data-store prefixes (and their bucket key) and read/commit on listed Iceberg tables, for pods working on dataset branches"
   policy      = data.aws_iam_policy_document.this.json
   tags        = var.tags

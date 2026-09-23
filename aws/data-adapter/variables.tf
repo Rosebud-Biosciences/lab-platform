@@ -120,9 +120,9 @@ variable "jupyterhub_policy_arns" {
 }
 
 variable "jupyterhub_s3_read_only" {
-  description = "Attach the AWS managed AmazonS3ReadOnlyAccess policy to the JupyterHub single-user role"
+  description = "Attach the AWS managed AmazonS3ReadOnlyAccess policy to the JupyterHub single-user role: read on every bucket in the account. Off by default; grant specific buckets through jupyterhub_policy_arns."
   type        = bool
-  default     = true
+  default     = false
 }
 
 variable "mlflow_artifact_bucket" {
@@ -163,6 +163,23 @@ variable "enable_ecr_pull" {
   description = "Let the Ray, Argo and Dagster roles pull from this account's ECR repositories (needed when pods pull private images with their own credentials rather than the node's)"
   type        = bool
   default     = true
+}
+
+variable "iam_path" {
+  description = "IAM path of the roles and policies. A preview's go under aws/bootstrap's preview_iam_path (/preview/), which the preview role is confined to."
+  type        = string
+  default     = "/"
+
+  validation {
+    condition     = can(regex("^/([A-Za-z0-9_+=,.@-]+/)*$", var.iam_path))
+    error_message = "iam_path starts and ends with /, e.g. / or /preview/."
+  }
+}
+
+variable "permissions_boundary_arn" {
+  description = "Permissions boundary for the roles. A preview's must carry aws/bootstrap's preview_permissions_boundary_arn: the preview role may create no role without it."
+  type        = string
+  default     = null
 }
 
 variable "tags" {
