@@ -2,8 +2,10 @@
 
 A composable family of OpenTofu modules for running a data/ML platform on
 Kubernetes — JupyterHub, Ray, Dagster, MLflow, and a public webapp, each behind
-an `enable_*` toggle — with **first-class preview environments** that branch
-prod for testing, off prod.
+an `enable_*` toggle — with **first-class preview environments**: per PR, the
+workloads stamped on the shared cluster, copy-on-write branches of prod's
+databases, and isolated (empty) object and table stores -- or, opt-in, forks
+inside prod's stores.
 
 The application layer (`modules/workloads`) is cloud-agnostic: it needs only
 the kubernetes/helm providers and runs on EKS, kind, or any other cluster.
@@ -18,8 +20,10 @@ it, and modules are consumed by `github.com/...//path` source refs anyway.
 GitHub redirects the old name.)
 
 > Status: extracted from a production stack and genericized for open source.
-> Wiring is validated (`tofu validate` + plan-only `tofu test`); a full apply
-> needs your own AWS account, DNS, and (optionally) Tailscale/Neon.
+> Wiring is validated (`tofu validate` + plan-only `tofu test`), and the
+> workloads with OIDC auth and tenants run end to end on kind in CI; the
+> preview loop has not yet run end to end on EKS. A full apply needs your own
+> AWS account, DNS, and (optionally) Tailscale/Neon.
 
 ## Modules
 
@@ -135,12 +139,16 @@ workflows and the least-privilege preview role in `aws/bootstrap` make it
 runnable from CI.
 
 The preview's *data* has two providers. Terraform (the modules above) stamps
-isolated, mostly empty copies; [tether](https://github.com/elyall/tether) forks
-the production stores themselves — a branch per preview in Neon, Icechunk,
-Iceberg and Lance, a pinned baseline, and `promote` back to prod — with
-[`aws/data-access`](aws/data-access) as its IAM. Both hand pods the same
-`DATABASE_URL` + `DATA_REFS` contract; the template app shows them side by side
-behind a `fork_provider` toggle.
+isolated copies: branches of prod's Postgres, empty object and table stores.
+[tether](https://github.com/elyall/tether) forks the production stores
+themselves — a branch per preview in Neon, Icechunk, Iceberg and Lance, a
+pinned baseline, and `promote` back to prod — with
+[`aws/data-access`](aws/data-access) as its IAM, which means the preview's
+pods can write into prod's buckets and commit to prod's tables (never
+delete): opt in only where the PR's code is trusted with that. Both hand pods
+the same `DATABASE_URL` + `DATA_REFS` contract; the template app shows them
+side by side behind a `fork_provider` toggle. What a preview can reach, and
+what it cannot, is in the design doc's "Trust" section.
 
 Read the design writeup: [`docs/preview-environments.md`](docs/preview-environments.md).
 

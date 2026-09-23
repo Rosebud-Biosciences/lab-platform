@@ -6,6 +6,40 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Security: a preview cannot reach prod's IAM or another environment's identity
+
+- `aws/bootstrap` (**breaking**): the preview role manages IAM only under
+  `preview_iam_path` (default `/preview/`) instead of the `eks-*` name
+  patterns, which on a shared cluster also matched prod's roles; it creates or
+  changes only roles carrying a new permissions boundary (object-level S3, the
+  S3 Tables data plane, KMS data keys, ECR pulls; `preview_boundary_resources`
+  and `preview_boundary_extra_actions` tune it), and attaches only policies
+  under the path (plus `preview_attachable_policy_arns`). Before, anyone able
+  to push a branch could have attached any policy to an `eks-*` role.
+  `preview_managed_role_pattern` and `preview_managed_policy_patterns` are
+  gone; new outputs `preview_iam_path` and `preview_permissions_boundary_arn`.
+- `aws/data-adapter` gains `iam_path` and `permissions_boundary_arn`;
+  `aws/data-access`, `aws/s3-bucket` gain `iam_path`; `aws/preview-storage` and
+  `aws/iceberg-branches` gain `iam_path` (default `/preview/`).
+  `examples/preview` wires them.
+- `aws/data-adapter`: MLflow's artifact policy covers its prefix only, not the
+  whole bucket (a tether-mode preview's prefix sits in prod's data bucket);
+  `jupyterhub_s3_read_only` now defaults to `false` (it granted read on every
+  bucket in the account).
+- `modules/workloads`: Dagster's and Argo's Ray access (and Argo's pods) are
+  namespaced Roles in the environment's own namespaces instead of
+  ClusterRoles: creating a pod or RayCluster in any namespace let a preview,
+  or another tenant, run as that namespace's ServiceAccounts.
+- `aws/eks-platform`: `enable_network_policy` defaults to `true`, so the
+  workloads' NetworkPolicies are enforced (without them, in auth mode
+  `headers`, any pod could assert an identity to the webapp).
+
+### Fixed: preview teardown with Iceberg tables
+
+- `aws/iceberg-branches` drops the namespace's tables on destroy
+  (`drop_tables_on_destroy`, default on); a namespace with tables cannot be
+  deleted, so `preview-down` failed and leaked it.
+
 ### Fixed: tether-mode access to an SSE-KMS data bucket
 
 - `aws/data-access` gains `kms_key_arn`: with it, the policy also grants

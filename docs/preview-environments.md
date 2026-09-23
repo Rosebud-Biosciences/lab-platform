@@ -6,6 +6,23 @@ platform's workloads, run against copy-on-write clones of the production
 databases, and tear the whole thing down when the PR closes — without ever
 touching prod's namespaces, data, or IAM.
 
+What "branch prod" covers, precisely:
+
+- **Postgres** -- the app's database and the services' own -- is a real
+  copy-on-write branch of prod's (Neon), migrated to the PR's schema.
+- **Object stores and Iceberg tables** start **empty** by default (`tofu`
+  mode): a fresh bucket and namespace per preview. Prod's bytes are not there.
+- Forking those stores too is opt-in (`tether` mode), and it happens **inside
+  prod's stores**: the preview's pods get write access to prod buckets and
+  commit access to prod tables, which IAM cannot narrow to a branch
+  ([Ephemeral data](#ephemeral-data-two-providers)). Use it only where the
+  PR's code is trusted with that.
+
+**Status.** The modules are plan-tested and the auth path runs end to end on
+kind; the preview loop has not yet run end to end on EKS
+(`lab-platform-sandbox` tracks that). [Trust](#trust-what-a-preview-can-reach)
+lists what a preview can and cannot reach.
+
 This document explains how it works so you can adopt, extend, or replace the
 pieces.
 
@@ -209,6 +226,41 @@ the reusable workflows' `extra_tfvars_json` secret is for; the Dagster user-code
 deployment receives `DATABASE_URL` and the caller's `dagster_user_code_env`
 exactly as the webapp does, so the assets and the app read the same data.
 
+## Trust: what a preview can reach
+
+A preview runs the PR's code, and the preview role runs the PR's workflow: for
+a branch of the repository (not a fork, which gets no OIDC token), whoever can
+push it controls both. So the boundaries that matter are the ones that hold
+against the PR itself:
+
+- **IAM.** The preview role creates and changes roles and policies only under
+  `preview_iam_path` (`/preview/`), which prod never uses, and only roles that
+  carry the preview permissions boundary; it attaches only policies under
+  that path. The boundary (`aws/bootstrap`) caps every preview role at
+  object-level S3, the S3 Tables data plane, KMS data keys and ECR pulls --
+  whatever policy a PR writes, no preview workload gets IAM, STS, compute or
+  bucket configuration. Narrow `preview_boundary_resources` to your buckets
+  to cap it further.
+- **Kubernetes RBAC for workloads.** Dagster and Argo get Roles in their own
+  environment's namespaces only: creating a pod or a RayCluster in a
+  namespace is running as that namespace's ServiceAccounts, so nothing grants
+  it cluster-wide.
+- **The network.** `network_policies` keeps each UI reachable only through its
+  gate. EKS enforces them only with the VPC CNI's policy agent
+  (`aws/eks-platform` `enable_network_policy`, on by default); without it, in
+  auth mode `headers`, any pod could reach the webapp and assert an identity.
+- **Data.** `tofu` mode: the preview writes only its own copies. `tether`
+  mode: write into prod stores, no delete (above).
+- **`app` profile.** Its triggers run prod's Dagster on prod's data (above).
+- **Still open.** The preview role deploys into the cluster with a
+  cluster-admin access entry, so it can change anything in Kubernetes, prod's
+  namespaces included; Dex's `client_admission` fences only the OAuth
+  clients. Scoping it to its own namespaces needs the workloads module to stop
+  creating per-environment namespaces itself ([auth.md](auth.md), "Trust
+  between environments"). Until then, anyone who can push a branch to the
+  app repository can change the cluster through its preview workflow (the
+  label check is in a file the PR can edit): grant write access accordingly.
+
 ## GPU isolation
 
 Ray GPU workers select their nodes by NodePool. The preview stamps a
@@ -258,5 +310,8 @@ sequenceDiagram
    with read-only Contents on it): `tofu init` fetches `github.com/...`
    module sources with git, and a runner's own `GITHUB_TOKEN` reaches only
    the repository it runs in.
-5. Point the preview role's `preview_state_key_prefix`, IAM name patterns, and
-   ephemeral bucket pattern at whatever your naming actually is.
+5. Point the preview role's `preview_state_key_prefix` and ephemeral bucket
+   pattern at whatever your naming actually is, and pass `aws/bootstrap`'s
+   `preview_iam_path` and `preview_permissions_boundary_arn` outputs to the
+   preview stack (`examples/preview` inputs of the same names): the preview
+   role creates no IAM outside that path, and no role without the boundary.

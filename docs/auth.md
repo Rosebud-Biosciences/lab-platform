@@ -187,9 +187,11 @@ identity header, and in `oidc` mode a proxied service is reachable from
 outside its callers only through its proxy. Clients are matched by label so
 an app-only preview's webapp still reaches prod's Dagster -- the documented
 stamp-or-share trade-off. A NetworkPolicy is inert unless the CNI enforces
-it: kind's kindnet does (the smoke test asserts the refusals); on EKS turn on
-the VPC CNI's policy agent with `aws/eks-platform`'s `enable_network_policy`,
-after checking `ingress_namespaces` names your ingress namespace.
+it: kind's kindnet does (the smoke test asserts the refusals); on EKS the
+VPC CNI's policy agent does, which `aws/eks-platform`'s `enable_network_policy`
+turns on by default. Turning it on for an existing cluster makes the policies
+bite at once, so check first that `ingress_namespaces` names your ingress
+namespace.
 
 ## What is state, and where it lives
 
@@ -228,10 +230,12 @@ That fences the auth objects; it does not make a cluster-admin preview role
 safe. A preview role that can do anything can also delete the policy.
 Scoping the preview role to its own namespaces is the real fix and needs the
 workloads module to stop creating cluster-scoped objects per environment
-(today: its namespaces, and the prefixed ClusterRoles and bindings for
-Dagster's Ray access and Argo's workflows) or a pre-created set of them;
-until then the policy is a guard against mistakes, not against a malicious
-PR.
+(today only its namespaces: Dagster's and Argo's access is namespaced Roles)
+or a pre-created set of them; until then the policy is a guard against
+mistakes, not against a malicious PR. On the AWS side the preview role is
+already fenced: IAM under `/preview/` only, every role it makes capped by a
+permissions boundary ([preview-environments.md](preview-environments.md),
+"Trust").
 
 ## Dex and Keycloak, or Keycloak alone
 
