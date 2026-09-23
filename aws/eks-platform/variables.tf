@@ -212,9 +212,9 @@ variable "tailscale_dns_zone" {
 }
 
 variable "enable_network_policy" {
-  description = "Enable the VPC CNI's network policy agent so NetworkPolicies are enforced (modules/workloads creates them to keep its login proxies and the tailnet Ingress the only way into the UIs). Off by default: turning it on makes existing policies bite, so check that modules/workloads network_policies.ingress_namespaces names this cluster's ingress namespace (the Tailscale operator's is \"tailscale\") first."
+  description = "Enable the VPC CNI's network policy agent so NetworkPolicies are enforced. modules/workloads creates them to keep its login proxies and the tailnet Ingress the only way into the UIs; without enforcement any pod can reach a UI directly and, in auth mode \"headers\", assert any identity. On an existing cluster, turning it on makes existing policies bite: check that modules/workloads network_policies.ingress_namespaces names this cluster's ingress namespace (the Tailscale operator's is \"tailscale\") first."
   type        = bool
-  default     = false
+  default     = true
 }
 
 variable "enable_cluster_autoscaler" {
