@@ -95,6 +95,7 @@ module "storage" {
   source = "../../aws/preview-storage"
 
   name_prefix = var.preview_name
+  iam_path    = var.preview_iam_path
   tags        = local.preview_tags
 }
 
@@ -120,6 +121,7 @@ module "iceberg" {
   name_prefix      = var.preview_name
   table_bucket_arn = var.iceberg_table_bucket_arn
   read_namespaces  = var.iceberg_read_namespaces
+  iam_path         = var.preview_iam_path
   tags             = local.preview_tags
 }
 
@@ -148,6 +150,10 @@ module "data" {
   name_prefix       = local.name_prefix
   oidc_provider_arn = var.oidc_provider_arn
   region            = var.region
+
+  # The preview role may create roles only here, and only with the boundary.
+  iam_path                 = var.preview_iam_path
+  permissions_boundary_arn = var.preview_permissions_boundary_arn
 
   enable_webapp  = true
   enable_dagster = local.pipelines

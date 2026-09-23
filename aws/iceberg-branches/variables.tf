@@ -29,3 +29,20 @@ variable "tags" {
   type        = map(string)
   default     = {}
 }
+
+variable "iam_path" {
+  description = "IAM path of the namespace's policies: aws/bootstrap's preview_iam_path, which the preview role is confined to"
+  type        = string
+  default     = "/preview/"
+
+  validation {
+    condition     = can(regex("^/([A-Za-z0-9_+=,.@-]+/)*$", var.iam_path))
+    error_message = "iam_path starts and ends with /, e.g. / or /preview/."
+  }
+}
+
+variable "drop_tables_on_destroy" {
+  description = "On destroy, drop the tables in the namespace first (the preview's migrations made them; a namespace is only deleted empty). Needs the AWS CLI v2 where tofu runs. Turning it off on a live namespace destroys the drop step, which drops the tables then."
+  type        = bool
+  default     = true
+}

@@ -49,17 +49,14 @@ table.manage_snapshots().create_branch(
 ).commit()
 ```
 
-## Teardown caveat
+## Teardown
 
-`DeleteNamespace` requires the namespace to be empty. If the preview's
-migrations created tables, drop them before `tofu destroy` (CI teardown step):
-
-```bash
-aws s3tables list-tables --table-bucket-arn "$BUCKET_ARN" --namespace "$NS" \
-  --query 'tables[].name' --output text | tr '\t' '\n' | while read -r t; do
-  aws s3tables delete-table --table-bucket-arn "$BUCKET_ARN" --namespace "$NS" --name "$t"
-done
-```
+`DeleteNamespace` requires the namespace to be empty, and the preview's
+migrations create its tables outside tofu. So `tofu destroy` first drops every
+table in the namespace (`drop_tables_on_destroy`, on by default), with the AWS
+CLI (v2 with `s3tables`, as on GitHub's runners) and the destroying identity's
+credentials -- the preview role, which `aws/bootstrap` lets drop tables in
+preview namespaces (`preview_iceberg_namespace_pattern`) only.
 
 <!-- BEGIN_TF_DOCS -->
 ## Requirements
@@ -74,6 +71,7 @@ done
 | Name | Version |
 |------|---------|
 | <a name="provider_aws"></a> [aws](#provider\_aws) | >= 6.0 |
+| <a name="provider_terraform"></a> [terraform](#provider\_terraform) | n/a |
 
 ## Resources
 
@@ -82,6 +80,7 @@ done
 | [aws_iam_policy.read](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/iam_policy) | resource |
 | [aws_iam_policy.readwrite](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/iam_policy) | resource |
 | [aws_s3tables_namespace.preview](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/s3tables_namespace) | resource |
+| [terraform_data.drop_tables](https://registry.terraform.io/providers/hashicorp/terraform/latest/docs/resources/data) | resource |
 | [aws_iam_policy_document.read](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/data-sources/iam_policy_document) | data source |
 | [aws_iam_policy_document.readwrite](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/data-sources/iam_policy_document) | data source |
 
@@ -91,6 +90,8 @@ done
 |------|-------------|------|---------|:--------:|
 | <a name="input_name_prefix"></a> [name\_prefix](#input\_name\_prefix) | Per-preview identity (e.g. pr123). Becomes the namespace name after sanitising to S3 Tables rules ([a-z0-9\_]). | `string` | n/a | yes |
 | <a name="input_table_bucket_arn"></a> [table\_bucket\_arn](#input\_table\_bucket\_arn) | ARN of the existing shared S3 Tables (Iceberg) table bucket the preview namespace is created in | `string` | n/a | yes |
+| <a name="input_drop_tables_on_destroy"></a> [drop\_tables\_on\_destroy](#input\_drop\_tables\_on\_destroy) | On destroy, drop the tables in the namespace first (the preview's migrations made them; a namespace is only deleted empty). Needs the AWS CLI v2 where tofu runs. Turning it off on a live namespace destroys the drop step, which drops the tables then. | `bool` | `true` | no |
+| <a name="input_iam_path"></a> [iam\_path](#input\_iam\_path) | IAM path of the namespace's policies: aws/bootstrap's preview\_iam\_path, which the preview role is confined to | `string` | `"/preview/"` | no |
 | <a name="input_read_namespaces"></a> [read\_namespaces](#input\_read\_namespaces) | Existing (prod) Iceberg namespaces in the same table bucket this preview may READ. Empty skips the read policy. | `list(string)` | `[]` | no |
 | <a name="input_tags"></a> [tags](#input\_tags) | Tags applied to the IAM policies (S3 Tables namespaces do not support tags) | `map(string)` | `{}` | no |
 

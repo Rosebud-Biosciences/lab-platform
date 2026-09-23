@@ -4,6 +4,9 @@ preview_name = "pr123"
 # --- Shared cluster (from your prod platform stack / examples/complete) ---
 cluster_name                 = "eks-prod"
 oidc_provider_arn            = "arn:aws:iam::123456789012:oidc-provider/oidc.eks.us-west-2.amazonaws.com/id/XXXXXXXX"
+
+# --- From aws/bootstrap: previews create IAM only under this path, with this boundary ---
+preview_permissions_boundary_arn = "arn:aws:iam::123456789012:policy/github-actions-preview-deployer-workload-boundary"
 vpc_name                     = "vpc-prod"
 karpenter_node_iam_role_name = "eks-prod-karpenter-node"
 private_ingress_dns_suffix   = "tailXXXX.ts.net"

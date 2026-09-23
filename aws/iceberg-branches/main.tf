@@ -30,6 +30,39 @@ resource "aws_s3tables_namespace" "preview" {
   table_bucket_arn = var.table_bucket_arn
 }
 
+# A namespace can only be deleted empty, and the preview's migrations create
+# its tables outside tofu: drop them just before the namespace goes, or the
+# destroy fails and the preview leaks. Uses the destroying identity (the
+# preview role may drop tables in preview namespaces only: aws/bootstrap).
+resource "terraform_data" "drop_tables" {
+  count = var.drop_tables_on_destroy ? 1 : 0
+
+  input = {
+    table_bucket_arn = aws_s3tables_namespace.preview.table_bucket_arn
+    namespace        = aws_s3tables_namespace.preview.namespace
+    region           = element(split(":", var.table_bucket_arn), 3)
+  }
+
+  provisioner "local-exec" {
+    when        = destroy
+    interpreter = ["bash", "-c"]
+    command     = <<-EOT
+      set -euo pipefail
+      tables=$(aws s3tables list-tables --region "$REGION" --table-bucket-arn "$BUCKET" --namespace "$NS" --query 'tables[].name' --output text)
+      for t in $tables; do
+        [ "$t" = "None" ] && continue
+        echo "dropping $NS.$t"
+        aws s3tables delete-table --region "$REGION" --table-bucket-arn "$BUCKET" --namespace "$NS" --name "$t"
+      done
+    EOT
+    environment = {
+      BUCKET = self.input.table_bucket_arn
+      NS     = self.input.namespace
+      REGION = self.input.region
+    }
+  }
+}
+
 # ------------------------------------------------------------------------------
 # Read/write inside the preview namespace only
 # ------------------------------------------------------------------------------
@@ -72,6 +105,7 @@ data "aws_iam_policy_document" "readwrite" {
 
 resource "aws_iam_policy" "readwrite" {
   name        = "iceberg-${local.namespace}-rw"
+  path        = var.iam_path
   description = "Read/write Iceberg tables in the ${local.namespace} preview namespace"
   policy      = data.aws_iam_policy_document.readwrite.json
   tags        = var.tags
@@ -105,6 +139,7 @@ resource "aws_iam_policy" "read" {
   count = length(var.read_namespaces) > 0 ? 1 : 0
 
   name        = "iceberg-${local.namespace}-read"
+  path        = var.iam_path
   description = "Read-only Iceberg access to prod namespaces for the ${local.namespace} preview"
   policy      = data.aws_iam_policy_document.read[0].json
   tags        = var.tags

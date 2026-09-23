@@ -71,6 +71,17 @@ variable "oidc_provider_arn" {
   type        = string
 }
 
+variable "preview_iam_path" {
+  description = "IAM path for the preview's roles and policies (aws/bootstrap's preview_iam_path output): the preview role manages nothing outside it"
+  type        = string
+  default     = "/preview/"
+}
+
+variable "preview_permissions_boundary_arn" {
+  description = "Permissions boundary for the preview's roles (aws/bootstrap's preview_permissions_boundary_arn output): the preview role creates no role without it"
+  type        = string
+}
+
 variable "vpc_name" {
   description = "VPC name used by Karpenter NodePools for subnet/SG discovery"
   type        = string
