@@ -6,6 +6,13 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed: tether-mode access to an SSE-KMS data bucket
+
+- `aws/data-access` gains `kms_key_arn`: with it, the policy also grants
+  `kms:Decrypt` / `kms:GenerateDataKey` on the bucket's key, without which
+  the prefix grants cannot read or write a single object of a bucket
+  `aws/s3-bucket` made (it encrypts with its own customer-managed key).
+
 ### Added: groups, admins, tenants -- `modules/keycloak`, `modules/keycloak-realm`, `modules/tenancy`, `modules/postgres-group-roles`, `aws/tenant-data`
 
 - New `modules/keycloak`: Keycloak (codecentric/keycloakx 7.3.2, Keycloak

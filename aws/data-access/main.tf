@@ -26,6 +26,10 @@ locals {
   # <bucket-arn>/table/<id> -> <bucket-arn>: the discovery calls take the
   # table bucket, and the tables named may span several.
   table_bucket_arns = distinct([for a in var.table_arns : regex("^(.*)/table/[^/]+$", a)[0]])
+
+  # An SSE-KMS bucket: every get needs Decrypt and every put GenerateDataKey
+  # on its key, or the prefix grants above are worth nothing.
+  kms_grant = var.kms_key_arn != "" && length(local.prefixes) > 0
 }
 
 data "aws_iam_policy_document" "this" {
@@ -56,6 +60,15 @@ data "aws_iam_policy_document" "this" {
         "s3:ListMultipartUploadParts",
       ]
       resources = [for p in local.prefixes : "${var.bucket_arn}/${p}*"]
+    }
+  }
+
+  dynamic "statement" {
+    for_each = local.kms_grant ? [1] : []
+    content {
+      sid       = "UseBucketKey"
+      actions   = ["kms:Decrypt", "kms:GenerateDataKey"]
+      resources = [var.kms_key_arn]
     }
   }
 
@@ -91,7 +104,7 @@ data "aws_iam_policy_document" "this" {
 
 resource "aws_iam_policy" "this" {
   name        = var.name
-  description = "Read/write (no delete) on production data-store prefixes and read/commit on listed Iceberg tables, for pods working on dataset branches"
+  description = "Read/write (no delete) on production data-store prefixes (and their bucket key) and read/commit on listed Iceberg tables, for pods working on dataset branches"
   policy      = data.aws_iam_policy_document.this.json
   tags        = var.tags
 

@@ -19,6 +19,17 @@ variable "bucket_arn" {
   }
 }
 
+variable "kms_key_arn" {
+  description = "The customer-managed KMS key encrypting bucket_arn (aws/s3-bucket creates one), if any: objects in an SSE-KMS bucket cannot be read or written without kms:Decrypt / kms:GenerateDataKey on it. Empty for SSE-S3."
+  type        = string
+  default     = ""
+
+  validation {
+    condition     = var.kms_key_arn == "" || can(regex("^arn:aws[a-z-]*:kms:[^:]+:[0-9]{12}:key/.+$", var.kms_key_arn))
+    error_message = "kms_key_arn must be a KMS key ARN (arn:aws:kms:<region>:<account>:key/<id>)."
+  }
+}
+
 variable "prefixes" {
   description = <<-EOT
     Key prefixes inside bucket_arn the pods may read and write (no delete), e.g.
