@@ -23,6 +23,10 @@ override.tf.json
 *_override.tf
 *_override.tf.json
 
+# Python bytecode (the module's scripts are read as source)
+__pycache__/
+*.pyc
+
 # Editor / OS noise
 .DS_Store
 .idea/
