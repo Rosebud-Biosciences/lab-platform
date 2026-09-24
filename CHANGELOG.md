@@ -57,6 +57,13 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   and the boot script retries the download. The user-data change stops and
   starts an existing relay once on the next apply.
 
+### Added: `modules/workloads` `wait_for_rollouts`
+
+- Default `true`, as before. Off, an apply submits the webapp deployment and
+  the Dagster release without waiting for them to become ready: for a stack
+  whose CI pushes those images, whose first apply comes before any exist
+  (and would otherwise time out after ten minutes).
+
 ### Fixed: the load balancer controller on a new cluster
 
 - `aws/eks-platform`: the AWS Load Balancer Controller crash-looped: it

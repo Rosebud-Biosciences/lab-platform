@@ -72,6 +72,8 @@ resource "kubernetes_secret_v1" "webapp_env" {
 resource "kubernetes_deployment_v1" "webapp" {
   count = var.enable_webapp && !var.webapp_ignore_image_changes ? 1 : 0
 
+  wait_for_rollout = var.wait_for_rollouts
+
   metadata {
     name      = var.webapp_app_name
     namespace = kubernetes_namespace_v1.webapp[0].metadata[0].name
@@ -203,6 +205,8 @@ resource "kubernetes_deployment_v1" "webapp" {
 # THE POD SPEC IN SYNC with kubernetes_deployment_v1.webapp above.
 resource "kubernetes_deployment_v1" "webapp_pinned" {
   count = var.enable_webapp && var.webapp_ignore_image_changes ? 1 : 0
+
+  wait_for_rollout = var.wait_for_rollouts
 
   metadata {
     name      = var.webapp_app_name

@@ -683,6 +683,12 @@ variable "webapp_ignore_image_changes" {
   default     = false
 }
 
+variable "wait_for_rollouts" {
+  description = "Wait for the webapp's rollout and Dagster's release to become ready before an apply succeeds. Turn it off where an external deploy owns those images and they may not exist yet (the first apply of a stack whose CI pushes them): the apply then only submits them."
+  type        = bool
+  default     = true
+}
+
 variable "webapp_session_affinity_seconds" {
   description = "ClientIP session affinity timeout on the webapp Service (0 disables). Needed for stateful single-pod sessions routed through the Service (e.g. private ingress)."
   type        = number

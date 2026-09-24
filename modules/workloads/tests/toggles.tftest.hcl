@@ -1356,3 +1356,25 @@ run "argo_without_ray_gets_no_ray_access" {
     error_message = "without Ray in the environment, nothing grants Ray access"
   }
 }
+
+run "rollouts_need_not_be_waited_for" {
+  command = plan
+
+  variables {
+    enable_webapp               = true
+    webapp_image                = "nginx"
+    webapp_ignore_image_changes = true
+    enable_ray                  = true
+    enable_dagster              = true
+    dagster_db_host             = "db.example.com"
+    dagster_db_name             = "dagster"
+    dagster_db_user             = "dagster"
+    dagster_db_password         = "test"
+    wait_for_rollouts           = false
+  }
+
+  assert {
+    condition     = !kubernetes_deployment_v1.webapp_pinned[0].wait_for_rollout && !helm_release.dagster[0].wait
+    error_message = "a stack whose CI pushes the images can submit the webapp and Dagster without waiting for images that do not exist yet"
+  }
+}
