@@ -40,6 +40,14 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   workloads' NetworkPolicies are enforced (without them, in auth mode
   `headers`, any pod could assert an identity to the webapp).
 
+### Fixed: previews could not create Iceberg tables
+
+- `aws/iceberg-branches`: `s3tables:CreateTable` was granted on
+  `<bucket>/table/*`, but S3 Tables authorizes it against the table bucket, so
+  a preview's pods could create no table in their own namespace. It is now
+  granted on the bucket, still confined to the namespace by the
+  `s3tables:namespace` condition.
+
 ### Fixed: CI and preview roles for repositories on GitHub's immutable OIDC subject
 
 - `aws/bootstrap` gains `github_owner_id` and `github_repository_ids`. A

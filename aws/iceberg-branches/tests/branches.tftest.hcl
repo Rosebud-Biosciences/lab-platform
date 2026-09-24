@@ -54,6 +54,21 @@ run "policies_live_under_the_preview_path" {
   }
 }
 
+# S3 Tables authorizes CreateTable against the table bucket ARN; granted only
+# on <bucket>/table/*, a preview's migrations could create no table at all.
+run "create_table_is_granted_on_the_bucket_within_the_namespace" {
+  command = plan
+
+  assert {
+    condition = anytrue([
+      for s in data.aws_iam_policy_document.readwrite.statement :
+      contains(s.actions, "s3tables:CreateTable") && s.resources == toset([var.table_bucket_arn]) &&
+      anytrue([for c in s.condition : c.variable == "s3tables:namespace" && toset(c.values) == toset(["pr_123"])])
+    ])
+    error_message = "CreateTable must be granted on the table bucket, confined to the preview's namespace"
+  }
+}
+
 run "destroy_drops_the_namespace_tables" {
   command = plan
 

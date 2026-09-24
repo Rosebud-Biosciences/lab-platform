@@ -79,10 +79,23 @@ data "aws_iam_policy_document" "readwrite" {
     resources = [var.table_bucket_arn]
   }
 
+  # CreateTable is authorized against the table bucket (the table has no ARN
+  # yet), not <bucket>/table/*; the namespace condition still confines it.
+  statement {
+    sid       = "PreviewNamespaceCreateTable"
+    actions   = ["s3tables:CreateTable"]
+    resources = [var.table_bucket_arn]
+
+    condition {
+      test     = "StringEquals"
+      variable = "s3tables:namespace"
+      values   = [local.namespace]
+    }
+  }
+
   statement {
     sid = "PreviewNamespaceTables"
     actions = [
-      "s3tables:CreateTable",
       "s3tables:GetTable",
       "s3tables:RenameTable",
       "s3tables:DeleteTable",
