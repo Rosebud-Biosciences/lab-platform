@@ -164,3 +164,28 @@ run "preview_boundary_refuses_iam_actions" {
 
   expect_failures = [var.preview_boundary_extra_actions]
 }
+
+# The state bucket also holds prod's state, and state holds secrets: the
+# preview role reads its own workspaces (and the one default-workspace object
+# it is given), and no preview role can be granted the bucket at all.
+run "preview_reads_only_its_own_state" {
+  command = plan
+
+  variables {
+    preview_state_read_keys = ["template-app/terraform.tfstate"]
+  }
+
+  assert {
+    condition = [
+      for s in data.aws_iam_policy_document.preview_deployer[0].statement : toset(s.resources) if s.sid == "TfStateRead"
+    ][0] == toset(["${aws_s3_bucket.state.arn}/preview/*", "${aws_s3_bucket.state.arn}/template-app/terraform.tfstate"])
+    error_message = "state reads are the preview prefix plus the named keys, never the whole bucket"
+  }
+  assert {
+    condition = anytrue([
+      for s in data.aws_iam_policy_document.preview_boundary[0].statement :
+      s.effect == "Deny" && contains(s.resources, "${aws_s3_bucket.state.arn}/*") && contains(s.resources, aws_s3_bucket.state.arn)
+    ])
+    error_message = "the boundary denies every preview role the state bucket"
+  }
+}

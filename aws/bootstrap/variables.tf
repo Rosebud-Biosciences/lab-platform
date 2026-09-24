@@ -112,9 +112,15 @@ variable "preview_repos" {
 }
 
 variable "preview_state_key_prefix" {
-  description = "State object key prefix the preview role may write (least-privilege state scoping)"
+  description = "State object key prefix the preview role may read and write (its workspaces' state); it reads no other state but preview_state_read_keys"
   type        = string
   default     = "preview/*"
+}
+
+variable "preview_state_read_keys" {
+  description = "State objects outside preview_state_key_prefix the preview role may read: the preview stack's own backend `key` when it lies outside the prefix (e.g. [\"template-app/terraform.tfstate\"]) -- its default-workspace object, which `tofu init` reads before a preview workspace is selected, and which previews never write. Never another stack's key: state holds that stack's secrets."
+  type        = list(string)
+  default     = []
 }
 
 variable "preview_iam_path" {

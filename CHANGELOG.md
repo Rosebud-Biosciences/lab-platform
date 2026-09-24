@@ -18,6 +18,12 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   to push a branch could have attached any policy to an `eks-*` role.
   `preview_managed_role_pattern` and `preview_managed_policy_patterns` are
   gone; new outputs `preview_iam_path` and `preview_permissions_boundary_arn`.
+- `aws/bootstrap` (**breaking**): the preview role reads state only under
+  `preview_state_key_prefix` plus `preview_state_read_keys` -- set the latter
+  to the preview stack's backend `key` if it lies outside the prefix, since
+  `tofu init` reads the default workspace's object -- instead of the whole
+  bucket, which holds prod's state and its secrets. The preview boundary
+  denies the state bucket outright, so no policy a PR writes reaches it.
 - `aws/data-adapter` gains `iam_path` and `permissions_boundary_arn`;
   `aws/data-access`, `aws/s3-bucket` gain `iam_path`; `aws/preview-storage` and
   `aws/iceberg-branches` gain `iam_path` (default `/preview/`).

@@ -193,6 +193,14 @@ data "aws_iam_policy_document" "preview_boundary" {
     actions   = local.preview_boundary_actions
     resources = var.preview_boundary_resources
   }
+
+  # Whatever a PR grants its roles, no preview pod reads the state bucket.
+  statement {
+    sid       = "NeverTheStateBucket"
+    effect    = "Deny"
+    actions   = ["s3:*"]
+    resources = [local.state_bucket_arn, "${local.state_bucket_arn}/*"]
+  }
 }
 
 # Outside preview_iam_path, so the preview role cannot edit it.
@@ -252,11 +260,16 @@ data "aws_iam_policy_document" "preview_deployer" {
     actions   = ["s3:ListBucket"]
     resources = [local.state_bucket_arn]
   }
+  # Its own workspaces only: the bucket also holds prod's state, and state
+  # holds each stack's secrets.
   statement {
-    sid       = "TfStateRead"
-    effect    = "Allow"
-    actions   = ["s3:GetObject"]
-    resources = ["${local.state_bucket_arn}/*"]
+    sid     = "TfStateRead"
+    effect  = "Allow"
+    actions = ["s3:GetObject"]
+    resources = concat(
+      ["${local.state_bucket_arn}/${var.preview_state_key_prefix}"],
+      [for key in var.preview_state_read_keys : "${local.state_bucket_arn}/${key}"],
+    )
   }
   statement {
     sid       = "TfStateWrite"

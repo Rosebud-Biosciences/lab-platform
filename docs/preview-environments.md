@@ -239,8 +239,13 @@ against the PR itself:
   that path. The boundary (`aws/bootstrap`) caps every preview role at
   object-level S3, the S3 Tables data plane, KMS data keys and ECR pulls --
   whatever policy a PR writes, no preview workload gets IAM, STS, compute or
-  bucket configuration. Narrow `preview_boundary_resources` to your buckets
-  to cap it further.
+  bucket configuration, or the Terraform state bucket (denied outright).
+  Narrow `preview_boundary_resources` to your buckets to cap it further.
+- **Terraform state.** The bucket also holds prod's state, which holds its
+  secrets. The preview role reads only its workspaces' state
+  (`preview_state_key_prefix`) and the objects named in
+  `preview_state_read_keys` -- the preview stack's own default-workspace key,
+  which `tofu init` reads first.
 - **Kubernetes RBAC for workloads.** Dagster and Argo get Roles in their own
   environment's namespaces only: creating a pod or a RayCluster in a
   namespace is running as that namespace's ServiceAccounts, so nothing grants
@@ -315,3 +320,7 @@ sequenceDiagram
    `preview_iam_path` and `preview_permissions_boundary_arn` outputs to the
    preview stack (`examples/preview` inputs of the same names): the preview
    role creates no IAM outside that path, and no role without the boundary.
+   If the preview stack's backend `key` lies outside
+   `preview_state_key_prefix` (the template's `template-app/terraform.tfstate`
+   does), list it in `preview_state_read_keys`: `tofu init` reads it, and the
+   role reads no other state.
