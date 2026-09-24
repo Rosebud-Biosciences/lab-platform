@@ -57,13 +57,17 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   and the boot script retries the download. The user-data change stops and
   starts an existing relay once on the next apply.
 
-### Fixed: a new cluster's addons racing the load balancer controller
+### Fixed: the load balancer controller on a new cluster
 
-- `aws/eks-platform`: phase 1 did not wait for the AWS Load Balancer
-  Controller's pods, so Karpenter, the KubeRay operator and the other
-  releases that create Services could hit its webhook before anything served
-  it ("no endpoints available for service aws-load-balancer-webhook-service").
-  Its release now waits (up to 10 minutes) for the controller to be ready.
+- `aws/eks-platform`: the AWS Load Balancer Controller crash-looped: it
+  discovers its VPC from instance metadata, which the EKS module's nodes
+  (one metadata hop) do not let pods reach. Its VPC ID and region are now
+  passed in.
+- Phase 1 did not wait for the controller's pods either, so Karpenter, the
+  KubeRay operator and the other releases that create Services could hit its
+  webhook before anything served it ("no endpoints available for service
+  aws-load-balancer-webhook-service"). Its release now waits (up to 10
+  minutes) for the controller to be ready.
 
 ### Fixed: preview teardown with Iceberg tables
 

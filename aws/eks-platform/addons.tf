@@ -79,6 +79,10 @@ module "eks_blueprints_addons_core" {
     # controller's pods are serving it.
     wait    = true
     timeout = "600"
+    # Given, not discovered: the nodes allow one metadata hop (the EKS
+    # module's default), which a pod cannot reach, and the controller exits
+    # when it cannot introspect its VPC.
+    values = [yamlencode({ vpcId = var.vpc_id, region = var.region })]
   }
 
   enable_cluster_proportional_autoscaler = true
