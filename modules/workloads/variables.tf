@@ -1083,6 +1083,9 @@ variable "mlflow_repository" {
 
 variable "mlflow_image" {
   description = "MLflow server image (the chart's burakince/mlflow, which bundles mlflow-oidc-auth); on OIDC also the init container that makes mlflow-auth-sync an MLflow admin. Keep tag at the chart's appVersion when bumping mlflow_chart_version."
+  # On OIDC, mlflow-auth-sync needs the bundled mlflow-oidc-auth >= 7.18: its
+  # AUTH_PROVIDERS registry and k8s provider, and mlflow_oidc_auth.user's
+  # create_user (3.16.0 bundles 7.18.1). Check both on a bump.
   type = object({
     repository = optional(string, "burakince/mlflow")
     tag        = optional(string, "3.16.0") # renovate: datasource=docker depName=burakince/mlflow
