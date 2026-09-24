@@ -48,6 +48,15 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   jobs; one of Dagster's killed its in-flight runs. The `aws/compute-adapter`
   README's example and guidance say the same.
 
+### Fixed: a new VPC's Tailscale relay could fail to join the tailnet
+
+- `aws/network`: the relay instance waited only for its subnet, so its first
+  boot could run before the NAT gateway's route existed; the Tailscale
+  download failed, the boot script stopped before `tailscale up`, and the
+  private cluster endpoint stayed unreachable. It now waits for the whole VPC,
+  and the boot script retries the download. The user-data change stops and
+  starts an existing relay once on the next apply.
+
 ### Fixed: preview teardown with Iceberg tables
 
 - `aws/iceberg-branches` drops the namespace's tables on destroy

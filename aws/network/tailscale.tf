@@ -156,6 +156,10 @@ resource "aws_instance" "tailscale" {
   tags = merge(local.tags, {
     Name = "tailscale-relay-${local.environment}"
   })
+
+  # Its first boot downloads Tailscale through the NAT gateway: boot only once
+  # the gateway and the private route tables are there, not just the subnet.
+  depends_on = [module.vpc]
 }
 
 # ------------------------------------------------------------------------------
