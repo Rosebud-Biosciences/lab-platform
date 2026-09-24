@@ -40,6 +40,16 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   workloads' NetworkPolicies are enforced (without them, in auth mode
   `headers`, any pod could assert an identity to the webapp).
 
+### Fixed: CI and preview roles for repositories on GitHub's immutable OIDC subject
+
+- `aws/bootstrap` gains `github_owner_id` and `github_repository_ids`. A
+  repository created, renamed or transferred since 2026-07-15 (or opted in)
+  gets Actions tokens whose subject names its owner and itself by ID as well
+  (`repo:OWNER@OWNER_ID/REPO@REPO_ID:…`), which the roles' name-only pattern
+  never matched, so its workflows could not assume either role. A listed
+  repository is trusted under its immutable subject only; unlisted ones keep
+  the name-only pattern, so existing callers see no change.
+
 ### Changed: long-running services off spot
 
 - `examples/preview` splits its pool: Dagster, Argo, MLflow and the Ray head

@@ -302,7 +302,10 @@ sequenceDiagram
 
 ## Adoption checklist
 
-1. Apply [`bootstrap`](../aws/bootstrap) (state backend + OIDC roles).
+1. Apply [`bootstrap`](../aws/bootstrap) (state backend + OIDC roles). An
+   app repository created since 2026-07-15 needs its ID and its owner's in
+   `github_repository_ids` / `github_owner_id` (GitHub's immutable OIDC
+   subject; see the module README).
 2. Stand up the shared platform (`network` + `eks-platform`), e.g. via
    [`examples/complete`](../examples/complete).
 3. Copy [`examples/preview`](../examples/preview) into your app repo (or call it

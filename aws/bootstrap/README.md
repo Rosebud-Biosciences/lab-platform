@@ -22,6 +22,19 @@ One-time, per-account setup that everything else depends on:
 Apply this first with a **local backend**, then migrate state into the bucket it
 creates.
 
+**Repositories created, renamed or transferred since 2026-07-15** (and older
+ones opted in) get Actions tokens with GitHub's immutable subject,
+`repo:my-org@123/app@456:…`, which names the owner and repository by ID too.
+The roles match only the name-only subject unless you give those IDs; the
+symptom is `Not authorized to perform sts:AssumeRoleWithWebIdentity`.
+`gh api repos/my-org/app/actions/oidc/customization/sub` shows which format a
+repository uses (`use_immutable_subject`) and its prefix.
+
+```hcl
+  github_owner_id       = "123"           # gh api repos/my-org/app --jq .owner.id
+  github_repository_ids = { app = "456" } # gh api repos/my-org/app --jq .id
+```
+
 ```hcl
 module "bootstrap" {
   source = "github.com/Rosebud-Biosciences/lab-platform//aws/bootstrap?ref=main"
@@ -105,6 +118,8 @@ resource "aws_iam_user_policy_attachment" "alice_guardrails" {
 | <a name="input_enable_preview_deployer_role"></a> [enable\_preview\_deployer\_role](#input\_enable\_preview\_deployer\_role) | Create the least-privilege GitHub Actions preview role that runs the preview Terraform stack | `bool` | `true` | no |
 | <a name="input_github_oidc_provider_arn"></a> [github\_oidc\_provider\_arn](#input\_github\_oidc\_provider\_arn) | ARN of an existing GitHub Actions OIDC provider (used when create\_github\_oidc\_provider is false) | `string` | `""` | no |
 | <a name="input_github_owner"></a> [github\_owner](#input\_github\_owner) | GitHub org/user that owns the CI and preview repositories | `string` | `""` | no |
+| <a name="input_github_owner_id"></a> [github\_owner\_id](#input\_github\_owner\_id) | Numeric ID of github\_owner (`gh api repos/<owner>/<repo> --jq .owner.id`); needed with github\_repository\_ids | `string` | `""` | no |
+| <a name="input_github_repository_ids"></a> [github\_repository\_ids](#input\_github\_repository\_ids) | Numeric IDs, by name, of the ci\_repos / preview\_repos whose Actions tokens carry GitHub's immutable subject (repo:OWNER@OWNER\_ID/REPO@REPO\_ID:...): every repository created, renamed or transferred since 2026-07-15, and older ones opted in (`gh api repos/<owner>/<repo>/actions/oidc/customization/sub` shows which). A listed repository is trusted under that subject only; an unlisted one under the name-only subject, which matches no immutable-format token. | `map(string)` | `{}` | no |
 | <a name="input_lock_table_deletion_protection"></a> [lock\_table\_deletion\_protection](#input\_lock\_table\_deletion\_protection) | Enable DynamoDB deletion protection on the lock table | `bool` | `true` | no |
 | <a name="input_lock_table_name"></a> [lock\_table\_name](#input\_lock\_table\_name) | Name of the DynamoDB table used for state locking | `string` | `"terraform-locks"` | no |
 | <a name="input_operator_admin_policy_arns"></a> [operator\_admin\_policy\_arns](#input\_operator\_admin\_policy\_arns) | Managed policy ARNs attached to the operator role. AdministratorAccess by default; scope down once you know what your stacks call. The guardrail Deny policy is attached regardless. | `list(string)` | <pre>[<br/>  "arn:aws:iam::aws:policy/AdministratorAccess"<br/>]</pre> | no |

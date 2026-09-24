@@ -11,8 +11,18 @@ locals {
 
   oidc_provider_arn = var.create_github_oidc_provider ? aws_iam_openid_connect_provider.github[0].arn : var.github_oidc_provider_arn
 
-  ci_repo_subs      = [for repo in var.ci_repos : "repo:${var.github_owner}/${repo}:*"]
-  preview_repo_subs = [for repo in var.preview_repos : "repo:${var.github_owner}/${repo}:*"]
+  # The `repo` part of a repository's Actions token subject: immutable
+  # (owner and repository IDs, so a recycled name matches nothing) when its ID
+  # is given, else the name-only form of repositories that predate it.
+  github_repo_subjects = {
+    for repo in distinct(concat(var.ci_repos, var.preview_repos)) : repo => (
+      contains(keys(var.github_repository_ids), repo)
+      ? "repo:${var.github_owner}@${var.github_owner_id}/${repo}@${var.github_repository_ids[repo]}"
+      : "repo:${var.github_owner}/${repo}"
+    )
+  }
+  ci_repo_subs      = [for repo in var.ci_repos : "${local.github_repo_subjects[repo]}:*"]
+  preview_repo_subs = [for repo in var.preview_repos : "${local.github_repo_subjects[repo]}:*"]
 
   ci_ecr_repo_arns = [
     for repo in var.ci_ecr_repositories :

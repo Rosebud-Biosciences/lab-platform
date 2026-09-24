@@ -38,6 +38,47 @@ run "roles_enabled_by_default" {
   }
 }
 
+# A repository created (or renamed, or transferred) since 2026-07-15 gets
+# Actions tokens whose subject carries its owner's and its own numeric ID; the
+# name-only pattern matches none of them.
+run "immutable_subjects_for_listed_repositories" {
+  command = plan
+
+  variables {
+    github_owner          = "my-org"
+    github_owner_id       = "123"
+    github_repository_ids = { app = "456" }
+    ci_repos              = ["app"]
+    preview_repos         = ["app", "legacy"]
+  }
+
+  assert {
+    condition = toset(flatten([
+      for c in data.aws_iam_policy_document.ci_assume[0].statement[0].condition : c.values
+      if c.variable == "token.actions.githubusercontent.com:sub"
+    ])) == toset(["repo:my-org@123/app@456:*"])
+    error_message = "a repository with a known ID is trusted under its immutable subject only"
+  }
+  assert {
+    condition = toset(flatten([
+      for c in data.aws_iam_policy_document.preview_assume[0].statement[0].condition : c.values
+      if c.variable == "token.actions.githubusercontent.com:sub"
+    ])) == toset(["repo:my-org@123/app@456:*", "repo:my-org/legacy:*"])
+    error_message = "an unlisted repository keeps the name-only subject"
+  }
+}
+
+run "repository_ids_need_the_owner_id" {
+  command = plan
+
+  variables {
+    github_owner          = "my-org"
+    github_repository_ids = { app = "456" }
+  }
+
+  expect_failures = [var.github_repository_ids]
+}
+
 run "roles_disabled" {
   command = plan
 

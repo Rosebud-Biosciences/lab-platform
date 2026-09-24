@@ -47,6 +47,32 @@ variable "github_owner" {
   default     = ""
 }
 
+variable "github_owner_id" {
+  description = "Numeric ID of github_owner (`gh api repos/<owner>/<repo> --jq .owner.id`); needed with github_repository_ids"
+  type        = string
+  default     = ""
+
+  validation {
+    condition     = can(regex("^[0-9]*$", var.github_owner_id))
+    error_message = "github_owner_id is the owner's numeric ID, not its name."
+  }
+}
+
+variable "github_repository_ids" {
+  description = "Numeric IDs, by name, of the ci_repos / preview_repos whose Actions tokens carry GitHub's immutable subject (repo:OWNER@OWNER_ID/REPO@REPO_ID:...): every repository created, renamed or transferred since 2026-07-15, and older ones opted in (`gh api repos/<owner>/<repo>/actions/oidc/customization/sub` shows which). A listed repository is trusted under that subject only; an unlisted one under the name-only subject, which matches no immutable-format token."
+  type        = map(string)
+  default     = {}
+
+  validation {
+    condition     = alltrue([for id in values(var.github_repository_ids) : can(regex("^[0-9]+$", id))])
+    error_message = "github_repository_ids maps repository names to their numeric IDs (`gh api repos/<owner>/<repo> --jq .id`)."
+  }
+  validation {
+    condition     = length(var.github_repository_ids) == 0 || var.github_owner_id != ""
+    error_message = "github_repository_ids needs github_owner_id: the immutable subject names both."
+  }
+}
+
 variable "create_github_oidc_provider" {
   description = "Create the GitHub Actions OIDC identity provider. Set false to reuse an existing one via github_oidc_provider_arn."
   type        = bool
