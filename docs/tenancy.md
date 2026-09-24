@@ -90,6 +90,33 @@ Internal tenants may share everything. Sharing Ray or Argo means the
 tenant's admins join the platform instance's gate (`ray_allowed_groups`, an
 Argo `write` rule), accepting the platform's identity for their jobs.
 
+### Notebook storage
+
+A shared JupyterHub keeps every notebook file on one ReadWriteMany file
+system (`jupyterhub_shared_storage`: EFS from `aws/compute-adapter`, or any NFS
+server or RWX StorageClass), laid out as:
+
+| Directory on the volume | Mounted at | Who |
+| --- | --- | --- |
+| `home/<username>` | `/home/jovyan` | that user only, read-write |
+| `groups/<tenant>/<group>` | `~/group` | members of the group, read-write, in the group's server profile |
+| the shared claim | `/home/shared` | every user, read-write -- except in profiles with `mount_shared = false`, which external tenants get |
+
+Every server runs as the same user (`jovyan`), so the separation is in what
+the hub mounts, not in file permissions: a group's directory is mounted only
+into its members' servers (the profile hook re-checks membership before
+mounting), another group's never is, and a user's home only into their own.
+Users cannot change their pod spec, so the mount is the boundary.
+
+Two things this layout does not do, should they be needed: per-user folders
+that the rest of the group can read but not write (the design would split a
+group's tree into `shared/` and `people/<user>/`, mounting `people/`
+read-only with the user's own folder read-write on top), and separation
+enforced by storage rather than the hub (an EFS access point per group,
+rooted at its directory). EBS is not an option for the shared part: it
+attaches read-write to one node at a time, and a group's servers land on
+different nodes.
+
 ## Wiring it
 
 `modules/tenancy` computes; it deploys nothing. Its outputs go three ways:

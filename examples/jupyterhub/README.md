@@ -32,7 +32,10 @@ What you get:
   (`home/<username>`) on one shared EFS filesystem, so notebooks survive server
   restarts and idle culling.
 - **Shared directory** — `/home/shared` is mounted read-write in every user's
-  server for handing files around.
+  server for handing files around. With an identity provider that sends
+  groups, per-group folders (`~/group`, only that group's members) come from
+  `jupyterhub_group_profiles`; the layout and what separates groups is in
+  [docs/tenancy.md](../../docs/tenancy.md#notebook-storage).
 - **marimo** — installed at server start via a `postStart` hook together with
   `jupyter-marimo-proxy`, which adds a marimo tile to the JupyterLab launcher.
   Bake both packages into `jupyterhub_singleuser_image` for production.
