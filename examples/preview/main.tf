@@ -30,15 +30,26 @@ locals {
 
   # Preview-scoped Karpenter NodePools (name-prefixed by the adapter; scale to
   # zero when idle, torn down on destroy). Modest caps so a preview can't
-  # balloon cost. The GPU pool is prefixed too, so RayJobs that select
+  # balloon cost. The long-running services share on-demand nodes: a spot
+  # reclaim of the Ray head ends the Ray cluster and its jobs, and one of
+  # Dagster's kills its in-flight runs. Ray workers are the one thing spot
+  # suits (Ray reschedules their tasks); the taint keeps everything else off
+  # those nodes. The GPU pool is prefixed too, so RayJobs that select
   # module.compute.node_pool_names["ray-gpu-worker"] get isolated GPU capacity
   # instead of sharing prod's.
   preview_pools = {
-    default = {
+    services = {
+      instance_families = ["m7i"]
+      instance_sizes    = ["large", "xlarge"]
+      capacity_types    = ["on-demand"]
+      limits            = { cpu = "4", memory = "16Gi" }
+    }
+    workers = {
       instance_families = ["m7i"]
       instance_sizes    = ["large", "xlarge"]
       capacity_types    = ["spot", "on-demand"]
-      limits            = { cpu = "16", memory = "64Gi" }
+      limits            = { cpu = "12", memory = "48Gi" }
+      taints            = [{ key = "lab-platform.io/interruptible", value = "true", effect = "NoSchedule" }]
     }
     ray-gpu-worker = {
       instance_families      = ["g6"]
@@ -187,7 +198,10 @@ module "compute" {
   # (A filtered for-expression rather than `cond ? pools : {}`: the two pool
   # objects differ in shape, which a conditional cannot unify.)
   karpenter_node_pools = { for k, v in local.preview_pools : k => v if local.pipelines }
-  node_pool_roles      = { for k, v in { default = ["dagster", "ray_head", "ray_worker"] } : k => v if local.pipelines }
+  node_pool_roles = { for k, v in {
+    services = ["dagster", "argo", "mlflow", "ray_head"]
+    workers  = ["ray_worker"]
+  } : k => v if local.pipelines }
 
   tags = local.preview_tags
 }

@@ -40,6 +40,14 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   workloads' NetworkPolicies are enforced (without them, in auth mode
   `headers`, any pod could assert an identity to the webapp).
 
+### Changed: long-running services off spot
+
+- `examples/preview` splits its pool: Dagster, Argo, MLflow and the Ray head
+  share an on-demand `services` pool, and Ray workers get a tainted spot
+  `workers` pool. A spot reclaim of the Ray head ended the Ray cluster and its
+  jobs; one of Dagster's killed its in-flight runs. The `aws/compute-adapter`
+  README's example and guidance say the same.
+
 ### Fixed: preview teardown with Iceberg tables
 
 - `aws/iceberg-branches` drops the namespace's tables on destroy

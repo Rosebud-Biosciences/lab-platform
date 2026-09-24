@@ -40,8 +40,14 @@ module "compute" {
   webapp_acm_certificate_arn   = var.webapp_acm_certificate_arn
   enable_webapp_waf            = true
 
-  karpenter_node_pools = { default = {}, gpu = { instance_families = ["g5"], taints = [{ key = "nvidia.com/gpu", value = "true", effect = "NoSchedule" }] } }
-  node_pool_roles      = { default = ["webapp", "dagster", "mlflow"], gpu = ["ray_worker"] }
+  karpenter_node_pools = {
+    services = { capacity_types = ["on-demand"] }
+    workers  = { taints = [{ key = "lab-platform.io/interruptible", value = "true", effect = "NoSchedule" }] }
+  }
+  node_pool_roles = {
+    services = ["webapp", "dagster", "argo", "mlflow", "ray_head"]
+    workers  = ["ray_worker"]
+  }
 }
 
 module "workloads" {
@@ -53,6 +59,13 @@ module "workloads" {
   scheduling                        = module.compute.scheduling
 }
 ```
+
+A pool's `capacity_types` default allows spot, which suits only pods whose
+loss is cheap. Put the long-running services on an on-demand pool: a spot
+reclaim of `ray_head` ends the Ray cluster and every job on it, and one of
+`dagster`'s kills its in-flight runs (run pods share the role). `ray_worker`
+is what spot is for, since Ray reschedules a lost worker's tasks; taint its
+pool so nothing else lands there (listed roles get the tolerations).
 
 Public DNS is not created here: workloads stamps
 `external-dns.alpha.kubernetes.io/hostname` on its public Ingresses, and
