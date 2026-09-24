@@ -57,6 +57,14 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   and the boot script retries the download. The user-data change stops and
   starts an existing relay once on the next apply.
 
+### Fixed: a new cluster's addons racing the load balancer controller
+
+- `aws/eks-platform`: phase 1 did not wait for the AWS Load Balancer
+  Controller's pods, so Karpenter, the KubeRay operator and the other
+  releases that create Services could hit its webhook before anything served
+  it ("no endpoints available for service aws-load-balancer-webhook-service").
+  Its release now waits (up to 10 minutes) for the controller to be ready.
+
 ### Fixed: preview teardown with Iceberg tables
 
 - `aws/iceberg-branches` drops the namespace's tables on destroy

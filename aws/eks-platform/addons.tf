@@ -74,6 +74,11 @@ module "eks_blueprints_addons_core" {
   enable_aws_load_balancer_controller = var.enable_aws_load_balancer_controller
   aws_load_balancer_controller = {
     chart_version = "1.7.1"
+    # Its webhook checks every Service created after it registers, and phase 2
+    # and the releases below create Services: phase 1 is done only once the
+    # controller's pods are serving it.
+    wait    = true
+    timeout = "600"
   }
 
   enable_cluster_proportional_autoscaler = true
