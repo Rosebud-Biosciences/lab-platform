@@ -38,6 +38,12 @@ variable "vpc_security_group_id" {
   type        = string
 }
 
+variable "cluster_access_dependencies" {
+  description = "IDs of what the operator's path to the cluster API runs through outside this module, e.g. [module.network.tailscale_instance_id] for a private endpoint reached through the Tailscale relay. A destroy then removes every in-cluster resource before them (see the cluster_endpoint output); without it, a destroy can remove the relay first and time out on in-cluster deletes."
+  type        = list(string)
+  default     = []
+}
+
 variable "node_subnet_ids" {
   description = <<-EOT
     Explicit subnet IDs to place the data plane (nodes) in. Empty derives them

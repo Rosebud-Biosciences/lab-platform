@@ -66,7 +66,8 @@ module "platform" {
 
   # Trust the Tailscale relay SG for private admin access (falls back to the
   # VPC default SG when the router is off).
-  vpc_security_group_id = local.tailscale_enabled ? module.network.tailscale_security_group_id : module.network.default_security_group_id
+  vpc_security_group_id       = local.tailscale_enabled ? module.network.tailscale_security_group_id : module.network.default_security_group_id
+  cluster_access_dependencies = local.tailscale_enabled ? [module.network.tailscale_instance_id] : []
 
   # Private-only API endpoint (reachable over the tailnet).
   cluster_endpoint_public_access  = !local.tailscale_enabled

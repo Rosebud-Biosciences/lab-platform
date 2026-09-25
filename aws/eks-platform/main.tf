@@ -112,6 +112,20 @@ module "eks" {
   })
 }
 
+# The path an operator's kubernetes/helm/kubectl providers take to the API:
+# the cluster, its nodes and the security group rule that admits the VPC's
+# admin path (module.eks), and whatever var.cluster_access_dependencies names
+# (the relay in front of a private endpoint). The cluster_endpoint output is
+# read through this node, so a stack whose providers use it destroys every
+# in-cluster resource before any part of that path: neither a full nor a
+# targeted destroy can cut its own access while in-cluster deletes remain.
+resource "terraform_data" "cluster_access" {
+  input            = module.eks.cluster_endpoint
+  triggers_replace = var.cluster_access_dependencies
+
+  depends_on = [module.eks]
+}
+
 # Charts hosted on public.ecr.aws (Karpenter, Kubecost) are pulled anonymously.
 # We intentionally do NOT authenticate with an aws_ecrpublic_authorization_token:
 # that token regenerates on every read, causing perpetual repository_password

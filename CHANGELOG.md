@@ -40,6 +40,23 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   workloads' NetworkPolicies are enforced (without them, in auth mode
   `headers`, any pod could assert an identity to the webapp).
 
+### Fixed: a destroy could cut its own path to a private cluster API
+
+- `aws/eks-platform`: in-cluster resources depend on the cluster (their
+  providers read its endpoint), but not on the path an operator reaches a
+  private endpoint by: the Tailscale relay and the security group rule that
+  admits it. A targeted destroy of the network removed that path, and the
+  core node group, alongside them, and every in-cluster delete then timed out
+  ("dial tcp 10.x.x.x:443: i/o timeout"), leaving a half-destroyed stack.
+  The `cluster_endpoint` output is now read through
+  `terraform_data.cluster_access`. That node depends on the cluster module
+  (nodes and security group rules included) and on the new
+  `cluster_access_dependencies` input, e.g.
+  `[module.network.tailscale_instance_id]`. So a stack whose
+  kubernetes/helm/kubectl providers use the output, as the examples do,
+  destroys every in-cluster resource first. The value is unchanged and known
+  at plan time; the first apply creates the node.
+
 ### Changed: `aws/eks-platform` plans without a module `depends_on`
 
 - Phase 2 of the add-ons waited for phase 1 through a module `depends_on`,

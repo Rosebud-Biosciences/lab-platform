@@ -8,8 +8,8 @@ output "cluster_name" {
 }
 
 output "cluster_endpoint" {
-  description = "The endpoint for the EKS cluster API server"
-  value       = module.eks.cluster_endpoint
+  description = "The endpoint for the EKS cluster API server. Configure the kubernetes/helm/kubectl providers from this output: it carries the dependency on the API access path, which orders in-cluster resources' destruction before that path's (terraform_data.cluster_access)."
+  value       = terraform_data.cluster_access.input
   sensitive   = true
 }
 
