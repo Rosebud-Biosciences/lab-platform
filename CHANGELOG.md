@@ -40,6 +40,16 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   workloads' NetworkPolicies are enforced (without them, in auth mode
   `headers`, any pod could assert an identity to the webapp).
 
+### Fixed: the MLflow UI's lists failed behind the private ingress
+
+- `modules/workloads`: MLflow >= 3.5 refuses state-changing requests from
+  browser origins it was not told about, and its UI's searches (runs, logged
+  models, traces) are POSTs from the UI's own origin: the UI loaded, but its
+  run list said `INTERNAL_ERROR` and its models tab "You do not have
+  permission". The module now sets `MLFLOW_SERVER_CORS_ALLOWED_ORIGINS` to the
+  UI's origin under `private_ingress_dns_suffix`; `mlflow_cors_allowed_origins`
+  adds others.
+
 ### Fixed: previews could not create Iceberg tables
 
 - `aws/iceberg-branches`: `s3tables:CreateTable` was granted on

@@ -849,6 +849,10 @@ run "mlflow_allows_its_own_hostnames" {
     condition     = alltrue([for h in ["pr7-mlflow.pr7-mlflow.svc.cluster.local", "pr7-mlflow.tail1234.ts.net", "mlflow-auth.pr7-mlflow.svc.cluster.local", "mlflow.example.com", "localhost:*"] : strcontains(helm_release.mlflow[0].values[0], h)])
     error_message = "MLFLOW_SERVER_ALLOWED_HOSTS must name the Service, the private hostname, the proxy, localhost and the caller's extra hosts"
   }
+  assert {
+    condition     = local.mlflow_env["MLFLOW_SERVER_CORS_ALLOWED_ORIGINS"] == "https://pr7-mlflow.tail1234.ts.net"
+    error_message = "MLFLOW_SERVER_CORS_ALLOWED_ORIGINS must allow the UI's own origin, whose searches are POSTs"
+  }
 }
 
 # ------------------------------------------------------------------------------

@@ -54,9 +54,19 @@ locals {
     ) : [h, "${h}:*"]
   ]))
 
+  # The same middleware refuses state-changing requests from browser origins
+  # it was not told about (default: localhost only) -- and the UI's searches
+  # are POSTs from its own origin, so without this the UI loads but every
+  # list in it fails.
+  mlflow_cors_allowed_origins = distinct(concat(
+    var.private_ingress_dns_suffix != "" ? ["https://${local.private_mlflow_host}.${var.private_ingress_dns_suffix}"] : [],
+    var.mlflow_cors_allowed_origins,
+  ))
+
   mlflow_env = merge(
     local.identity.mlflow.env,
     { MLFLOW_SERVER_ALLOWED_HOSTS = join(",", local.mlflow_allowed_hosts) },
+    length(local.mlflow_cors_allowed_origins) > 0 ? { MLFLOW_SERVER_CORS_ALLOWED_ORIGINS = join(",", local.mlflow_cors_allowed_origins) } : {},
     var.mlflow_job_execution ? {} : { MLFLOW_SERVER_ENABLE_JOB_EXECUTION = "false" },
   )
 }

@@ -1138,6 +1138,18 @@ variable "mlflow_allowed_hosts" {
   default     = []
 }
 
+variable "mlflow_cors_allowed_origins" {
+  description = <<-EOT
+    Extra browser origins the MLflow server accepts API calls from (MLflow >=
+    3.5 refuses the rest's POSTs as "Cross-origin request blocked", which is
+    every search its own UI makes). The module already allows the UI's origin
+    under private_ingress_dns_suffix, so add only other web apps that call
+    MLflow from a browser, e.g. "https://notebooks.example.com".
+  EOT
+  type        = list(string)
+  default     = []
+}
+
 # ------------------------------------------------------------------------------
 # ARGO WORKFLOWS
 # ------------------------------------------------------------------------------
