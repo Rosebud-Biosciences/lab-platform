@@ -184,7 +184,7 @@ per deployment, not layers; the `lab-platform-template-app` shows both behind a
 | Object stores (Icechunk, Lance, Delta) | fresh copies in the `preview-storage` bucket: **empty** | branches inside the prod stores, forked from the last pinned state |
 | Iceberg | `iceberg-branches`: empty namespace, IAM-isolated | table branches on the prod tables |
 | Which prod state was tested | not recorded | a pinned dataset commit per preview |
-| Landing preview data on prod | not possible | `tether promote` for Icechunk / Iceberg (fast-forward); recompute for the rest |
+| Landing preview data on prod | never: prod recomputes with the merged code | never: the forks are discarded on merge or close, and prod recomputes with the merged code |
 | Preview's access to prod data | none (writes are physically elsewhere) | write into prod buckets and commit to prod tables, no delete ([`data-access`](../aws/data-access)) |
 | Dependencies | none | `tether-vcs` (beta; Neon and Iceberg backends `experimental`) |
 | Teardown | `tofu destroy` | `tofu destroy`, then `tether gc --prune-bookmarks --force-prune` |
