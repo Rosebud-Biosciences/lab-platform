@@ -40,6 +40,20 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   workloads' NetworkPolicies are enforced (without them, in auth mode
   `headers`, any pod could assert an identity to the webapp).
 
+### Changed: `aws/eks-platform` plans without a module `depends_on`
+
+- Phase 2 of the add-ons waited for phase 1 through a module `depends_on`,
+  which makes tofu resolve all of phase 1 transitively for every data source
+  in phase 2. That was about 6 of the 9 s a `validate` of a full platform
+  stack took, spent again on every plan, apply, destroy and import before
+  any refresh. Phase 2 now references `terraform_data.phase_1_ready`, which
+  carries the `depends_on`: through the blueprints module's
+  `create_delay_dependencies`, which its add-ons' IAM roles and cluster
+  settings pass through, and through the values of argo-events and
+  kube-prometheus-stack, which reference nothing else. The order is
+  unchanged. The first apply creates that node and replaces the blueprints
+  module's internal `time_sleep`, a one-time 30 s wait.
+
 ### Fixed: a failed Helm install blocked every later apply
 
 - Every Helm release the modules install (`modules/workloads`, `keycloak`,

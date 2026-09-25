@@ -127,10 +127,11 @@ module "eks_blueprints_addons" {
   source  = "aws-ia/eks-blueprints-addons/aws"
   version = "~> 1.24.3"
 
-  cluster_name      = module.eks.cluster_name
-  cluster_endpoint  = module.eks.cluster_endpoint
-  cluster_version   = module.eks.cluster_version
-  oidc_provider_arn = module.eks.oidc_provider_arn
+  cluster_name              = module.eks.cluster_name
+  cluster_endpoint          = module.eks.cluster_endpoint
+  cluster_version           = module.eks.cluster_version
+  oidc_provider_arn         = module.eks.oidc_provider_arn
+  create_delay_dependencies = [terraform_data.phase_1_ready.input]
 
   eks_addons = {}
 
@@ -162,14 +163,16 @@ module "eks_blueprints_addons" {
     namespace     = "argo-events"
     repository    = "https://argoproj.github.io/argo-helm"
     chart_version = "2.4.3"
-    values        = [templatefile("${path.module}/helm-defaults/argo/argo-events-values.yaml", {})]
+    # Unused by the template; the reference orders this release after phase 1.
+    values = [templatefile("${path.module}/helm-defaults/argo/argo-events-values.yaml", { phase_1_ready = terraform_data.phase_1_ready.input })]
   }
 
   enable_kube_prometheus_stack = var.enable_kube_prometheus
   kube_prometheus_stack = {
     atomic = true
     values = concat(
-      [templatefile("${path.module}/helm-defaults/kube-prometheus-stack/values.yaml", {})],
+      # Unused by the template; the reference orders this release after phase 1.
+      [templatefile("${path.module}/helm-defaults/kube-prometheus-stack/values.yaml", { phase_1_ready = terraform_data.phase_1_ready.input })],
       var.kube_prometheus_helm_values_override != "" ? [var.kube_prometheus_helm_values_override] : []
     )
     chart_version = "86.2.1"
@@ -218,6 +221,17 @@ module "eks_blueprints_addons" {
   observability_tag = null
 
   tags = local.tags
+}
+
+# Phase 2 must wait for phase 1 (the LB Controller's webhook admits every
+# Service a chart creates) and for Karpenter's CRDs. It does so by referencing
+# this node, through create_delay_dependencies (the module's own sleep, which
+# every addon's IAM role and cluster settings pass through) and through the
+# values of the addons that reference nothing else. A module depends_on would
+# order the same, but it makes tofu resolve all of phase 1 transitively for
+# each data source in phase 2: about 6 s of every plan, apply and destroy.
+resource "terraform_data" "phase_1_ready" {
+  input = "phase 1 ready"
 
   depends_on = [
     module.eks_blueprints_addons_core,
