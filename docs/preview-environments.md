@@ -200,8 +200,11 @@ forks are kept short-lived and swept.
 only as useful as what it remembers, so a full preview gives each its own
 branch of prod's database (`neon_branch_sources` keys `dagster`, `mlflow`,
 `argo`; tether objects `db/dagster`, `db/mlflow`, `db/argo`) and the preview
-opens with prod's run history, experiments and archived workflows visible --
-and writes none of it back. Neon branches cannot be promoted, so nothing a
+opens with prod's Dagster run history and MLflow experiments visible -- and
+writes none of it back. Prod's archived workflows are on the Argo branch too,
+but unlisted: Argo keys its archive by namespace, and each environment's server
+is scoped to its own (`<name_prefix>argo`), so a preview gets an archive of its
+own rather than a view of prod's. Neon branches cannot be promoted, so nothing a
 preview's services record ever lands on prod; that is the point. MLflow's
 artifacts are the one non-branchable piece (write-once blobs; tether's
 object-store backend has no fork): they go to a per-preview prefix -- the
