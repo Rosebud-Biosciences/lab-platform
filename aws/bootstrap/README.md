@@ -82,6 +82,7 @@ resource "aws_iam_user_policy_attachment" "alice_guardrails" {
 | [aws_iam_role.ci_deployer](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/iam_role) | resource |
 | [aws_iam_role.operator_admin](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/iam_role) | resource |
 | [aws_iam_role.preview_deployer](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/iam_role) | resource |
+| [aws_iam_role.teardown](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/iam_role) | resource |
 | [aws_iam_role_policy.ci_deployer](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/iam_role_policy) | resource |
 | [aws_iam_role_policy.preview_deployer](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/iam_role_policy) | resource |
 | [aws_iam_role_policy_attachment.operator_admin](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/iam_role_policy_attachment) | resource |
@@ -101,6 +102,7 @@ resource "aws_iam_user_policy_attachment" "alice_guardrails" {
 | [aws_iam_policy_document.preview_assume](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/data-sources/iam_policy_document) | data source |
 | [aws_iam_policy_document.preview_boundary](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/data-sources/iam_policy_document) | data source |
 | [aws_iam_policy_document.preview_deployer](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/data-sources/iam_policy_document) | data source |
+| [aws_iam_policy_document.teardown_assume](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/data-sources/iam_policy_document) | data source |
 | [aws_region.current](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/data-sources/region) | data source |
 
 ## Inputs
@@ -116,6 +118,7 @@ resource "aws_iam_user_policy_attachment" "alice_guardrails" {
 | <a name="input_enable_ci_deployer_role"></a> [enable\_ci\_deployer\_role](#input\_enable\_ci\_deployer\_role) | Create the GitHub Actions CI role (ECR push + eks:DescribeCluster) | `bool` | `true` | no |
 | <a name="input_enable_operator_admin_role"></a> [enable\_operator\_admin\_role](#input\_enable\_operator\_admin\_role) | Create the MFA-gated operator role and its guardrail policy. Requires operator\_principal\_arns. See docs/operator-access.md. | `bool` | `false` | no |
 | <a name="input_enable_preview_deployer_role"></a> [enable\_preview\_deployer\_role](#input\_enable\_preview\_deployer\_role) | Create the least-privilege GitHub Actions preview role that runs the preview Terraform stack | `bool` | `true` | no |
+| <a name="input_enable_teardown_role"></a> [enable\_teardown\_role](#input\_enable\_teardown\_role) | Create a role only teardown\_repos' runs on teardown\_ref may assume (the nightly preview sweep), for deletes a pull\_request run must not hold: e.g. the stores a PR created. It has no permissions of its own; the stack that owns the data attaches them. | `bool` | `false` | no |
 | <a name="input_github_oidc_provider_arn"></a> [github\_oidc\_provider\_arn](#input\_github\_oidc\_provider\_arn) | ARN of an existing GitHub Actions OIDC provider (used when create\_github\_oidc\_provider is false) | `string` | `""` | no |
 | <a name="input_github_owner"></a> [github\_owner](#input\_github\_owner) | GitHub org/user that owns the CI and preview repositories | `string` | `""` | no |
 | <a name="input_github_owner_id"></a> [github\_owner\_id](#input\_github\_owner\_id) | Numeric ID of github\_owner (`gh api repos/<owner>/<repo> --jq .owner.id`); needed with github\_repository\_ids | `string` | `""` | no |
@@ -144,6 +147,9 @@ resource "aws_iam_user_policy_attachment" "alice_guardrails" {
 | <a name="input_state_bucket_prevent_destroy"></a> [state\_bucket\_prevent\_destroy](#input\_state\_bucket\_prevent\_destroy) | Attach a Deny s3:DeleteBucket policy to the state bucket so no principal can delete it without first removing the policy | `bool` | `true` | no |
 | <a name="input_state_noncurrent_expiration_days"></a> [state\_noncurrent\_expiration\_days](#input\_state\_noncurrent\_expiration\_days) | Days after which noncurrent state versions are expired | `number` | `180` | no |
 | <a name="input_tags"></a> [tags](#input\_tags) | Tags applied to created resources | `map(string)` | `{}` | no |
+| <a name="input_teardown_ref"></a> [teardown\_ref](#input\_teardown\_ref) | The one git ref whose runs may assume the teardown role (scheduled and dispatched runs of the default branch) | `string` | `"refs/heads/main"` | no |
+| <a name="input_teardown_repos"></a> [teardown\_repos](#input\_teardown\_repos) | GitHub repositories (name only) whose runs on teardown\_ref may assume the teardown role | `list(string)` | `[]` | no |
+| <a name="input_teardown_role_name"></a> [teardown\_role\_name](#input\_teardown\_role\_name) | Name for the teardown IAM role | `string` | `"github-actions-teardown"` | no |
 
 ## Outputs
 
@@ -159,4 +165,5 @@ resource "aws_iam_user_policy_attachment" "alice_guardrails" {
 | <a name="output_preview_permissions_boundary_arn"></a> [preview\_permissions\_boundary\_arn](#output\_preview\_permissions\_boundary\_arn) | Permissions boundary every preview role must carry (aws/data-adapter's permissions\_boundary\_arn); null when the preview role is disabled |
 | <a name="output_state_bucket_arn"></a> [state\_bucket\_arn](#output\_state\_bucket\_arn) | ARN of the Terraform state bucket |
 | <a name="output_state_bucket_name"></a> [state\_bucket\_name](#output\_state\_bucket\_name) | Name of the Terraform state bucket |
+| <a name="output_teardown_role_arn"></a> [teardown\_role\_arn](#output\_teardown\_role\_arn) | ARN of the default-branch-only teardown role (null when disabled) |
 <!-- END_TF_DOCS -->

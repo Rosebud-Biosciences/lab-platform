@@ -111,3 +111,62 @@ run "kms_key_arn_must_be_a_key_arn" {
 
   expect_failures = [var.kms_key_arn]
 }
+
+run "no_delete_by_default" {
+  command = plan
+
+  variables {
+    prefixes = ["tether/"]
+  }
+
+  assert {
+    condition     = length([for s in data.aws_iam_policy_document.this.statement : s if contains(s.actions, "s3:DeleteObject")]) == 0
+    error_message = "the policy pods hold must never delete"
+  }
+}
+
+run "working_branch_deletes_reach_only_branch_keys" {
+  command = plan
+
+  variables {
+    prefixes              = ["tether/"]
+    working_branch_prefix = "tether.ws."
+  }
+
+  assert {
+    condition = toset(flatten([
+      for s in data.aws_iam_policy_document.this.statement : s.resources if contains(s.actions, "s3:DeleteObject")
+      ])) == toset([
+      "arn:aws:s3:::prod-data/tether/*/_refs/branches/tether.ws.*",
+      "arn:aws:s3:::prod-data/tether/*/tree/tether.ws.*",
+    ])
+    error_message = "the working-branch grant deletes a Lance branch's ref and tree, never a store's own keys"
+  }
+}
+
+run "working_branch_prefix_cannot_widen" {
+  command = plan
+
+  variables {
+    prefixes              = ["tether/"]
+    working_branch_prefix = "*"
+  }
+
+  expect_failures = [var.working_branch_prefix]
+}
+
+run "allow_delete_covers_the_prefixes" {
+  command = plan
+
+  variables {
+    prefixes     = ["tether/"]
+    allow_delete = true
+  }
+
+  assert {
+    condition = toset(flatten([
+      for s in data.aws_iam_policy_document.this.statement : s.resources if contains(s.actions, "s3:DeleteObject")
+    ])) == toset(["arn:aws:s3:::prod-data/tether/*"])
+    error_message = "the teardown grant deletes anything under the prefixes"
+  }
+}

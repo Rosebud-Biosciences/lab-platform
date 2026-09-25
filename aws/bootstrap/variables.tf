@@ -137,6 +137,30 @@ variable "preview_repos" {
   default     = []
 }
 
+variable "enable_teardown_role" {
+  description = "Create a role only teardown_repos' runs on teardown_ref may assume (the nightly preview sweep), for deletes a pull_request run must not hold: e.g. the stores a PR created. It has no permissions of its own; the stack that owns the data attaches them."
+  type        = bool
+  default     = false
+}
+
+variable "teardown_role_name" {
+  description = "Name for the teardown IAM role"
+  type        = string
+  default     = "github-actions-teardown"
+}
+
+variable "teardown_repos" {
+  description = "GitHub repositories (name only) whose runs on teardown_ref may assume the teardown role"
+  type        = list(string)
+  default     = []
+}
+
+variable "teardown_ref" {
+  description = "The one git ref whose runs may assume the teardown role (scheduled and dispatched runs of the default branch)"
+  type        = string
+  default     = "refs/heads/main"
+}
+
 variable "preview_state_key_prefix" {
   description = "State object key prefix the preview role may read and write (its workspaces' state); it reads no other state but preview_state_read_keys"
   type        = string

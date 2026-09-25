@@ -64,12 +64,14 @@ and namespace instead and need none of this.
 | Name | Description | Type | Default | Required |
 |------|-------------|------|---------|:--------:|
 | <a name="input_name"></a> [name](#input\_name) | IAM policy name (e.g. pr123-data-access); one policy per preview keeps attachments and teardown simple | `string` | n/a | yes |
+| <a name="input_allow_delete"></a> [allow\_delete](#input\_allow\_delete) | Let the holder delete anything under the prefixes (the stores a PR created at their real locations). Only for a role that default-branch runs alone can assume (aws/bootstrap's teardown role); never for a role a pull\_request run or a pod holds. | `bool` | `false` | no |
 | <a name="input_bucket_arn"></a> [bucket\_arn](#input\_bucket\_arn) | ARN of the production data bucket holding the store prefixes. Required when prefixes is non-empty. | `string` | `""` | no |
 | <a name="input_iam_path"></a> [iam\_path](#input\_iam\_path) | IAM path of the policy; a preview's goes under aws/bootstrap's preview\_iam\_path | `string` | `"/"` | no |
 | <a name="input_kms_key_arn"></a> [kms\_key\_arn](#input\_kms\_key\_arn) | The customer-managed KMS key encrypting bucket\_arn (aws/s3-bucket creates one), if any: objects in an SSE-KMS bucket cannot be read or written without kms:Decrypt / kms:GenerateDataKey on it. Empty for SSE-S3. | `string` | `""` | no |
 | <a name="input_prefixes"></a> [prefixes](#input\_prefixes) | Key prefixes inside bucket\_arn the pods may read and write (no delete), e.g.<br/>["tether/greetings.icechunk/", "tether/greetings.lance/"] -- the roots of the<br/>Icechunk / Lance / Delta stores whose branches a preview writes to. A prefix<br/>without a trailing slash is treated as one. | `list(string)` | `[]` | no |
 | <a name="input_table_arns"></a> [table\_arns](#input\_table\_arns) | S3 Tables table ARNs (arn:aws:s3tables:...:bucket/<name>/table/<uuid>) the<br/>pods may read and commit metadata to -- required to write an Iceberg branch,<br/>and NOT scopable to that branch: IAM sees the table, not the ref. Grant it<br/>only to code you trust with the table's main branch. | `list(string)` | `[]` | no |
 | <a name="input_tags"></a> [tags](#input\_tags) | Tags applied to the IAM policy | `map(string)` | `{}` | no |
+| <a name="input_working_branch_prefix"></a> [working\_branch\_prefix](#input\_working\_branch\_prefix) | Also let the holder delete the Lance working branches inside the prefixes<br/>whose name starts with this: each one's `_refs/branches/<name>.json` and<br/>`tree/<name>/`, nothing else. tether names working branches<br/>`tether.ws.<dataset>.<bookmark>`, so "tether.ws." reaches no main, pinned or<br/>other ref. For the CI role that retires previews; leave empty (no delete)<br/>for pods. | `string` | `""` | no |
 
 ## Outputs
 

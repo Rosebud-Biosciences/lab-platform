@@ -10,6 +10,11 @@
 #     only ever add objects (chunks, manifests, snapshots, ref files); deletion
 #     belongs to garbage collection, which runs from an operator's credentials,
 #     not a preview's. A preview with a bug can waste space, not lose data.
+#     Two opt-ins for the roles that retire previews, never for pods:
+#     working_branch_prefix lets the holder delete Lance working branches
+#     named with that prefix, and nothing else (CI's preview teardown);
+#     allow_delete lets it delete anything under the prefixes (the stores a PR
+#     created), for a role only default-branch runs can assume.
 #   - S3 Tables: read and commit metadata on the listed tables. Iceberg branches
 #     are refs in one metadata file, so there is nothing narrower to grant; a
 #     preview that writes to `main` instead of its branch is a code bug the
@@ -63,6 +68,29 @@ data "aws_iam_policy_document" "this" {
     }
   }
 
+  # A Lance branch is its ref file and its tree; deleting it touches nothing of
+  # main's or any other branch's.
+  dynamic "statement" {
+    for_each = var.working_branch_prefix != "" && length(local.prefixes) > 0 && !var.allow_delete ? [1] : []
+    content {
+      sid     = "DeleteWorkingBranches"
+      actions = ["s3:DeleteObject"]
+      resources = flatten([for p in local.prefixes : [
+        "${var.bucket_arn}/${p}*/_refs/branches/${var.working_branch_prefix}*",
+        "${var.bucket_arn}/${p}*/tree/${var.working_branch_prefix}*",
+      ]])
+    }
+  }
+
+  dynamic "statement" {
+    for_each = var.allow_delete && length(local.prefixes) > 0 ? [1] : []
+    content {
+      sid       = "DeletePrefixes"
+      actions   = ["s3:DeleteObject"]
+      resources = [for p in local.prefixes : "${var.bucket_arn}/${p}*"]
+    }
+  }
+
   dynamic "statement" {
     for_each = local.kms_grant ? [1] : []
     content {
@@ -103,11 +131,15 @@ data "aws_iam_policy_document" "this" {
 }
 
 resource "aws_iam_policy" "this" {
-  name        = var.name
-  path        = var.iam_path
-  description = "Read/write (no delete) on production data-store prefixes (and their bucket key) and read/commit on listed Iceberg tables, for pods working on dataset branches"
-  policy      = data.aws_iam_policy_document.this.json
-  tags        = var.tags
+  name = var.name
+  path = var.iam_path
+  description = (
+    var.allow_delete ? "Read/write/delete on production data-store prefixes (and their bucket key) and read/commit on listed Iceberg tables, for retiring previews from the default branch" :
+    var.working_branch_prefix != "" ? "Read/write on production data-store prefixes (delete: ${var.working_branch_prefix}* working branches only; and their bucket key) and read/commit on listed Iceberg tables, for retiring previews" :
+    "Read/write (no delete) on production data-store prefixes (and their bucket key) and read/commit on listed Iceberg tables, for pods working on dataset branches"
+  )
+  policy = data.aws_iam_policy_document.this.json
+  tags   = var.tags
 
   lifecycle {
     precondition {

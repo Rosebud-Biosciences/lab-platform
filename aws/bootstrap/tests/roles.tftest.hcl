@@ -68,6 +68,56 @@ run "immutable_subjects_for_listed_repositories" {
   }
 }
 
+run "teardown_role_off_by_default" {
+  command = plan
+
+  assert {
+    condition     = output.teardown_role_arn == null
+    error_message = "the teardown role is opt-in"
+  }
+}
+
+run "teardown_role_trusts_one_ref_only" {
+  command = plan
+
+  variables {
+    github_owner          = "my-org"
+    github_owner_id       = "123"
+    github_repository_ids = { app = "456" }
+    enable_teardown_role  = true
+    teardown_repos        = ["app"]
+  }
+
+  assert {
+    condition = [
+      for c in data.aws_iam_policy_document.teardown_assume[0].statement[0].condition : c
+      if c.variable == "token.actions.githubusercontent.com:sub"
+    ][0].test == "StringEquals"
+    error_message = "the subject must match exactly: a pattern could admit pull_request runs"
+  }
+  assert {
+    condition = toset(flatten([
+      for c in data.aws_iam_policy_document.teardown_assume[0].statement[0].condition : c.values
+      if c.variable == "token.actions.githubusercontent.com:sub"
+    ])) == toset(["repo:my-org@123/app@456:ref:refs/heads/main"])
+    error_message = "only the default branch's runs, under the immutable subject, may assume the teardown role"
+  }
+  assert {
+    condition     = output.teardown_role_arn != null
+    error_message = "enabling the teardown role creates it"
+  }
+}
+
+run "teardown_role_needs_repositories" {
+  command = plan
+
+  variables {
+    enable_teardown_role = true
+  }
+
+  expect_failures = [aws_iam_role.teardown]
+}
+
 run "repository_ids_need_the_owner_id" {
   command = plan
 

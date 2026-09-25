@@ -15,7 +15,7 @@ locals {
   # (owner and repository IDs, so a recycled name matches nothing) when its ID
   # is given, else the name-only form of repositories that predate it.
   github_repo_subjects = {
-    for repo in distinct(concat(var.ci_repos, var.preview_repos)) : repo => (
+    for repo in distinct(concat(var.ci_repos, var.preview_repos, var.teardown_repos)) : repo => (
       contains(keys(var.github_repository_ids), repo)
       ? "repo:${var.github_owner}@${var.github_owner_id}/${repo}@${var.github_repository_ids[repo]}"
       : "repo:${var.github_owner}/${repo}"
@@ -23,6 +23,9 @@ locals {
   }
   ci_repo_subs      = [for repo in var.ci_repos : "${local.github_repo_subjects[repo]}:*"]
   preview_repo_subs = [for repo in var.preview_repos : "${local.github_repo_subjects[repo]}:*"]
+  # One ref only: a pull_request run can rewrite the workflow that assumes a
+  # role, so a role it could assume is one any PR author holds.
+  teardown_repo_subs = [for repo in var.teardown_repos : "${local.github_repo_subjects[repo]}:ref:${var.teardown_ref}"]
 
   ci_ecr_repo_arns = [
     for repo in var.ci_ecr_repositories :
@@ -256,6 +259,53 @@ resource "aws_iam_role" "preview_deployer" {
   description        = "Assumed by GitHub Actions to run the preview Terraform stack"
   assume_role_policy = data.aws_iam_policy_document.preview_assume[0].json
   tags               = var.tags
+}
+
+# ------------------------------------------------------------------------------
+# TEARDOWN ROLE (default-branch runs only; permissions attached by the stack
+# that owns the data stores)
+# ------------------------------------------------------------------------------
+
+data "aws_iam_policy_document" "teardown_assume" {
+  count = var.enable_teardown_role ? 1 : 0
+
+  statement {
+    effect  = "Allow"
+    actions = ["sts:AssumeRoleWithWebIdentity"]
+
+    principals {
+      type        = "Federated"
+      identifiers = [local.oidc_provider_arn]
+    }
+
+    condition {
+      test     = "StringEquals"
+      variable = "token.actions.githubusercontent.com:aud"
+      values   = ["sts.amazonaws.com"]
+    }
+
+    condition {
+      test     = "StringEquals"
+      variable = "token.actions.githubusercontent.com:sub"
+      values   = local.teardown_repo_subs
+    }
+  }
+}
+
+resource "aws_iam_role" "teardown" {
+  count = var.enable_teardown_role ? 1 : 0
+
+  name               = var.teardown_role_name
+  description        = "Assumed only by GitHub Actions runs on ${var.teardown_ref} to retire preview data; the data stack attaches its permissions"
+  assume_role_policy = data.aws_iam_policy_document.teardown_assume[0].json
+  tags               = var.tags
+
+  lifecycle {
+    precondition {
+      condition     = length(var.teardown_repos) > 0
+      error_message = "bootstrap: enable_teardown_role needs teardown_repos."
+    }
+  }
 }
 
 data "aws_iam_policy_document" "preview_deployer" {

@@ -28,6 +28,11 @@ output "preview_deployer_role_arn" {
   value       = var.enable_preview_deployer_role ? aws_iam_role.preview_deployer[0].arn : null
 }
 
+output "teardown_role_arn" {
+  description = "ARN of the default-branch-only teardown role (null when disabled)"
+  value       = var.enable_teardown_role ? aws_iam_role.teardown[0].arn : null
+}
+
 output "preview_iam_path" {
   description = "IAM path the preview stack must create its roles and policies under (the modules' iam_path)"
   value       = var.preview_iam_path

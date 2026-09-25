@@ -40,6 +40,22 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   workloads' NetworkPolicies are enforced (without them, in auth mode
   `headers`, any pod could assert an identity to the webapp).
 
+### Added: delete rights for retiring previews, split by who may hold them
+
+- `aws/data-access`: two opt-ins to its "never delete".
+  `working_branch_prefix` (e.g. `"tether.ws."`) lets the holder delete
+  Lance working branches with that prefix (each one's ref file and tree)
+  and nothing else. Retiring a tether-mode preview needs this, because
+  Lance keeps a branch until its keys are deleted. `allow_delete` lets the
+  holder delete anything under the prefixes, such as the stores a PR
+  created. Pods keep neither.
+- `aws/bootstrap`: an optional teardown role (`enable_teardown_role`,
+  `teardown_repos`, `teardown_ref`) whose trust is one exact subject,
+  `repo:…:ref:refs/heads/main`. A pull_request run can rewrite the workflow
+  that assumes a role, so the broad deletes must sit on a role such a run
+  can't assume. The role has no permissions of its own: the stack that owns
+  the data attaches them, e.g. `aws/data-access` with `allow_delete`.
+
 ### Fixed: a destroy could cut its own path to a private cluster API
 
 - `aws/eks-platform`: in-cluster resources depend on the cluster (their

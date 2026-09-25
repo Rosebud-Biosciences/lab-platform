@@ -57,6 +57,30 @@ variable "table_arns" {
   }
 }
 
+variable "working_branch_prefix" {
+  description = <<-EOT
+    Also let the holder delete the Lance working branches inside the prefixes
+    whose name starts with this: each one's `_refs/branches/<name>.json` and
+    `tree/<name>/`, nothing else. tether names working branches
+    `tether.ws.<dataset>.<bookmark>`, so "tether.ws." reaches no main, pinned or
+    other ref. For the CI role that retires previews; leave empty (no delete)
+    for pods.
+  EOT
+  type        = string
+  default     = ""
+
+  validation {
+    condition     = can(regex("^([A-Za-z0-9_-]+[.])*$", var.working_branch_prefix))
+    error_message = "working_branch_prefix must be empty or dot-terminated name segments (e.g. \"tether.ws.\"): no wildcards, and never so short it could match main."
+  }
+}
+
+variable "allow_delete" {
+  description = "Let the holder delete anything under the prefixes (the stores a PR created at their real locations). Only for a role that default-branch runs alone can assume (aws/bootstrap's teardown role); never for a role a pull_request run or a pod holds."
+  type        = bool
+  default     = false
+}
+
 variable "tags" {
   description = "Tags applied to the IAM policy"
   type        = map(string)
