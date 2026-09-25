@@ -29,6 +29,7 @@ resource "helm_release" "tailscale_operator" {
   name       = "tailscale-operator"
   repository = "https://pkgs.tailscale.com/helmcharts"
   chart      = "tailscale-operator"
+  atomic     = true
   version    = var.tailscale_operator_chart_version
   timeout    = 600
 

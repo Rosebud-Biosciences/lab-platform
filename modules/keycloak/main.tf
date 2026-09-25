@@ -129,6 +129,7 @@ resource "helm_release" "keycloak" {
   namespace  = local.namespace
   repository = var.chart_repository
   chart      = "keycloakx"
+  atomic     = true
   version    = var.chart_version
   # First start migrates the database and builds; the realm module needs the
   # admin API right after.

@@ -78,6 +78,7 @@ resource "helm_release" "mlflow" {
   name       = local.mlflow_release
   repository = var.mlflow_repository
   chart      = "mlflow"
+  atomic     = true
   version    = var.mlflow_chart_version
   timeout    = 600
 

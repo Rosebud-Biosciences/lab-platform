@@ -261,6 +261,7 @@ resource "helm_release" "karpenter_node_pools" {
   create_namespace = false
   name             = "karpenter-resources-${local.prefix}${each.key}"
   chart            = "${path.module}/charts/karpenter-resources"
+  atomic           = true
 
   values = [
     yamlencode({

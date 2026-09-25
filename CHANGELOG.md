@@ -40,6 +40,17 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   workloads' NetworkPolicies are enforced (without them, in auth mode
   `headers`, any pod could assert an identity to the webapp).
 
+### Fixed: a failed Helm install blocked every later apply
+
+- Every Helm release the modules install (`modules/workloads`, `keycloak`,
+  `dex`, and `aws/eks-platform`'s and `aws/compute-adapter`'s charts, including
+  the blueprints addons) is now `atomic`. A release whose install timed out
+  used to stay behind as `failed` outside the state, and each re-apply stopped
+  at "cannot re-use a name that is still in use" until someone ran
+  `helm uninstall`. Now a failed install uninstalls itself and a failed
+  upgrade rolls back, so a re-apply starts clean. Dagster's release is atomic
+  only with `wait_for_rollouts`, since atomic implies waiting.
+
 ### Fixed: the MLflow UI's lists failed behind the private ingress
 
 - `modules/workloads`: MLflow >= 3.5 refuses state-changing requests from

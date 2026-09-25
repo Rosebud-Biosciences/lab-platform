@@ -323,6 +323,10 @@ run "dagster_requires_ray_and_renders_contracts" {
     error_message = "the Dagster identity Secret must be envFrom'd"
   }
   assert {
+    condition     = helm_release.dagster[0].atomic
+    error_message = "a failed install must purge its release, or the next apply cannot reuse the name"
+  }
+  assert {
     condition     = kubernetes_config_map_v1.analytics_config[0].data["AWS_ENDPOINT_URL"] == "http://seaweedfs:8333"
     error_message = "workload_identity.ray.env must land in the analytics-config ConfigMap for user-code RayJobs"
   }
@@ -1378,7 +1382,7 @@ run "rollouts_need_not_be_waited_for" {
   }
 
   assert {
-    condition     = !kubernetes_deployment_v1.webapp_pinned[0].wait_for_rollout && !helm_release.dagster[0].wait
-    error_message = "a stack whose CI pushes the images can submit the webapp and Dagster without waiting for images that do not exist yet"
+    condition     = !kubernetes_deployment_v1.webapp_pinned[0].wait_for_rollout && !helm_release.dagster[0].wait && !helm_release.dagster[0].atomic
+    error_message = "a stack whose CI pushes the images can submit the webapp and Dagster without waiting for images that do not exist yet (atomic would wait)"
   }
 }

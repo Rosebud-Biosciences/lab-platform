@@ -129,6 +129,7 @@ resource "helm_release" "dex" {
   namespace  = local.namespace
   repository = var.chart_repository
   chart      = "dex"
+  atomic     = true
   version    = var.chart_version
   timeout    = 600
   # The pod must be Ready before consumers create OAuth2Client CRs: Dex

@@ -73,6 +73,7 @@ module "eks_blueprints_addons_core" {
 
   enable_aws_load_balancer_controller = var.enable_aws_load_balancer_controller
   aws_load_balancer_controller = {
+    atomic        = true
     chart_version = "1.7.1"
     # Its webhook checks every Service created after it registers, and phase 2
     # and the releases below create Services: phase 1 is done only once the
@@ -87,6 +88,7 @@ module "eks_blueprints_addons_core" {
 
   enable_cluster_proportional_autoscaler = true
   cluster_proportional_autoscaler = {
+    atomic        = true
     chart_version = "1.1.0"
     timeout       = "300"
     values = [templatefile("${path.module}/helm-defaults/coredns-autoscaler/values.yaml", {
@@ -97,6 +99,7 @@ module "eks_blueprints_addons_core" {
 
   enable_metrics_server = var.enable_metrics_server
   metrics_server = {
+    atomic        = true
     chart_version = "3.12.0"
     timeout       = "300"
     values        = [templatefile("${path.module}/helm-defaults/metrics-server/values.yaml", {})]
@@ -104,6 +107,7 @@ module "eks_blueprints_addons_core" {
 
   helm_releases = {
     storageclass = {
+      atomic      = true
       name        = "storageclass"
       description = "A Helm chart for storage configurations"
       chart       = "${path.module}/helm-defaults/storageclass"
@@ -132,6 +136,7 @@ module "eks_blueprints_addons" {
 
   enable_cluster_autoscaler = var.enable_cluster_autoscaler
   cluster_autoscaler = {
+    atomic      = true
     timeout     = "300"
     create_role = true
     values = [templatefile("${path.module}/helm-defaults/cluster-autoscaler/values.yaml", {
@@ -145,12 +150,14 @@ module "eks_blueprints_addons" {
   enable_karpenter                  = var.enable_karpenter
   karpenter_enable_spot_termination = var.enable_karpenter
   karpenter = {
+    atomic        = true
     chart_version = var.karpenter_version
     timeout       = "300"
   }
 
   enable_argo_events = var.enable_argo_events
   argo_events = {
+    atomic        = true
     name          = "argo-events"
     namespace     = "argo-events"
     repository    = "https://argoproj.github.io/argo-helm"
@@ -160,6 +167,7 @@ module "eks_blueprints_addons" {
 
   enable_kube_prometheus_stack = var.enable_kube_prometheus
   kube_prometheus_stack = {
+    atomic = true
     values = concat(
       [templatefile("${path.module}/helm-defaults/kube-prometheus-stack/values.yaml", {})],
       var.kube_prometheus_helm_values_override != "" ? [var.kube_prometheus_helm_values_override] : []
@@ -181,6 +189,7 @@ module "eks_blueprints_addons" {
   enable_external_dns            = var.enable_external_dns
   external_dns_route53_zone_arns = var.external_dns_route53_zone_arns
   external_dns = {
+    atomic        = true
     chart_version = "1.22.0"
     values = [yamlencode({
       policy        = "upsert-only"
@@ -197,6 +206,7 @@ module "eks_blueprints_addons" {
     retention_in_days = 30
   }
   aws_for_fluentbit = {
+    atomic        = true
     chart_version = "0.1.32"
     values = [templatefile("${path.module}/helm-defaults/aws-for-fluentbit/values.yaml", {
       region               = var.region,
@@ -227,6 +237,7 @@ resource "helm_release" "karpenter_crd" {
   name             = "karpenter-crd"
   repository       = "oci://public.ecr.aws/karpenter"
   chart            = "karpenter-crd"
+  atomic           = true
   version          = var.karpenter_version
 }
 
@@ -285,6 +296,7 @@ resource "helm_release" "aws_neuron_device_plugin" {
 
   name             = "neuron-helm-chart"
   chart            = "oci://public.ecr.aws/neuron/neuron-helm-chart"
+  atomic           = true
   version          = "1.1.1"
   namespace        = "kube-system"
   create_namespace = false
@@ -299,6 +311,7 @@ resource "helm_release" "nvidia_gpu_operator" {
   name             = "nvidia-gpu-operator"
   repository       = "https://helm.ngc.nvidia.com/nvidia"
   chart            = "gpu-operator"
+  atomic           = true
   version          = "v25.3.0"
   namespace        = "gpu-operator"
   create_namespace = true
@@ -315,6 +328,7 @@ resource "helm_release" "kubecost" {
   name             = "kubecost"
   repository       = "oci://public.ecr.aws/kubecost"
   chart            = "cost-analyzer"
+  atomic           = true
   version          = "1.103.2"
   namespace        = "kubecost"
   create_namespace = true
@@ -331,6 +345,7 @@ resource "helm_release" "kuberay_operator" {
   name             = "kuberay-operator"
   repository       = "https://ray-project.github.io/kuberay-helm/"
   chart            = "kuberay-operator"
+  atomic           = true
   version          = var.kuberay_operator_version
   namespace        = "kuberay-operator"
   create_namespace = true

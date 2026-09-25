@@ -83,6 +83,7 @@ resource "helm_release" "jupyterhub_shared_volume" {
   namespace        = kubernetes_namespace_v1.jupyterhub[0].metadata[0].name
   create_namespace = false
   chart            = "${local.helm_defaults}/shared-volume"
+  atomic           = true
 
   values = [yamlencode({
     name             = each.key
@@ -132,6 +133,7 @@ resource "helm_release" "jupyterhub" {
   name             = "jupyterhub"
   repository       = "https://hub.jupyter.org/helm-chart/"
   chart            = "jupyterhub"
+  atomic           = true
   version          = var.jupyterhub_chart_version
   timeout          = 600
   namespace        = kubernetes_namespace_v1.jupyterhub[0].metadata[0].name

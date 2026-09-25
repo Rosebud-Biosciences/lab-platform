@@ -206,6 +206,7 @@ resource "helm_release" "dagster" {
   version    = var.dagster_chart_version
   timeout    = 600
   wait       = var.wait_for_rollouts
+  atomic     = var.wait_for_rollouts # atomic implies wait
 
   values = [templatefile("${local.helm_defaults}/dagster/values.yaml", {
     service_account_name    = local.dagster_service_account

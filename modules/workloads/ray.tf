@@ -106,6 +106,7 @@ resource "helm_release" "ray_cluster" {
   name       = "${local.prefix}${var.ray_cluster_release_name}"
   repository = var.ray_cluster_repository
   chart      = "ray-cluster"
+  atomic     = true
   version    = var.ray_cluster_chart_version
   timeout    = 600
 

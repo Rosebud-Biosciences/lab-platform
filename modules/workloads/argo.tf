@@ -172,6 +172,7 @@ resource "helm_release" "argo_workflows" {
   name       = local.argo_release
   repository = var.argo_workflows_repository
   chart      = "argo-workflows"
+  atomic     = true
   version    = var.argo_workflows_chart_version
   timeout    = 600
 
