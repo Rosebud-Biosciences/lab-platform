@@ -51,7 +51,7 @@ spec:
               command: ["sh", "-c", "pg_isready -U \"$POSTGRES_USER\""]
             periodSeconds: 5
           resources:
-            requests: { cpu: 100m, memory: 256Mi }
+            requests: { cpu: 25m, memory: 256Mi }
             limits: { memory: 1Gi }
           volumeMounts:
             - { name: init, mountPath: /docker-entrypoint-initdb.d }

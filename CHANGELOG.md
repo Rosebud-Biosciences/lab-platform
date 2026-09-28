@@ -40,6 +40,18 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   workloads' NetworkPolicies are enforced (without them, in auth mode
   `headers`, any pod could assert an identity to the webapp).
 
+### Fixed: kind smoke ran out of CPU on a private repository's runner
+
+- `examples/kind`: the tenants (`tenants.tf`) brought the requests to about
+  2.6 vCPU with kind's control plane, on a node of 2 (a private repository's
+  `ubuntu-latest`). The three Ray heads stayed `Pending` ("Insufficient cpu")
+  until the verify script timed out. The first run to see it was the weekly
+  schedule, because the commits went to `main` without a pull request. The
+  Ray heads and workers, Postgres and SeaweedFS now request 25-50m each
+  (limits unchanged), about 1.5 vCPU in all. kind smoke's
+  diagnostics now print each node's allocated resources and each pod's
+  requests.
+
 ### Added: delete rights for retiring previews, split by who may hold them
 
 - `aws/data-access`: two opt-ins to its "never delete".

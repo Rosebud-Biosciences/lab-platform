@@ -153,8 +153,8 @@ module "tenant_stamp" {
   enable_ray_cluster      = each.value.enable.ray
   ray_head_num_cpus       = 0
   ray_head_start_params   = { "object-store-memory" = "100000000" } # 100 MB: a small head on a laptop
-  ray_head_resources      = { requests = { cpu = "200m", memory = "512Mi" }, limits = { cpu = "1", memory = "1536Mi" } }
-  ray_worker_resources    = { requests = { cpu = "250m", memory = "512Mi" }, limits = { cpu = "1", memory = "1Gi" } }
+  ray_head_resources      = { requests = { cpu = "50m", memory = "512Mi" }, limits = { cpu = "1", memory = "1536Mi" } }
+  ray_worker_resources    = { requests = { cpu = "50m", memory = "512Mi" }, limits = { cpu = "1", memory = "1Gi" } }
   ray_worker_max_replicas = 1
 
   enable_argo_workflows = each.value.enable.argo

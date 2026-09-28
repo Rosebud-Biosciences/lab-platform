@@ -143,10 +143,12 @@ module "workloads" {
   webapp_memory_limit   = "256Mi"
   database_url          = local.database_url
 
-  enable_ray              = true
-  enable_ray_cluster      = true
-  ray_head_resources      = { requests = { cpu = "500m", memory = "1Gi" }, limits = { cpu = "1", memory = "2Gi" } }
-  ray_worker_resources    = { requests = { cpu = "250m", memory = "512Mi" }, limits = { cpu = "1", memory = "1Gi" } }
+  enable_ray         = true
+  enable_ray_cluster = true
+  # Small requests so everything schedules on a 2-vCPU runner (README
+  # "Sizing"); the limits let a busy head or worker burst.
+  ray_head_resources      = { requests = { cpu = "50m", memory = "512Mi" }, limits = { cpu = "1", memory = "2Gi" } }
+  ray_worker_resources    = { requests = { cpu = "50m", memory = "512Mi" }, limits = { cpu = "1", memory = "1Gi" } }
   ray_worker_max_replicas = 1
 
   enable_dagster      = true

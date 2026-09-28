@@ -132,6 +132,10 @@ port-forward to the service) when you only want the UI.
 
 ## Sizing
 
-Requests total about 2.5 vCPU / 5 GiB with JupyterHub off (the default), which
-fits a 4-vCPU / 16 GiB GitHub runner alongside kind itself. `enable_jupyterhub
-= true` adds the hub, proxy and one notebook server on first login.
+Requests total about 1.5 vCPU / 4.5 GiB with JupyterHub off (the default),
+kind's own control plane (about 1 vCPU of it) included. That fits the
+2-vCPU / 7 GiB runner GitHub gives a private repository. The requests are
+deliberately small (25-50m for the Ray heads and workers, Postgres and
+SeaweedFS; 100m for Keycloak) and the limits let a busy pod burst: nothing
+here is load-tested. `enable_jupyterhub = true` adds the hub, proxy and one
+notebook server on first login, beyond this budget.

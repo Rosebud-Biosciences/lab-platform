@@ -105,6 +105,10 @@ jobs:
         if: failure()
         run: |
           kubectl get pods -A -o wide
+          # What each node has left, and what each pod reserved: a Pending pod's
+          # "Insufficient cpu" names no culprit.
+          kubectl describe nodes | sed -n '/Allocated resources/,/Events/p'
+          kubectl get pods -A -o custom-columns='NAMESPACE:.metadata.namespace,POD:.metadata.name,CPU:.spec.containers[*].resources.requests.cpu,MEMORY:.spec.containers[*].resources.requests.memory'
           kubectl get events -A --sort-by=.lastTimestamp | tail -60
           for ns in dex keycloak webapp dagster mlflow ray argo t-lab-ray t-acme-ray t-acme-argo t-acme-dagster; do
             echo "== $ns"; kubectl -n "$ns" describe pods | rg -A6 'Events:' || true
@@ -166,6 +170,10 @@ jobs:
         if: failure()
         run: |
           kubectl get pods -A -o wide
+          # What each node has left, and what each pod reserved: a Pending pod's
+          # "Insufficient cpu" names no culprit.
+          kubectl describe nodes | sed -n '/Allocated resources/,/Events/p'
+          kubectl get pods -A -o custom-columns='NAMESPACE:.metadata.namespace,POD:.metadata.name,CPU:.spec.containers[*].resources.requests.cpu,MEMORY:.spec.containers[*].resources.requests.memory'
           kubectl get events -A --sort-by=.lastTimestamp | tail -60
 
       - name: tofu destroy

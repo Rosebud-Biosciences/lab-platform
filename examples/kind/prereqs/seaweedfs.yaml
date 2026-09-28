@@ -43,7 +43,7 @@ spec:
             httpGet: { path: /status, port: 8333 }
             periodSeconds: 5
           resources:
-            requests: { cpu: 100m, memory: 256Mi }
+            requests: { cpu: 25m, memory: 256Mi }
             limits: { memory: 1Gi }
           volumeMounts:
             - { name: data, mountPath: /data }
