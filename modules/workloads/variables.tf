@@ -1296,6 +1296,15 @@ variable "ray_enable_autoscaler" {
   default     = true
 }
 
+variable "ray_autoscaler_resources" {
+  description = "Resources of the autoscaler container in the Ray head pod (ray_enable_autoscaler). null keeps KubeRay's default of 500m CPU / 512Mi for requests and limits alike, which on a small node reserves more than a small head itself"
+  type = object({
+    requests = optional(map(string))
+    limits   = optional(map(string))
+  })
+  default = null
+}
+
 variable "ray_head_num_cpus" {
   description = "CPUs the head advertises to Ray (rayStartParams num-cpus); null keeps Ray's default (all of the pod's). 0 keeps tasks off the head: a small head, work on autoscaled workers."
   type        = number

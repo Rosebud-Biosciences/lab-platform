@@ -18,6 +18,10 @@ head:
   # The chart declares workers 0..maxReplicas but leaves the autoscaler off,
   # so without it no worker ever starts.
   enableInTreeAutoscaling: ${enable_autoscaler}
+%{ if autoscaler_resources != "" ~}
+  autoscalerOptions:
+    resources: ${autoscaler_resources}
+%{ endif ~}
 %{ if head_start_params != "{}" ~}
   # num-cpus 0 keeps tasks off the head (a small head, work on workers).
   rayStartParams: ${head_start_params}

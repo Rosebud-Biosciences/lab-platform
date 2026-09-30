@@ -48,9 +48,12 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   until the verify script timed out. The first run to see it was the weekly
   schedule, because the commits went to `main` without a pull request. The
   Ray heads and workers, Postgres and SeaweedFS now request 25-50m each
-  (limits unchanged), about 1.5 vCPU in all. kind smoke's
-  diagnostics now print each node's allocated resources and each pod's
-  requests.
+  (limits unchanged). kind smoke's diagnostics now print each node's
+  allocated resources and each pod's requests.
+- `modules/workloads`: `ray_autoscaler_resources` sizes the autoscaler
+  container in the Ray head pod. Unset, KubeRay gives it 500m CPU / 512Mi,
+  which was most of each kind head's reservation (1.5 vCPU across three);
+  `examples/kind` sets 50m, bringing the requests to about 1.8 vCPU.
 
 ### Added: delete rights for retiring previews, split by who may hold them
 

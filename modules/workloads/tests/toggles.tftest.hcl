@@ -363,6 +363,25 @@ run "ray_cluster_keeps_log_volume_and_places_head" {
     condition     = strcontains(helm_release.ray_cluster[0].values[0], "fullnameOverride: ray-cluster")
     error_message = "the RayCluster must be named after the release so the dashboard Service selector matches its head"
   }
+  assert {
+    condition     = !strcontains(helm_release.ray_cluster[0].values[0], "autoscalerOptions")
+    error_message = "without ray_autoscaler_resources the autoscaler must keep KubeRay's defaults"
+  }
+}
+
+run "ray_autoscaler_resources_render" {
+  command = plan
+
+  variables {
+    enable_ray               = true
+    enable_ray_cluster       = true
+    ray_autoscaler_resources = { requests = { cpu = "50m" } }
+  }
+
+  assert {
+    condition     = strcontains(helm_release.ray_cluster[0].values[0], "autoscalerOptions:\n    resources: {\"requests\":{\"cpu\":\"50m\"}}")
+    error_message = "ray_autoscaler_resources must render into head.autoscalerOptions.resources, dropping the unset limits"
+  }
 }
 
 # Public ingress is generic: class + annotations from the caller, external-dns

@@ -146,10 +146,12 @@ module "workloads" {
   enable_ray         = true
   enable_ray_cluster = true
   # Small requests so everything schedules on a 2-vCPU runner (README
-  # "Sizing"); the limits let a busy head or worker burst.
-  ray_head_resources      = { requests = { cpu = "50m", memory = "512Mi" }, limits = { cpu = "1", memory = "2Gi" } }
-  ray_worker_resources    = { requests = { cpu = "50m", memory = "512Mi" }, limits = { cpu = "1", memory = "1Gi" } }
-  ray_worker_max_replicas = 1
+  # "Sizing"); the limits let a busy head or worker burst. The autoscaler
+  # sidecar would otherwise reserve 500m in every head pod.
+  ray_head_resources       = { requests = { cpu = "50m", memory = "512Mi" }, limits = { cpu = "1", memory = "2Gi" } }
+  ray_worker_resources     = { requests = { cpu = "50m", memory = "512Mi" }, limits = { cpu = "1", memory = "1Gi" } }
+  ray_autoscaler_resources = { requests = { cpu = "50m", memory = "256Mi" }, limits = { cpu = "500m", memory = "512Mi" } }
+  ray_worker_max_replicas  = 1
 
   enable_dagster      = true
   dagster_db_host     = var.postgres_host

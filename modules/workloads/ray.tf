@@ -122,7 +122,10 @@ resource "helm_release" "ray_cluster" {
     worker_resources        = jsonencode(var.ray_worker_resources)
     worker_max_replicas     = var.ray_worker_max_replicas
     enable_autoscaler       = var.ray_enable_autoscaler
-    mlflow_credentials      = local.mlflow_client_credentials
+    autoscaler_resources = var.ray_autoscaler_resources == null ? "" : jsonencode({
+      for k, v in var.ray_autoscaler_resources : k => v if v != null
+    })
+    mlflow_credentials = local.mlflow_client_credentials
     head_start_params = jsonencode(merge(
       var.ray_head_num_cpus == null ? {} : { "num-cpus" = tostring(var.ray_head_num_cpus) },
       var.ray_head_start_params,
