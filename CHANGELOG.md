@@ -54,6 +54,9 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   container in the Ray head pod. Unset, KubeRay gives it 500m CPU / 512Mi,
   which was most of each kind head's reservation (1.5 vCPU across three);
   `examples/kind` sets 50m, bringing the requests to about 1.8 vCPU.
+- `examples/kind`: `verify-tenants.sh` checks the group role's login with
+  `kubectl exec` in the Postgres pod. The `kubectl run --rm -i` it used lost
+  the output of a `psql` that exits that fast, failing the check.
 
 ### Added: delete rights for retiring previews, split by who may hold them
 

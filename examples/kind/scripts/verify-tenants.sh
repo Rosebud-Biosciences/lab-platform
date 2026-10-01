@@ -156,7 +156,9 @@ print(ray.get(f.remote()))
 
 echo "-- tenants: data"
 url=$(tofu -chdir="$example" output -json group_role_urls | python3 -c 'import json,sys; print(json.load(sys.stdin)["/lab/authors"])')
-who=$(kubectl -n verify run "psql-$RANDOM" --rm -i --quiet --restart=Never --image=postgres:17-alpine -- psql "$url" -tAc 'select current_user' 2>/dev/null | tr -d '\r' | head -1)
+# Over TCP with the role's password, from the Postgres pod (it has psql):
+# `kubectl run --rm -i` lost the output of a psql that exits this fast.
+who=$(kubectl -n postgres exec deploy/postgres -- psql "$url" -tAc 'select current_user' | tr -d '\r' | head -1) || true
 echo "   nb_lab__authors connects: $who"; [ "$who" = "nb_lab__authors" ]
 
 s3() { # s3 <namespace> <aws s3 args...>: as the stamp's identity
