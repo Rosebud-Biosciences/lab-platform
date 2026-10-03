@@ -158,8 +158,16 @@ resource "aws_instance" "tailscale" {
   })
 
   # Its first boot downloads Tailscale through the NAT gateway: boot only once
-  # the gateway and the private route tables are there, not just the subnet.
-  depends_on = [module.vpc]
+  # the gateway, the private route tables and its security group's rules are
+  # there, not just the subnet. A destroy then removes them only after the
+  # relay, so it forwards to the cluster API until the caller's last in-cluster
+  # delete (eks-platform's cluster_access_dependencies).
+  depends_on = [
+    module.vpc,
+    aws_vpc_security_group_egress_rule.tailscale_all,
+    aws_vpc_security_group_ingress_rule.tailscale_wireguard,
+    aws_vpc_security_group_ingress_rule.tailscale_icmp,
+  ]
 }
 
 # ------------------------------------------------------------------------------

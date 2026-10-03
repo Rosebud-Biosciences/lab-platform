@@ -90,6 +90,12 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   kubernetes/helm/kubectl providers use the output, as the examples do,
   destroys every in-cluster resource first. The value is unchanged and known
   at plan time; the first apply creates the node.
+- `aws/network`: the relay instance depends on its security group's rules.
+  Nothing depended on them, so a destroy deleted the relay's egress rule in
+  its first second: the relay kept running but could open no connection to
+  the API, and the in-cluster deletes timed out as before. The rules now go
+  after the relay, and its first boot no longer races the egress it
+  downloads Tailscale through.
 
 ### Changed: `aws/eks-platform` plans without a module `depends_on`
 
