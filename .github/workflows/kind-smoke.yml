@@ -69,13 +69,13 @@ jobs:
     timeout-minutes: 40
     steps:
       - uses: actions/checkout@v7
-      - uses: opentofu/setup-opentofu@v2
+      - uses: opentofu/setup-opentofu@a1320f892987e89d278cc92dc5adc984fb93aca4 # v2.0.2
         with:
           tofu_version: ${{ env.TOFU_VERSION }}
           tofu_wrapper: false
-      - uses: azure/setup-helm@v4
+      - uses: azure/setup-helm@1a275c3b69536ee54be43f2070a358922e12c8d4 # v4.3.1
       - name: Create kind cluster
-        uses: helm/kind-action@v1
+        uses: helm/kind-action@ef37e7f390d99f746eb8b610417061a60e82a6cc # v1.14.0
         with:
           version: ${{ env.KIND_VERSION }}
           node_image: kindest/node:${{ env.KUBERNETES_VERSION }}
@@ -124,7 +124,7 @@ jobs:
 
   aws-data:
     name: kind + AWS data (web identity)
-    if: vars.ENABLE_KIND_AWS_DATA == 'true'
+    if: vars.ENABLE_KIND_AWS_DATA == 'true' && github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 45
     env:
@@ -133,16 +133,16 @@ jobs:
       CLUSTER: lab-platform-aws
     steps:
       - uses: actions/checkout@v7
-      - uses: opentofu/setup-opentofu@v2
+      - uses: opentofu/setup-opentofu@a1320f892987e89d278cc92dc5adc984fb93aca4 # v2.0.2
         with:
           tofu_version: ${{ env.TOFU_VERSION }}
           tofu_wrapper: false
-      - uses: azure/setup-helm@v4
+      - uses: azure/setup-helm@1a275c3b69536ee54be43f2070a358922e12c8d4 # v4.3.1
       - name: Install kind
         run: |
           curl -fsSLo /usr/local/bin/kind "https://kind.sigs.k8s.io/dl/${KIND_VERSION}/kind-linux-amd64"
           chmod +x /usr/local/bin/kind
-      - uses: aws-actions/configure-aws-credentials@v6
+      - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
         with:
           role-to-assume: ${{ secrets.KIND_AWS_DATA_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}

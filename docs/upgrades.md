@@ -20,9 +20,6 @@ Three things are invisible to it:
 | EKS add-on builds and the Kubernetes support calendar | the AWS API, per live cluster | your stack (see below) |
 | The Tailscale relay's AMI | `var.ts_relay_ami` in `aws/network`, or Canonical's SSM parameter when unpinned | you, deliberately (see below) |
 
-Renovate can reach the chart pins with regex managers if you run it; nothing
-here assumes you do.
-
 ## Chart pins: the `chart-drift` report
 
 Every chart this module family installs from an HTTP chart repository *and*

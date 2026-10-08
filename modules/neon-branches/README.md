@@ -16,8 +16,8 @@ common layouts cost what they should:
 
 | Prod layout | Sources | Branches per preview |
 | --- | --- | --- |
-| One project per service (`rosebud-db`, `rosebud-dagster`, `rosebud-mlflow`) | 3 in 3 projects | 3, named `<prefix>app`, `<prefix>dagster`, `<prefix>mlflow` |
-| One project, many databases (the sandbox) | 3 in 1 project | **1**, named `<prefix>app-dagster-mlflow`, serving all three |
+| One project per service (`app-db`, `dagster-db`, `mlflow-db`) | 3 in 3 projects | 3, named `<prefix>app`, `<prefix>dagster`, `<prefix>mlflow` |
+| One project, many databases | 3 in 1 project | **1**, named `<prefix>app-dagster-mlflow`, serving all three |
 | `data` + `orchestration` projects | 3 in 2 projects | 2 |
 
 `branch_names` stays keyed by source (sources sharing a branch report the

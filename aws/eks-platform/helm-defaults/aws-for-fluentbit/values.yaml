@@ -1,3 +1,4 @@
+# Adapted from Data on EKS (github.com/awslabs/data-on-eks, Apache-2.0), with changes; see NOTICE.
 global:
 
 # hostNetwork and dnsPolicy are critical for large clusters to avoid extra API server calls.

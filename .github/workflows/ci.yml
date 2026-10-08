@@ -18,7 +18,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: opentofu/setup-opentofu@v2
+      - uses: opentofu/setup-opentofu@a1320f892987e89d278cc92dc5adc984fb93aca4 # v2.0.2
         with:
           tofu_version: ${{ env.TOFU_VERSION }}
       - name: tofu fmt (check, recursive)
@@ -57,7 +57,7 @@ jobs:
           - examples/kind-aws-data
     steps:
       - uses: actions/checkout@v7
-      - uses: opentofu/setup-opentofu@v2
+      - uses: opentofu/setup-opentofu@a1320f892987e89d278cc92dc5adc984fb93aca4 # v2.0.2
         with:
           tofu_version: ${{ env.TOFU_VERSION }}
       - name: tofu init (no backend)
@@ -70,7 +70,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: terraform-linters/setup-tflint@v6
+      - uses: terraform-linters/setup-tflint@6ffdbaa3be476b3431f7275c26966ef32ff60337 # v6.3.2
       - run: tflint --init
       - name: tflint (recursive)
         run: tflint --recursive --config "$(pwd)/.tflint.hcl"
@@ -87,7 +87,7 @@ jobs:
       - uses: actions/checkout@v7
       # Repo-wide exceptions live in .checkov.yml with their reasons; per-resource
       # ones are inline next to the resource. The gate stays hard.
-      - uses: bridgecrewio/checkov-action@v12
+      - uses: bridgecrewio/checkov-action@c13aafd679d3814a25067d10fcaf98c4f7594931 # v12.3131.0
         with:
           directory: ${{ matrix.dir }}
           framework: terraform
@@ -101,7 +101,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - name: Verify generated module docs are up to date
-        uses: terraform-docs/gh-actions@v1
+        uses: terraform-docs/gh-actions@6de6da0cefcc6b4b7a5cbea4d79d97060733093c # v1.4.1
         with:
           working-dir: modules/workloads,modules/neon-branches,modules/dex,modules/keycloak,modules/keycloak-realm,modules/tenancy,modules/postgres-group-roles,aws/bootstrap,aws/network,aws/eks-platform,aws/s3-bucket,aws/preview-storage,aws/iceberg-branches,aws/data-access,aws/tenant-data,aws/data-adapter,aws/compute-adapter,aws/oidc-provider
           config-file: .terraform-docs.yml
@@ -132,10 +132,24 @@ jobs:
           - aws/oidc-provider
     steps:
       - uses: actions/checkout@v7
-      - uses: opentofu/setup-opentofu@v2
+      - uses: opentofu/setup-opentofu@a1320f892987e89d278cc92dc5adc984fb93aca4 # v2.0.2
         with:
           tofu_version: ${{ env.TOFU_VERSION }}
       - name: tofu init (no backend)
         run: tofu -chdir=${{ matrix.dir }} init -backend=false
       - name: Run plan-only toggle-matrix tests
         run: tofu -chdir=${{ matrix.dir }} test
+
+  # The one check a branch ruleset requires: it passes only when every gate
+  # above did, so a new matrix entry needs no ruleset change.
+  ci:
+    if: ${{ always() }}
+    needs: [fmt, validate, lint, checkov, docs, test]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Every gate passed
+        env:
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+        run: |
+          echo "$RESULTS"
+          for r in $RESULTS; do [ "$r" = success ] || exit 1; done

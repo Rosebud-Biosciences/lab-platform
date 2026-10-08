@@ -1,0 +1,15 @@
+lab-platform
+Copyright 2026 Rosebud Biosciences, Inc.
+
+This product includes works adapted from the following, each licensed under
+the Apache License, Version 2.0:
+
+Data on EKS (https://github.com/awslabs/data-on-eks)
+Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+  The Helm values in aws/eks-platform/helm-defaults/ for argo (argo-events),
+  aws-for-fluentbit, cluster-autoscaler, coredns-autoscaler,
+  kube-prometheus-stack, kubecost and metrics-server.
+
+NVIDIA GPU Operator (https://github.com/NVIDIA/gpu-operator)
+  aws/eks-platform/helm-defaults/nvidia-gpu-operator/values.yaml, from the
+  chart's default values.

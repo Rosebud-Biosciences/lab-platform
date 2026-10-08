@@ -19,8 +19,8 @@ What "branch prod" covers, precisely:
   PR's code is trusted with that.
 
 **Status.** The modules are plan-tested and the auth path runs end to end on
-kind; the preview loop has not yet run end to end on EKS
-(`lab-platform-sandbox` tracks that). [Trust](#trust-what-a-preview-can-reach)
+kind. A reference deployment runs the template app's preview loop end to end
+on EKS in both data modes, tofu and tether. [Trust](#trust-what-a-preview-can-reach)
 lists what a preview can and cannot reach.
 
 This document explains how it works so you can adopt, extend, or replace the

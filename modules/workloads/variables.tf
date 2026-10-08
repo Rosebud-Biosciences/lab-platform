@@ -999,7 +999,7 @@ variable "jupyterhub_public_tls_secret_name" {
 # ------------------------------------------------------------------------------
 
 variable "dagster_chart_version" {
-  description = "Version of the official dagster/dagster Helm chart. Must be >= 1.13.23: earlier images are amd64-only, and an arm64 cluster (kind on Apple Silicon, Graviton nodes) cannot pull them." # renovate: chart=dagster registryUrl=https://dagster-io.github.io/helm
+  description = "Version of the official dagster/dagster Helm chart. Must be >= 1.13.23: earlier images are amd64-only, and an arm64 cluster (kind on Apple Silicon, Graviton nodes) cannot pull them."
   type        = string
   default     = "1.13.23"
 }
@@ -1076,7 +1076,7 @@ variable "dagster_user_code_secret_env" {
 # ------------------------------------------------------------------------------
 
 variable "mlflow_chart_version" {
-  description = "Version of the community-charts/mlflow Helm chart. Must be >= 1.x: the 0.7 chart's image bundles a libpq too old for SCRAM authentication, which Postgres 14+ and Neon default to." # renovate: chart=mlflow registryUrl=https://community-charts.github.io/helm-charts
+  description = "Version of the community-charts/mlflow Helm chart. Must be >= 1.x: the 0.7 chart's image bundles a libpq too old for SCRAM authentication, which Postgres 14+ and Neon default to."
   type        = string
   default     = "1.11.7"
 }
@@ -1094,7 +1094,7 @@ variable "mlflow_image" {
   # create_user (3.16.0 bundles 7.18.1). Check both on a bump.
   type = object({
     repository = optional(string, "burakince/mlflow")
-    tag        = optional(string, "3.16.0") # renovate: datasource=docker depName=burakince/mlflow
+    tag        = optional(string, "3.16.0")
   })
   default = {}
 }
@@ -1155,7 +1155,7 @@ variable "mlflow_cors_allowed_origins" {
 # ------------------------------------------------------------------------------
 
 variable "argo_workflows_chart_version" {
-  description = "Version of the argo/argo-workflows Helm chart. Its appVersion must match the CRDs the platform installed (aws/eks-platform argo_workflows_version; 2.0.6 -> v4.1.3)." # renovate: chart=argo-workflows registryUrl=https://argoproj.github.io/argo-helm
+  description = "Version of the argo/argo-workflows Helm chart. Its appVersion must match the CRDs the platform installed (aws/eks-platform argo_workflows_version; 2.0.6 -> v4.1.3)."
   type        = string
   default     = "2.0.6"
 }
@@ -1255,7 +1255,7 @@ variable "ray_gpu_image_tag" {
 }
 
 variable "ray_cluster_chart_version" {
-  description = "Version of the kuberay ray-cluster Helm chart" # renovate: chart=ray-cluster registryUrl=https://ray-project.github.io/kuberay-helm
+  description = "Version of the kuberay ray-cluster Helm chart"
   type        = string
   default     = "1.6.0"
 }

@@ -6,6 +6,25 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added: what a public project needs
+
+- `SECURITY.md` (private reporting, scope, and the two known gaps in the
+  preview defaults: a cluster-admin preview role, and a permissions boundary
+  that caps actions but not resources until `preview_boundary_resources` is
+  set), `CONTRIBUTING.md` (the six CI gates), a Code of Conduct (Contributor
+  Covenant 2.1), CODEOWNERS for the workflows and `aws/bootstrap`, and issue
+  templates.
+- `NOTICE`: the copyright holder, and the Helm values in
+  `aws/eks-platform/helm-defaults` adapted from AWS's Data on EKS and NVIDIA's
+  GPU Operator chart (both Apache-2.0), each file now marked as adapted.
+- `ci` gains a job named `ci` that passes only when every gate did: the one
+  check a branch ruleset needs to require.
+- The workflows pin every third-party action to a commit SHA (Dependabot
+  keeps them current). `kind smoke`'s AWS-data job no longer runs on pull
+  requests once enabled: dispatch or schedule only, as its comment says.
+- Removed `renovate.json`: its regex matched none of the markers, and
+  Dependabot plus `chart-drift` are the update paths.
+
 ### Security: a preview cannot reach prod's IAM or another environment's identity
 
 - `aws/bootstrap` (**breaking**): the preview role manages IAM only under
@@ -631,7 +650,7 @@ Migration for an existing deployment (`examples/*` show the wiring):
   plan-time guards layered on the existing Deny policies. Terraform's
   literal-only `prevent_destroy` cannot express any of this.
 
-### Changed vs. the original private repo
+### Changed vs. the production stack it was extracted from
 
 - Provider blocks hoisted out of the `s3-bucket` and `network` modules
   (registry compatibility; enables `count`/`for_each`).
@@ -645,7 +664,7 @@ Migration for an existing deployment (`examples/*` show the wiring):
 - EKS module bumped from v20 to v21 so the whole family standardizes on the AWS
   v6 provider (the v20 module capped `aws < 6.0`, which conflicted with the
   VPC v6 module and blocked composing the modules in one configuration).
-- Helm provider 3 + `eks-blueprints-addons` 1.24.3 (the private repo is stuck on
+- Helm provider 3 + `eks-blueprints-addons` 1.24.3 (that stack is stuck on
   helm 2 / blueprints 1.23 because the provider-2→3 state migration is broken
   upstream; a green-field OSS apply never migrates state, so it adopts helm 3
   cleanly — and shipping the `~> 2.17` cap would otherwise force every consumer

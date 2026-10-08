@@ -1,0 +1,28 @@
+name: Bug report
+description: Something in a module, example or workflow does not work as documented
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: A security problem? Report it privately instead (Security tab, "Report a vulnerability").
+  - type: input
+    id: where
+    attributes:
+      label: Module, example or workflow
+      placeholder: modules/workloads, examples/kind, .github/workflows/preview-up.yml
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened, and what you expected
+      description: The error, trimmed to what matters, and the inputs that produce it (no secrets, account IDs or hostnames).
+    validations:
+      required: true
+  - type: input
+    id: versions
+    attributes:
+      label: Versions
+      placeholder: lab-platform v0.2.0 (or a commit), OpenTofu 1.12.x, the providers' versions from .terraform.lock.hcl
+    validations:
+      required: true

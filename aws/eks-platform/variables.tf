@@ -301,7 +301,7 @@ variable "enable_argo_workflows" {
 }
 
 variable "argo_workflows_version" {
-  description = "Argo Workflows release tag the CRDs are taken from. Keep equal to the appVersion of modules/workloads' argo_workflows_chart_version (chart 2.0.6 -> v4.1.3)." # renovate: github-releases argoproj/argo-workflows
+  description = "Argo Workflows release tag the CRDs are taken from. Keep equal to the appVersion of modules/workloads' argo_workflows_chart_version (chart 2.0.6 -> v4.1.3)."
   type        = string
   default     = "v4.1.3"
 

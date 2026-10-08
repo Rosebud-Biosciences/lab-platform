@@ -1,0 +1,3 @@
+# What CI roles may do, and what adopters run with their own credentials.
+/.github/workflows/ @elyall
+/aws/bootstrap/     @elyall

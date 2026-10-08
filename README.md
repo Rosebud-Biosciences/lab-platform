@@ -21,9 +21,13 @@ GitHub redirects the old name.)
 
 > Status: extracted from a production stack and genericized for open source.
 > Wiring is validated (`tofu validate` + plan-only `tofu test`), and the
-> workloads with OIDC auth and tenants run end to end on kind in CI; the
-> preview loop has not yet run end to end on EKS. A full apply needs your own
-> AWS account, DNS, and (optionally) Tailscale/Neon.
+> workloads with OIDC auth and tenants run end to end on kind in CI. A
+> reference deployment in its own AWS account runs the template app's preview
+> loop end to end on EKS, in both data modes: Neon branches and empty stores
+> per PR, and tether forks of the production stores, kept across pushes and
+> discarded when the PR closes; it also exercises the nightly data pull, the
+> sweep and pausing the cluster. A full apply needs your own AWS account, DNS,
+> and (optionally) Tailscale/Neon.
 
 ## Modules
 
@@ -107,6 +111,19 @@ is for development, cheap GPU bursts on subsets, and hardware AWS does not have.
 
 ## Quickstart
 
+On a laptop, free: the workloads with Dex, Keycloak and two tenants on kind,
+against local SeaweedFS and Postgres (Docker and ~6 GiB of memory).
+
+```bash
+cd examples/kind
+scripts/up.sh       # cluster, prerequisites, tofu apply, health checks (~8 min)
+tofu output port_forwards
+scripts/down.sh
+```
+
+On AWS (about $225 a month, see [Cost](#cost)): a VPC, an EKS cluster and one
+webapp.
+
 ```bash
 cd examples/minimal
 cp terraform.tfvars.example terraform.tfvars   # set webapp_image, region
@@ -119,7 +136,8 @@ tofu apply
 
 See the runnable examples:
 
-- [`examples/minimal`](examples/minimal) — VPC + cluster + one webapp, cheapest path.
+- [`examples/kind`](examples/kind) — everything on a laptop or a free CI runner.
+- [`examples/minimal`](examples/minimal) — VPC + cluster + one webapp, cheapest AWS path.
 - [`examples/complete`](examples/complete) — the full surface (monitoring, GPU,
   Ray, all workloads, Tailscale, public + private ingress).
 - [`examples/jupyterhub`](examples/jupyterhub) — multi-user lab: per-user logins,
@@ -155,7 +173,7 @@ Read the design writeup: [`docs/preview-environments.md`](docs/preview-environme
 ## Design choices worth calling out
 
 - **Provider blocks are hoisted** out of every module, so modules compose with
-  `count`/`for_each` and satisfy Terraform Registry rules.
+  `count`/`for_each` and a caller configures each provider once.
 - **Lean defaults**: monitoring/Kubecost/FluentBit are off; a single NAT gateway;
   a public cluster endpoint only where an example needs reachability. Turn the
   expensive knobs on per environment.
@@ -245,15 +263,22 @@ pods/nodes they actually schedule on top of the shared cluster.
 - AWS provider >= 6.40 across the family (the EKS module is pinned to v21, which
   requires the aws v6 provider).
 
+## Security
+
+Report vulnerabilities privately ([SECURITY.md](SECURITY.md)). Two defaults
+are weaker than they look, and matter to anyone running the preview
+workflows: a preview deploys as cluster-admin, so whoever can push a branch to
+the app repository can change the whole cluster, prod's namespaces included;
+and the preview permissions boundary caps actions, not resources, until you
+set `aws/bootstrap`'s `preview_boundary_resources`. SECURITY.md and the
+design doc's "Trust" section say what each allows and what to do.
+
 ## Development
 
-```bash
-tofu fmt -recursive
-tofu -chdir=modules/<m> init -backend=false && tofu -chdir=modules/<m> validate
-tofu -chdir=modules/<m> test      # plan-only toggle-matrix tests (bootstrap/network/workloads)
-terraform-docs -c .terraform-docs.yml modules/<m>   # regenerate the README table
-```
+[CONTRIBUTING.md](CONTRIBUTING.md) has the six CI gates (fmt, validate,
+tflint, checkov, terraform-docs, tofu test) and how to run them locally.
 
 ## License
 
-[Apache-2.0](LICENSE).
+[Apache-2.0](LICENSE); see [NOTICE](NOTICE) for the copyright holder and the
+adapted Helm values.

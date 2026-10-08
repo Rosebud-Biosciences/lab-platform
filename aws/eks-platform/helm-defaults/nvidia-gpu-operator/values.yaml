@@ -1,3 +1,4 @@
+# Adapted from the NVIDIA GPU Operator chart's default values (github.com/NVIDIA/gpu-operator, Apache-2.0), with changes; see NOTICE.
 # Default values for gpu-operator.
 
 daemonsets:

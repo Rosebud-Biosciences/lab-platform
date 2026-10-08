@@ -1,3 +1,4 @@
+# Adapted from Data on EKS (github.com/awslabs/data-on-eks, Apache-2.0), with changes; see NOTICE.
 prometheus:
   prometheusSpec:
     resources:
