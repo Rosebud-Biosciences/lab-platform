@@ -6,6 +6,12 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-10-08
+
+The first release, and the first public one. Pin to it: the template app's
+workflows call this repository's reusable workflows, which run with the
+caller's AWS role.
+
 ### Added: what a public project needs
 
 - `SECURITY.md` (private reporting, scope, and the two known gaps in the
@@ -676,3 +682,6 @@ Migration for an existing deployment (`examples/*` show the wiring):
 - The Argo and Dagster ClusterRoles now grant `rayjobs` in addition to
   `rayclusters`, enabling the ephemeral `RayJob` pattern without hand-managing a
   cluster's lifecycle.
+
+[Unreleased]: https://github.com/Rosebud-Biosciences/lab-platform/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/Rosebud-Biosciences/lab-platform/releases/tag/v0.2.0

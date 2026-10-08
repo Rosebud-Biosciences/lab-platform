@@ -9,7 +9,7 @@ read-only / read-write IAM policy ARNs for the workloads to consume.
 
 ```hcl
 module "storage" {
-  source = "github.com/Rosebud-Biosciences/lab-platform//aws/preview-storage?ref=main"
+  source = "github.com/Rosebud-Biosciences/lab-platform//aws/preview-storage?ref=v0.2.0"
 
   name_prefix = "pr123"
 }

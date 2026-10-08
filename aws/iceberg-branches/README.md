@@ -11,7 +11,7 @@ of the stamp; prod tables are untouched (and unwritable) the whole time.
 
 ```hcl
 module "iceberg" {
-  source = "github.com/Rosebud-Biosciences/lab-platform//aws/iceberg-branches?ref=main"
+  source = "github.com/Rosebud-Biosciences/lab-platform//aws/iceberg-branches?ref=v0.2.0"
 
   name_prefix      = "pr123"
   table_bucket_arn = "arn:aws:s3tables:us-west-2:111122223333:bucket/lakehouse"

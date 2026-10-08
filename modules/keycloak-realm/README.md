@@ -26,7 +26,7 @@ Keycloak; `-replace` the permission if it does.
 
 ```hcl
 module "realm" {
-  source = "github.com/Rosebud-Biosciences/lab-platform//modules/keycloak-realm?ref=main"
+  source = "github.com/Rosebud-Biosciences/lab-platform//modules/keycloak-realm?ref=v0.2.0"
 
   keycloak_base_url = module.keycloak.base_url
   tenants           = module.tenancy.realm_tenants
@@ -40,7 +40,7 @@ module "realm" {
 }
 
 module "dex" {
-  source        = "github.com/Rosebud-Biosciences/lab-platform//modules/dex?ref=main"
+  source        = "github.com/Rosebud-Biosciences/lab-platform//modules/dex?ref=v0.2.0"
   connectors    = [module.realm.dex_connector]
   connector_env = module.realm.dex_connector_env # $KEYCLOAK_CLIENT_SECRET
   # ...

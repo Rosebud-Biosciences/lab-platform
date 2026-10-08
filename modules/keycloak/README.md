@@ -10,7 +10,7 @@ branching -- is global: who exists must not differ per environment.
 
 ```hcl
 module "keycloak" {
-  source = "github.com/Rosebud-Biosciences/lab-platform//modules/keycloak?ref=main"
+  source = "github.com/Rosebud-Biosciences/lab-platform//modules/keycloak?ref=v0.2.0"
 
   hostname = "https://id.example.com" # browsers AND pods (tokens carry it)
   ingress  = { enabled = true, class_name = "nginx", host = "id.example.com", tls_secret_name = "id-tls" }

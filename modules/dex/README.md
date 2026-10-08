@@ -26,7 +26,7 @@ stamped or branched with it. See `docs/auth.md`.
 
 ```hcl
 module "dex" {
-  source = "github.com/Rosebud-Biosciences/lab-platform//modules/dex?ref=main"
+  source = "github.com/Rosebud-Biosciences/lab-platform//modules/dex?ref=v0.2.0"
 
   providers = { kubernetes = kubernetes, helm = helm, kubectl = kubectl }
 

@@ -37,7 +37,7 @@ repository uses (`use_immutable_subject`) and its prefix.
 
 ```hcl
 module "bootstrap" {
-  source = "github.com/Rosebud-Biosciences/lab-platform//aws/bootstrap?ref=main"
+  source = "github.com/Rosebud-Biosciences/lab-platform//aws/bootstrap?ref=v0.2.0"
 
   state_bucket_name = "my-org-terraform-state"
   github_owner      = "my-org"
