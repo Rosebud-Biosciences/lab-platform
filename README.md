@@ -270,7 +270,7 @@ two defaults are weaker than they look, and matter to anyone running the
 preview workflows: a preview deploys as cluster-admin, so whoever can push a
 branch to the app repository can change the whole cluster, prod's namespaces
 included; and the preview permissions boundary caps actions, not resources.
-After v0.2.0, `aws/eks-platform`'s `preview_access`, with the preview role's
+From v0.3.0, `aws/eks-platform`'s `preview_access`, with the preview role's
 access entry mapped to its group alone, confines a preview to the `preview-*`
 namespaces it creates, and the boundary reaches only what a preview owns plus
 `preview_boundary_access`. SECURITY.md

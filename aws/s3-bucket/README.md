@@ -9,7 +9,7 @@ policy that denies both bucket and key deletion.
 
 ```hcl
 module "artifacts" {
-  source = "github.com/Rosebud-Biosciences/lab-platform//aws/s3-bucket?ref=v0.2.0"
+  source = "github.com/Rosebud-Biosciences/lab-platform//aws/s3-bucket?ref=v0.3.0"
 
   name = "my-org-mlflow-artifacts"
 }

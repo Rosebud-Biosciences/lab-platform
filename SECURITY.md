@@ -29,7 +29,7 @@ most to anyone running the preview workflows, so read them before you adopt:
    therefore change anything in the cluster through them, prod's namespaces
    included, and act as any prod ServiceAccount and the IAM role bound to it.
    The label check that starts a preview is in a workflow file the PR can
-   edit. From the next release, `aws/eks-platform`'s `preview_access`, with
+   edit. From v0.3.0, `aws/eks-platform`'s `preview_access`, with
    the role's access entry mapped to its group alone, confines it to the
    `preview-*` namespaces it creates (`modules/preview-access`); until you
    configure both, grant write access to such a repository as you would
@@ -39,7 +39,7 @@ most to anyone running the preview workflows, so read them before you adopt:
    can create a `/preview/` role, with a trust policy of its choosing, that
    reads, writes or deletes objects in any bucket in the account. Set it to
    the buckets, table buckets, KMS keys and ECR repositories previews use,
-   or upgrade: from the next release the boundary reaches only what a
+   or upgrade: from v0.3.0 the boundary reaches only what a
    preview owns plus `preview_boundary_access`, with writes and deletes
    listed separately and S3 pinned to the account.
 
@@ -47,6 +47,6 @@ By design, `tether` mode lets a preview's pods write into production stores
 (never delete): opt in only where the PR's code is trusted with that.
 
 [docs/preview-environments.md](docs/preview-environments.md), "Trust: what a
-preview can reach", has the full picture. From the next release,
+preview can reach", has the full picture. From v0.3.0,
 `nightly-sweep` also retires `/preview/` roles and policies that outlive
 their preview.

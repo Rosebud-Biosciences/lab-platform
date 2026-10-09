@@ -32,7 +32,7 @@ module. Needs Kubernetes >= 1.30 (ValidatingAdmissionPolicy).
 
 ```hcl
 module "preview_access" {
-  source = "github.com/Rosebud-Biosciences/lab-platform//modules/preview-access?ref=v0.2.0"
+  source = "github.com/Rosebud-Biosciences/lab-platform//modules/preview-access?ref=v0.3.0"
 
   dex_namespace = "dex"
 }

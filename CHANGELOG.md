@@ -6,6 +6,15 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-10-09
+
+Previews confined: a preview's deploy identity owns only the `preview-*`
+namespaces it creates, the roles it makes reach only what it owns, and a pull
+request cannot write prod's trunk or its pins. This closes the two gaps
+SECURITY.md listed for 0.2.0, and new clusters' first apply works again.
+Several changes are breaking: read each "Upgrading" note first, and upgrade
+with no preview standing (every Kubernetes name a preview makes changes).
+
 ### Fixed: a new cluster's first apply deadlocked (since 0.2.0)
 
 - `aws/eks-platform`: the EKS module (21.x) creates clusters without EKS's
@@ -778,5 +787,6 @@ Migration for an existing deployment (`examples/*` show the wiring):
   `rayclusters`, enabling the ephemeral `RayJob` pattern without hand-managing a
   cluster's lifecycle.
 
-[Unreleased]: https://github.com/Rosebud-Biosciences/lab-platform/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/Rosebud-Biosciences/lab-platform/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/Rosebud-Biosciences/lab-platform/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/Rosebud-Biosciences/lab-platform/releases/tag/v0.2.0

@@ -12,7 +12,7 @@ name: Nightly Sweep
 #       - cron: "17 3 * * *"
 #   jobs:
 #     sweep:
-#       uses: Rosebud-Biosciences/lab-platform/.github/workflows/nightly-sweep.yml@v0.2.0
+#       uses: Rosebud-Biosciences/lab-platform/.github/workflows/nightly-sweep.yml@v0.3.0
 #       with:
 #         role_to_assume: arn:aws:iam::123456789012:role/github-actions-preview-deployer
 #         cluster_name: eks-prod

@@ -18,7 +18,7 @@ and commit to prod's tables. This module is the smallest grant that allows it:
 
 ```hcl
 module "data_access" {
-  source = "github.com/Rosebud-Biosciences/lab-platform//aws/data-access?ref=v0.2.0"
+  source = "github.com/Rosebud-Biosciences/lab-platform//aws/data-access?ref=v0.3.0"
 
   name       = "pr123-data-access"
   bucket_arn = "arn:aws:s3:::prod-data"
