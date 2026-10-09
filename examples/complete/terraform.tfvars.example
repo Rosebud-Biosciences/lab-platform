@@ -5,8 +5,8 @@ environment = "prod"
 #     a public cluster endpoint with no private ingress) ---
 tailscale_tailnet             = "example.com"
 tailscale_dns_suffix          = "tailXXXX.ts.net"
-tailscale_oauth_client_id     = "tskey-client-xxxxxxxx"
-tailscale_oauth_client_secret = "tskey-client-secret-xxxxxxxx"
+tailscale_oauth_client_id     = "<oauth client id>"
+tailscale_oauth_client_secret = "<oauth client secret>"
 
 # --- Public webapp ---
 webapp_image               = "123456789012.dkr.ecr.us-west-2.amazonaws.com/webapp:latest"
