@@ -26,7 +26,7 @@ stamped or branched with it. See `docs/auth.md`.
 
 ```hcl
 module "dex" {
-  source = "github.com/Rosebud-Biosciences/lab-platform//modules/dex?ref=v0.2.0"
+  source = "github.com/Rosebud-Biosciences/lab-platform//modules/dex?ref=v0.3.0"
 
   providers = { kubernetes = kubernetes, helm = helm, kubectl = kubectl }
 
@@ -55,7 +55,7 @@ module "dex" {
   }]
   connector_env_secret_name = "dex-google" # created outside tofu; or connector_env = { ... }
 
-  # A preview's CI may manage only pr<N>- clients (Kubernetes >= 1.30).
+  # A preview's CI may manage only preview- clients (Kubernetes >= 1.30).
   client_admission = {
     restricted_user_prefixes = ["arn:aws:sts::123456789012:assumed-role/preview-deployer/"]
   }
@@ -128,7 +128,7 @@ mistakes, not against a principal that can delete the policy itself -- see
 | <a name="input_issuer_url"></a> [issuer\_url](#input\_issuer\_url) | The OIDC issuer URL, i.e. the URL browsers AND pods reach Dex at, including<br/>the path Dex serves under. Every relying party validates tokens against<br/>this exact string, so it must resolve identically from both. On a kind<br/>cluster the in-cluster Service URL works for both<br/>(http://dex.dex.svc.cluster.local:5556/dex); on a real cluster use the<br/>Ingress hostname (https://dex.example.com/dex). | `string` | n/a | yes |
 | <a name="input_chart_repository"></a> [chart\_repository](#input\_chart\_repository) | Helm repository holding the dex chart | `string` | `"https://charts.dexidp.io"` | no |
 | <a name="input_chart_version"></a> [chart\_version](#input\_chart\_version) | dexidp/dex Helm chart version | `string` | `"0.24.1"` | no |
-| <a name="input_client_admission"></a> [client\_admission](#input\_client\_admission) | A ValidatingAdmissionPolicy on OAuth2Client objects in Dex's namespace:<br/>requests from restricted principals (Kubernetes usernames starting with<br/>one of restricted\_user\_prefixes, or members of restricted\_groups -- e.g.<br/>the preview CI role's username) may only create, change or delete<br/>clients whose id matches allowed\_id\_pattern (a preview's own "pr<N>-"<br/>prefix), so a PR's tofu cannot rewrite prod's redirect URIs. Everyone<br/>else is unaffected. Null disables it. Needs Kubernetes >= 1.30. | <pre>object({<br/>    restricted_user_prefixes = optional(list(string), [])<br/>    restricted_groups        = optional(list(string), [])<br/>    allowed_id_pattern       = optional(string, "^pr[0-9]+-")<br/>  })</pre> | `null` | no |
+| <a name="input_client_admission"></a> [client\_admission](#input\_client\_admission) | A ValidatingAdmissionPolicy on OAuth2Client objects in Dex's namespace:<br/>requests from restricted principals (Kubernetes usernames starting with<br/>one of restricted\_user\_prefixes, or members of restricted\_groups -- e.g.<br/>the preview CI role's username) may only create, change or delete<br/>clients whose id matches allowed\_id\_pattern (a preview's own<br/>"preview-" prefix, modules/preview-access's namespace\_prefix), so a PR's tofu cannot rewrite prod's redirect URIs. Everyone<br/>else is unaffected. Null disables it. Needs Kubernetes >= 1.30. | <pre>object({<br/>    restricted_user_prefixes = optional(list(string), [])<br/>    restricted_groups        = optional(list(string), [])<br/>    allowed_id_pattern       = optional(string, "^preview-")<br/>  })</pre> | `null` | no |
 | <a name="input_connector_env"></a> [connector\_env](#input\_connector\_env) | Secret values for the connectors, as environment variables of the Dex<br/>pod: reference them as $NAME in `connectors` (Dex expands them), e.g.<br/>connector\_env = { GOOGLE\_CLIENT\_SECRET = var.google\_client\_secret } with<br/>clientSecret = "$GOOGLE\_CLIENT\_SECRET". They land in a Secret this module<br/>creates (so still in tofu state, but not in the Helm release or Dex's<br/>rendered config). Prefer connector\_env\_secret\_name to keep them out of<br/>state as well. | `map(string)` | `{}` | no |
 | <a name="input_connector_env_secret_name"></a> [connector\_env\_secret\_name](#input\_connector\_env\_secret\_name) | Name of an existing Secret in Dex's namespace (created outside tofu, e.g. by External Secrets) whose keys become Dex's environment for $NAME expansion in `connectors`. Takes precedence over connector\_env. | `string` | `""` | no |
 | <a name="input_connectors"></a> [connectors](#input\_connectors) | Dex connectors: the upstream identity providers users actually log in with,<br/>as the objects Dex's config.yaml takes (type, id, name, config). Any of<br/>Dex's connectors works -- google, github, microsoft, ldap, saml, oidc<br/>(generic) -- and swapping one for another changes nothing downstream:<br/>relying parties only ever see Dex. `mockCallback` (a fixed test identity<br/>in group "authors") is useful in CI. Sensitive: connector configs carry<br/>client secrets. Example:<br/><br/>  connectors = [{<br/>    type = "google"<br/>    id   = "google"<br/>    name = "Google"<br/>    config = {<br/>      clientID     = var.google\_client\_id<br/>      clientSecret = var.google\_client\_secret<br/>      redirectURI  = "https://dex.example.com/dex/callback"<br/>      hostedDomains = ["example.com"]<br/>    }<br/>  }] | `list(any)` | `[]` | no |

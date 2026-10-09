@@ -61,7 +61,7 @@ resource "kubernetes_namespace_v1" "jupyterhub" {
   count = var.enable_jupyterhub ? 1 : 0
 
   metadata {
-    name = local.jupyterhub_namespace
+    name = local.namespace_names.jupyterhub
     # NetworkPolicies admit client services by this label (netpol.tf).
     labels = merge({ "lab-platform.io/service" = "jupyterhub" }, local.tenant_labels)
   }
@@ -80,7 +80,7 @@ resource "helm_release" "jupyterhub_shared_volume" {
   for_each = var.enable_jupyterhub ? toset([local.jupyterhub_home_claim, local.jupyterhub_shared_claim]) : toset([])
 
   name             = each.key
-  namespace        = kubernetes_namespace_v1.jupyterhub[0].metadata[0].name
+  namespace        = local.jupyterhub_namespace
   create_namespace = false
   chart            = "${local.helm_defaults}/shared-volume"
   atomic           = true
@@ -105,7 +105,7 @@ resource "kubernetes_service_account_v1" "jupyterhub_single_user" {
 
   metadata {
     name        = local.jupyterhub_single_user_sa
-    namespace   = kubernetes_namespace_v1.jupyterhub[0].metadata[0].name
+    namespace   = local.jupyterhub_namespace
     annotations = local.identity.jupyterhub.service_account_annotations
   }
 
@@ -117,7 +117,7 @@ resource "kubernetes_secret_v1" "jupyterhub_identity_env" {
 
   metadata {
     name      = local.identity_secret_name.jupyterhub
-    namespace = kubernetes_namespace_v1.jupyterhub[0].metadata[0].name
+    namespace = local.jupyterhub_namespace
   }
 
   data = local.identity_secret_env.jupyterhub
@@ -136,7 +136,7 @@ resource "helm_release" "jupyterhub" {
   atomic           = true
   version          = var.jupyterhub_chart_version
   timeout          = 600
-  namespace        = kubernetes_namespace_v1.jupyterhub[0].metadata[0].name
+  namespace        = local.jupyterhub_namespace
   create_namespace = false
 
   values = concat(
@@ -203,7 +203,7 @@ resource "kubernetes_ingress_v1" "jupyterhub" {
 
   metadata {
     name        = "jupyterhub"
-    namespace   = kubernetes_namespace_v1.jupyterhub[0].metadata[0].name
+    namespace   = local.jupyterhub_namespace
     annotations = local.jupyterhub_public_annotations
   }
 

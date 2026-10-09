@@ -146,6 +146,27 @@ run "node_pools_become_scheduling" {
     condition     = !contains(keys(output.scheduling), "mlflow")
     error_message = "unlisted roles are absent so they schedule anywhere"
   }
+  assert {
+    condition     = helm_release.karpenter_node_pools["default"].namespace == "karpenter"
+    error_message = "by default the releases live in Karpenter's namespace"
+  }
+}
+
+run "preview_node_pools_stay_in_its_namespace" {
+  command = plan
+
+  variables {
+    name_prefix                  = "preview-pr9-"
+    vpc_name                     = "vpc-test"
+    karpenter_node_iam_role_name = "eks-test-karpenter-node"
+    karpenter_node_pools         = { default = {} }
+    node_pools_namespace         = "preview-pr9-webapp"
+  }
+
+  assert {
+    condition     = helm_release.karpenter_node_pools["default"].namespace == "preview-pr9-webapp" && output.node_pool_names.default == "preview-pr9-default"
+    error_message = "a preview's NodePool release lives in its own namespace, and the pool carries its prefix"
+  }
 }
 
 run "node_pools_off_without_node_role" {

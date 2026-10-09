@@ -25,7 +25,7 @@ resource "kubernetes_namespace_v1" "webapp" {
   count = var.enable_webapp ? 1 : 0
 
   metadata {
-    name = local.webapp_namespace
+    name = local.namespace_names.webapp
     # NetworkPolicies admit client services by this label (netpol.tf).
     labels = merge({ "lab-platform.io/service" = "webapp" }, local.tenant_labels)
   }
@@ -36,7 +36,7 @@ resource "kubernetes_service_account_v1" "webapp" {
 
   metadata {
     name        = local.webapp_service_account_name
-    namespace   = kubernetes_namespace_v1.webapp[0].metadata[0].name
+    namespace   = local.webapp_namespace
     annotations = local.identity.webapp.service_account_annotations
   }
 }
@@ -50,7 +50,7 @@ resource "kubernetes_secret_v1" "webapp_env" {
 
   metadata {
     name      = "${var.webapp_app_name}-env"
-    namespace = kubernetes_namespace_v1.webapp[0].metadata[0].name
+    namespace = local.webapp_namespace
   }
 
   data = merge(
@@ -76,7 +76,7 @@ resource "kubernetes_deployment_v1" "webapp" {
 
   metadata {
     name      = var.webapp_app_name
-    namespace = kubernetes_namespace_v1.webapp[0].metadata[0].name
+    namespace = local.webapp_namespace
     labels    = local.webapp_labels
   }
 
@@ -210,7 +210,7 @@ resource "kubernetes_deployment_v1" "webapp_pinned" {
 
   metadata {
     name      = var.webapp_app_name
-    namespace = kubernetes_namespace_v1.webapp[0].metadata[0].name
+    namespace = local.webapp_namespace
     labels    = local.webapp_labels
   }
 
@@ -344,7 +344,7 @@ resource "kubernetes_service_v1" "webapp" {
 
   metadata {
     name      = var.webapp_app_name
-    namespace = kubernetes_namespace_v1.webapp[0].metadata[0].name
+    namespace = local.webapp_namespace
     labels    = local.webapp_labels
   }
 

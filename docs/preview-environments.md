@@ -239,11 +239,18 @@ against the PR itself:
 - **IAM.** The preview role creates and changes roles and policies only under
   `preview_iam_path` (`/preview/`), which prod never uses, and only roles that
   carry the preview permissions boundary; it attaches only policies under
-  that path. The boundary (`aws/bootstrap`) caps every preview role at
-  object-level S3, the S3 Tables data plane, KMS data keys and ECR pulls --
-  whatever policy a PR writes, no preview workload gets IAM, STS, compute or
-  bucket configuration, or the Terraform state bucket (denied outright).
-  Narrow `preview_boundary_resources` to your buckets to cap it further.
+  that path. The boundary (`aws/bootstrap`) caps every preview role, whatever
+  policy a PR writes, at object-level S3, the S3 Tables data plane, KMS data
+  keys and ECR pulls -- no IAM, STS, compute or bucket configuration, and
+  never the Terraform state bucket -- and at what a preview owns: its
+  ephemeral bucket, its tagged key, its Iceberg namespace. Anything more is
+  listed in `preview_boundary_access`, separately for reads, writes and
+  deletes (tether mode: the data prefixes and prod tables are writable, only
+  Lance working branches deletable). S3 grants are pinned to the account
+  (`aws:ResourceAccount`), so a bucket of a matching name elsewhere is out of
+  reach. A PR still writes its roles' trust policies; with
+  `preview_boundary_federated_providers` set, a role session that did not
+  come through the cluster's OIDC issuer is denied everything.
 - **Terraform state.** The bucket also holds prod's state, which holds its
   secrets. The preview role reads only its workspaces' state
   (`preview_state_key_prefix`) and the objects named in
@@ -258,16 +265,26 @@ against the PR itself:
   (`aws/eks-platform` `enable_network_policy`, on by default); without it, in
   auth mode `headers`, any pod could reach the webapp and assert an identity.
 - **Data.** `tofu` mode: the preview writes only its own copies. `tether`
-  mode: write into prod stores, no delete (above).
+  mode: write into prod stores, no delete (above); with `aws/data-access`'s
+  `protect_trunk` on every policy a PR controls (its pods', its workflow's),
+  never the trunk or its pins -- Lance's root versions and tags, Icechunk
+  1.x's `main` ref and tags, Delta's log -- which the default branch's role
+  alone writes (`data-pull`, `tether-matrix`). Iceberg and Icechunk 2.x stay
+  exposed: each keeps every ref in one object (a table's metadata file, the
+  repository's `repo`) that creating a branch rewrites. The bucket's
+  versioning is the backstop.
 - **`app` profile.** Its triggers run prod's Dagster on prod's data (above).
-- **Still open.** The preview role deploys into the cluster with a
-  cluster-admin access entry, so it can change anything in Kubernetes, prod's
-  namespaces included; Dex's `client_admission` fences only the OAuth
-  clients. Scoping it to its own namespaces needs the workloads module to stop
-  creating per-environment namespaces itself ([auth.md](auth.md), "Trust
-  between environments"). Until then, anyone who can push a branch to the
-  app repository can change the cluster through its preview workflow (the
-  label check is in a file the PR can edit): grant write access accordingly.
+- **Kubernetes RBAC for the preview role.** With `aws/eks-platform`'s
+  `preview_access` and the access entry it describes, the preview role is an
+  admin only in namespaces starting with `preview-` (`modules/preview-access`),
+  through a RoleBinding it creates in each (`modules/workloads`
+  `namespace_admin`); outside them it creates only its namespaces, NodePools
+  and EC2NodeClasses and those RoleBindings, which an admission policy holds
+  to the prefix, and its Dex clients, which `client_admission` fences.
+  Without them (up to v0.2.0) it deploys with a
+  cluster-admin access entry: anyone who can push a branch to the app
+  repository can change the cluster through its preview workflow (the label
+  check is in a file the PR can edit).
 
 ## GPU isolation
 

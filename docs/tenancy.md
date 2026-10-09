@@ -123,7 +123,7 @@ different nodes.
 
 ```hcl
 module "tenancy" {
-  source  = "github.com/Rosebud-Biosciences/lab-platform//modules/tenancy?ref=v0.2.0"
+  source  = "github.com/Rosebud-Biosciences/lab-platform//modules/tenancy?ref=v0.3.0"
   tenants = var.tenants
   tenant_identity  = { for t, d in module.tenant_data : t => { service_account_annotations = d.service_account_annotations } }
   group_secret_env = { for g, c in module.group_roles.credentials : g => { DATABASE_URL = c.url } }
@@ -150,7 +150,7 @@ module "workloads" {    # the platform's shared instance
 }
 
 module "tenant_stamp" { # one per tenant with an isolated service
-  source   = "github.com/Rosebud-Biosciences/lab-platform//modules/workloads?ref=v0.2.0"
+  source   = "github.com/Rosebud-Biosciences/lab-platform//modules/workloads?ref=v0.3.0"
   for_each = module.tenancy.stamps
 
   name_prefix       = each.value.name_prefix   # t-<tenant>-

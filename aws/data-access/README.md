@@ -18,7 +18,7 @@ and commit to prod's tables. This module is the smallest grant that allows it:
 
 ```hcl
 module "data_access" {
-  source = "github.com/Rosebud-Biosciences/lab-platform//aws/data-access?ref=v0.2.0"
+  source = "github.com/Rosebud-Biosciences/lab-platform//aws/data-access?ref=v0.3.0"
 
   name       = "pr123-data-access"
   bucket_arn = "arn:aws:s3:::prod-data"
@@ -69,6 +69,7 @@ and namespace instead and need none of this.
 | <a name="input_iam_path"></a> [iam\_path](#input\_iam\_path) | IAM path of the policy; a preview's goes under aws/bootstrap's preview\_iam\_path | `string` | `"/"` | no |
 | <a name="input_kms_key_arn"></a> [kms\_key\_arn](#input\_kms\_key\_arn) | The customer-managed KMS key encrypting bucket\_arn (aws/s3-bucket creates one), if any: objects in an SSE-KMS bucket cannot be read or written without kms:Decrypt / kms:GenerateDataKey on it. Empty for SSE-S3. | `string` | `""` | no |
 | <a name="input_prefixes"></a> [prefixes](#input\_prefixes) | Key prefixes inside bucket\_arn the pods may read and write (no delete), e.g.<br/>["tether/greetings.icechunk/", "tether/greetings.lance/"] -- the roots of the<br/>Icechunk / Lance / Delta stores whose branches a preview writes to. A prefix<br/>without a trailing slash is treated as one. | `list(string)` | `[]` | no |
+| <a name="input_protect_trunk"></a> [protect\_trunk](#input\_protect\_trunk) | Deny writes and deletes to each store's trunk and the pins on it, for a holder a pull request controls (a preview's pods, the CI role its workflow assumes): Lance's root versions, manifest and tags (stores named *.lance), Icechunk 1.x's main ref and tags (*.icechunk), Delta's log (*.delta). Its own working branches stay writable. The pins come from default-branch runs (data-pull) under a role without it. Iceberg and Icechunk 2.x are not covered: each keeps every ref in one object (a table's metadata file, the repository's repo) that creating a branch rewrites. | `bool` | `false` | no |
 | <a name="input_table_arns"></a> [table\_arns](#input\_table\_arns) | S3 Tables table ARNs (arn:aws:s3tables:...:bucket/<name>/table/<uuid>) the<br/>pods may read and commit metadata to -- required to write an Iceberg branch,<br/>and NOT scopable to that branch: IAM sees the table, not the ref. Grant it<br/>only to code you trust with the table's main branch. | `list(string)` | `[]` | no |
 | <a name="input_tags"></a> [tags](#input\_tags) | Tags applied to the IAM policy | `map(string)` | `{}` | no |
 | <a name="input_working_branch_prefix"></a> [working\_branch\_prefix](#input\_working\_branch\_prefix) | Also let the holder delete the Lance working branches inside the prefixes<br/>whose name starts with this: each one's `_refs/branches/<name>.json` and<br/>`tree/<name>/`, nothing else. tether names working branches<br/>`tether.ws.<dataset>.<bookmark>`, so "tether.ws." reaches no main, pinned or<br/>other ref. For the CI role that retires previews; leave empty (no delete)<br/>for pods. | `string` | `""` | no |

@@ -35,7 +35,7 @@ resource "kubernetes_namespace_v1" "ray" {
   count = var.enable_ray ? 1 : 0
 
   metadata {
-    name = local.ray_namespace
+    name = local.namespace_names.ray
     # NetworkPolicies admit client services by this label (netpol.tf).
     labels = merge({ "lab-platform.io/service" = "ray" }, local.tenant_labels)
   }
@@ -46,7 +46,7 @@ resource "kubernetes_service_account_v1" "ray_cluster_sa" {
 
   metadata {
     name        = local.ray_service_account_name
-    namespace   = kubernetes_namespace_v1.ray[0].metadata[0].name
+    namespace   = local.ray_namespace
     annotations = local.identity.ray.service_account_annotations
   }
 
@@ -61,7 +61,7 @@ resource "kubernetes_config_map_v1" "analytics_config" {
 
   metadata {
     name      = "analytics-config"
-    namespace = kubernetes_namespace_v1.ray[0].metadata[0].name
+    namespace = local.ray_namespace
   }
 
   data = merge(
@@ -76,7 +76,7 @@ resource "kubernetes_secret_v1" "ray_identity_env" {
 
   metadata {
     name      = local.identity_secret_name.ray
-    namespace = kubernetes_namespace_v1.ray[0].metadata[0].name
+    namespace = local.ray_namespace
   }
 
   data = local.identity_secret_env.ray
@@ -87,7 +87,7 @@ resource "kubernetes_secret_v1" "database_url" {
 
   metadata {
     name      = "database-url"
-    namespace = kubernetes_namespace_v1.ray[0].metadata[0].name
+    namespace = local.ray_namespace
   }
 
   data = {
@@ -102,7 +102,7 @@ resource "kubernetes_secret_v1" "database_url" {
 resource "helm_release" "ray_cluster" {
   count = var.enable_ray && var.enable_ray_cluster ? 1 : 0
 
-  namespace  = kubernetes_namespace_v1.ray[0].metadata[0].name
+  namespace  = local.ray_namespace
   name       = "${local.prefix}${var.ray_cluster_release_name}"
   repository = var.ray_cluster_repository
   chart      = "ray-cluster"
@@ -158,7 +158,7 @@ resource "kubernetes_service_v1" "ray_dashboard" {
 
   metadata {
     name      = local.ray_dashboard_service
-    namespace = kubernetes_namespace_v1.ray[0].metadata[0].name
+    namespace = local.ray_namespace
   }
 
   spec {

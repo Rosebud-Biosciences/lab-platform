@@ -6,6 +6,110 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-10-09
+
+Previews confined: a preview's deploy identity owns only the `preview-*`
+namespaces it creates, the roles it makes reach only what it owns, and a pull
+request cannot write prod's trunk or its pins. This closes the two gaps
+SECURITY.md listed for 0.2.0, and new clusters' first apply works again.
+Several changes are breaking: read each "Upgrading" note first, and upgrade
+with no preview standing (every Kubernetes name a preview makes changes).
+
+### Fixed: a new cluster's first apply deadlocked (since 0.2.0)
+
+- `aws/eks-platform`: the EKS module (21.x) creates clusters without EKS's
+  own VPC CNI and kube-proxy (`bootstrap_self_managed_addons` is hard-coded
+  off), and the platform installed them through the blueprints module, whose
+  add-ons wait for the Helm provider. Since 0.2.0 the `cluster_endpoint` the
+  providers are configured from waits for the node group (so a destroy
+  removes in-cluster resources first), and the node group waits for the CNI:
+  a new cluster's apply hung until the node group failed with
+  `NodeCreationFailure: Unhealthy nodes in the kubernetes cluster`. Both now
+  come from the EKS module's `addons` with `before_compute = true`, which
+  wait for the cluster alone; `moved` blocks carry an existing cluster's
+  add-ons over without reinstalling them. Existing clusters were unaffected.
+
+### Security (**breaking**): a preview deploys inside its own namespaces only
+
+- New `modules/preview-access`: what a preview's deploy identity may do
+  outside its namespaces -- create, change and delete its namespaces and,
+  with Karpenter, its NodePools and EC2NodeClasses, and read the
+  cluster-scoped kinds the providers look up -- with a
+  ValidatingAdmissionPolicy that admits only names starting with
+  `namespace_prefix` (`preview-`) from its group, on the new and the old
+  object; optionally OAuth2Clients in Dex's namespace. Inside each namespace
+  it creates, the preview binds the module's namespace-admin ClusterRole to
+  its group first, and owns the namespace through RBAC; the ClusterRole lets
+  it bind that role alone, and the policy keeps its RoleBindings to `preview-`
+  namespaces. On EKS the preview role's access entry maps it to the group
+  with no access policy, replacing cluster admin (`AmazonEKSAdminPolicy`
+  covers no custom resources, and the API server lets nobody create a Role
+  granting more than they hold through RBAC, as every chart a preview
+  installs does). `aws/eks-platform`'s new `preview_access` installs it and
+  documents the access entry; `preview_access_group` and
+  `preview_namespace_admin_cluster_role` are its outputs.
+- `modules/workloads`: `namespace_admin = { cluster_role, group }` binds the
+  role in every namespace the module creates, and everything namespaced
+  waits for the binding.
+- `aws/compute-adapter`: `node_pools_namespace` (default `karpenter`) holds
+  the NodePool Helm releases; a preview passes its own namespace, so it writes
+  nothing in Karpenter's.
+- `modules/dex` (**breaking**): `client_admission.allowed_id_pattern`
+  defaults to `^preview-`, matching the preview prefix; it was `^pr[0-9]+-`.
+- Upgrading a preview stack: its `name_prefix` (namespaces, NodePools, the
+  Dex clients and IRSA subjects that derive from it) must start with the
+  prefix -- the template uses `preview-pr<N>-` -- and its NodePools'
+  `node_pools_namespace` is one of its own namespaces. Hostnames can keep
+  their old prefix (`private_ingress_hostname_prefix`).
+
+### Security: a pull request cannot write prod's trunk or its pins
+
+- `aws/data-access`: `protect_trunk` denies writes and deletes to each
+  store's trunk and the pins on it -- Lance's root versions, manifest and tags
+  (`*.lance`), Icechunk 1.x's `main` ref and tags (`*.icechunk`), Delta's log
+  (`*.delta`) -- while a fork's own branch, new data and chunks stay
+  writable. Set it on every policy a pull request controls: the preview's
+  pods' (the template's `infra/preview`) and the role its workflow assumes
+  for `fork-data` and `data-down` (`DATA_ROLE_ARN`). The pins then come from
+  default-branch runs alone: `data-pull` and `tether-matrix` assume
+  `aws/bootstrap`'s teardown role, whose policy has no `protect_trunk`.
+  Iceberg and Icechunk 2.x are not covered (each keeps every ref in one
+  object a new branch rewrites: a table's metadata file, the repository's
+  `repo`); keep the data bucket versioned.
+
+### Security (**breaking**): the preview boundary caps resources, not only actions
+
+- `aws/bootstrap`: the permissions boundary on every `/preview/` role no
+  longer allows its actions on `preview_boundary_resources` (default `["*"]`,
+  removed): a PR could make a preview role that read, wrote or deleted any
+  bucket's objects in the account. It now reaches what a preview owns -- its
+  ephemeral bucket, the KMS keys tagged as a preview's, reads in
+  `preview_table_bucket_arns` and table writes in its own namespaces, image
+  pulls from `preview_ecr_repositories` -- plus what the new
+  `preview_boundary_access` lists, separately for `read`, `write` and
+  `delete`, with `kms_key_arns`. S3 grants are pinned to the account
+  (`aws:ResourceAccount`): the ephemeral bucket pattern also matches buckets
+  in other accounts. Opt-in `preview_boundary_federated_providers` denies a
+  preview role session that did not come through the listed OIDC providers
+  (a role a PR made assumable from elsewhere); wildcards match, so
+  `arn:aws:iam::<account>:oidc-provider/oidc.eks.<region>.amazonaws.com/id/*`
+  survives a cluster rebuild, which changes the cluster's own provider ARN.
+- Upgrading: drop `preview_boundary_resources`. tether mode lists the
+  preview stack's `aws/data-access` grants: `read` the data bucket ARN,
+  `write` each data prefix (`arn:aws:s3:::<bucket>/tether/*`) and the prod
+  table ARNs, `delete` the Lance working branches
+  (`arn:aws:s3:::<bucket>/tether/*/_refs/branches/tether.ws.*` and
+  `.../tree/tether.ws.*`), `kms_key_arns` the bucket's key. A deployment
+  whose previews read other stores (a shared read-only policy in
+  `preview_attachable_policy_arns`) lists them under `read`. Anything
+  unlisted is now refused.
+- `nightly-sweep` retires `/preview/` roles and policies (input `iam_path`,
+  default `/preview/`; empty skips it) whose name belongs to no preview
+  workspace still standing and that are older than `iam_min_age_hours`
+  (24): a role a PR's workflow made outside the stack, or one a failed
+  destroy left, no longer outlives its preview. A policy still attached is
+  left in place.
+
 ## [0.2.0] - 2026-10-08
 
 The first release, and the first public one. Pin to it: the template app's
@@ -683,5 +787,6 @@ Migration for an existing deployment (`examples/*` show the wiring):
   `rayclusters`, enabling the ephemeral `RayJob` pattern without hand-managing a
   cluster's lifecycle.
 
-[Unreleased]: https://github.com/Rosebud-Biosciences/lab-platform/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/Rosebud-Biosciences/lab-platform/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/Rosebud-Biosciences/lab-platform/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/Rosebud-Biosciences/lab-platform/releases/tag/v0.2.0

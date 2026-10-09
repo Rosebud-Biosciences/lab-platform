@@ -138,7 +138,7 @@ variable "preview_repos" {
 }
 
 variable "enable_teardown_role" {
-  description = "Create a role only teardown_repos' runs on teardown_ref may assume (the nightly preview sweep), for deletes a pull_request run must not hold: e.g. the stores a PR created. It has no permissions of its own; the stack that owns the data attaches them."
+  description = "Create a role only teardown_repos' runs on teardown_ref may assume -- the nightly preview sweep, and the data jobs that write prod's trunk and pins (data-pull, tether-matrix) -- for what a pull_request run must not hold: e.g. deleting the stores a PR created, or pinning prod's data once data-access's protect_trunk fences the pull-request roles. It has no permissions of its own; the stack that owns the data attaches them."
   type        = bool
   default     = false
 }
@@ -190,14 +190,34 @@ variable "preview_attachable_policy_arns" {
   default     = []
 }
 
-variable "preview_boundary_resources" {
-  description = "Resources the preview permissions boundary allows its actions on. Narrow it to your data buckets, table buckets, KMS keys and ECR repositories to cap previews further."
+variable "preview_boundary_access" {
+  description = <<-EOT
+    What preview roles may reach beyond what a preview owns. The boundary already allows each preview its ephemeral bucket (preview_ephemeral_bucket_pattern, in this account) and the KMS keys tagged preview_resource_tag_key = preview_resource_tag_value, reads in preview_table_bucket_arns and writes in its own Iceberg namespaces (preview_iceberg_namespace_pattern), and image pulls from preview_ecr_repositories (all of this account's repositories when that is empty). Everything else is listed here as ARNs -- S3 as bucket or bucket/prefix*, S3 Tables as bucket/table/<id>:
+    read: stores previews read but never change (writable and deletable ARNs are readable too);
+    write: where they may write -- tether mode's data prefixes and the prod tables they commit to (aws/data-access's prefixes and table_arns);
+    delete: what they may delete -- tether mode's Lance working branches only (bucket/prefix*/_refs/branches/tether.ws.* and bucket/prefix*/tree/tether.ws.*);
+    kms_key_arns: the keys of those stores;
+    extra_action_resources: what preview_boundary_extra_actions apply to.
+    Breaking from 0.2: this replaces preview_boundary_resources (["*"]), and a store not listed is out of every preview's reach.
+  EOT
+  type = object({
+    read                   = optional(list(string), [])
+    write                  = optional(list(string), [])
+    delete                 = optional(list(string), [])
+    kms_key_arns           = optional(list(string), [])
+    extra_action_resources = optional(list(string), ["*"])
+  })
+  default = {}
+}
+
+variable "preview_boundary_federated_providers" {
+  description = "IAM OIDC provider ARNs (your clusters' IRSA issuers) every preview role session must come through; any other session -- a role a PR made assumable from elsewhere -- is denied everything. Wildcards match: \"arn:aws:iam::<account>:oidc-provider/oidc.eks.<region>.amazonaws.com/id/*\" admits every EKS cluster's issuer registered in this account and survives a cluster rebuild, where a cluster's own ARN changes with it. Only the account's admins can register issuers (the preview role cannot). Empty (default) skips the check."
   type        = list(string)
-  default     = ["*"]
+  default     = []
 }
 
 variable "preview_boundary_extra_actions" {
-  description = "Actions beyond object-level S3, the S3 Tables data plane, KMS data keys and ECR pulls that preview workloads may be granted (e.g. \"secretsmanager:GetSecretValue\"). Never IAM or STS."
+  description = "Actions beyond object-level S3, the S3 Tables data plane, KMS data keys and ECR pulls that preview workloads may be granted (e.g. \"secretsmanager:GetSecretValue\"), on preview_boundary_access.extra_action_resources. Never IAM or STS."
   type        = list(string)
   default     = []
 
@@ -214,13 +234,13 @@ variable "preview_ephemeral_bucket_pattern" {
 }
 
 variable "preview_ecr_repositories" {
-  description = "ECR repository names whose preview-tagged images the preview role may prune on teardown"
+  description = "ECR repository names whose preview-tagged images the preview role may prune on teardown, and the only ones preview workloads may pull from (empty: every repository in this account)"
   type        = list(string)
   default     = []
 }
 
 variable "preview_table_bucket_arns" {
-  description = "S3 Tables table-bucket ARNs in which the preview role may create/destroy per-preview Iceberg namespaces (aws/iceberg-branches). Empty skips the s3tables statements."
+  description = "S3 Tables table-bucket ARNs in which the preview role may create/destroy per-preview Iceberg namespaces (aws/iceberg-branches), and preview workloads may read every table and write those in preview_iceberg_namespace_pattern. Empty skips the s3tables statements."
   type        = list(string)
   default     = []
 }
@@ -232,13 +252,13 @@ variable "preview_iceberg_namespace_pattern" {
 }
 
 variable "preview_resource_tag_key" {
-  description = "Tag key gating the preview role's KMS key mutations (defence-in-depth)"
+  description = "Tag key gating the preview role's KMS key mutations and which keys preview workloads may use (aws/s3-bucket tags a preview's key with the preview stack's tags)"
   type        = string
   default     = "Environment"
 }
 
 variable "preview_resource_tag_value" {
-  description = "Tag value gating the preview role's KMS key mutations"
+  description = "Tag value gating the preview role's KMS key mutations and which keys preview workloads may use"
   type        = string
   default     = "preview"
 }

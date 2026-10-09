@@ -23,6 +23,6 @@ body:
     id: versions
     attributes:
       label: Versions
-      placeholder: lab-platform v0.2.0 (or a commit), OpenTofu 1.12.x, the providers' versions from .terraform.lock.hcl
+      placeholder: lab-platform v0.3.0 (or a commit), OpenTofu 1.12.x, the providers' versions from .terraform.lock.hcl
     validations:
       required: true

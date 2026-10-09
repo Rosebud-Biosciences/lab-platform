@@ -4,32 +4,32 @@ locals {
 
 output "webapp_namespace" {
   description = "Webapp namespace (if enabled)"
-  value       = var.enable_webapp ? kubernetes_namespace_v1.webapp[0].metadata[0].name : null
+  value       = var.enable_webapp ? local.webapp_namespace : null
 }
 
 output "dagster_namespace" {
   description = "Dagster namespace (if enabled)"
-  value       = local.enable_dagster ? kubernetes_namespace_v1.dagster[0].metadata[0].name : null
+  value       = local.enable_dagster ? local.dagster_namespace : null
 }
 
 output "mlflow_namespace" {
   description = "MLflow namespace (if enabled)"
-  value       = var.enable_mlflow ? kubernetes_namespace_v1.mlflow[0].metadata[0].name : null
+  value       = var.enable_mlflow ? local.mlflow_namespace : null
 }
 
 output "ray_namespace" {
   description = "Ray namespace (if enabled)"
-  value       = var.enable_ray ? kubernetes_namespace_v1.ray[0].metadata[0].name : null
+  value       = var.enable_ray ? local.ray_namespace : null
 }
 
 output "argo_namespace" {
   description = "Argo Workflows namespace (if enabled)"
-  value       = var.enable_argo_workflows ? kubernetes_namespace_v1.argo[0].metadata[0].name : null
+  value       = var.enable_argo_workflows ? local.argo_namespace : null
 }
 
 output "jupyterhub_namespace" {
   description = "JupyterHub namespace (if enabled)"
-  value       = var.enable_jupyterhub ? kubernetes_namespace_v1.jupyterhub[0].metadata[0].name : null
+  value       = var.enable_jupyterhub ? local.jupyterhub_namespace : null
 }
 
 # The identity contract's other half: the <namespace>/<serviceaccount> a

@@ -11,7 +11,7 @@ resource "kubernetes_namespace_v1" "mlflow" {
   count = var.enable_mlflow ? 1 : 0
 
   metadata {
-    name = local.mlflow_namespace
+    name = local.namespace_names.mlflow
     # NetworkPolicies admit client services by this label (netpol.tf).
     labels = merge({ "lab-platform.io/service" = "mlflow" }, local.tenant_labels)
   }
@@ -22,7 +22,7 @@ resource "kubernetes_secret_v1" "mlflow_identity_env" {
 
   metadata {
     name      = local.identity_secret_name.mlflow
-    namespace = kubernetes_namespace_v1.mlflow[0].metadata[0].name
+    namespace = local.mlflow_namespace
   }
 
   data = local.identity_secret_env.mlflow
@@ -74,7 +74,7 @@ locals {
 resource "helm_release" "mlflow" {
   count = var.enable_mlflow ? 1 : 0
 
-  namespace  = kubernetes_namespace_v1.mlflow[0].metadata[0].name
+  namespace  = local.mlflow_namespace
   name       = local.mlflow_release
   repository = var.mlflow_repository
   chart      = "mlflow"

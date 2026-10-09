@@ -12,7 +12,7 @@ name: Nightly Sweep
 #       - cron: "17 3 * * *"
 #   jobs:
 #     sweep:
-#       uses: Rosebud-Biosciences/lab-platform/.github/workflows/nightly-sweep.yml@v0.2.0
+#       uses: Rosebud-Biosciences/lab-platform/.github/workflows/nightly-sweep.yml@v0.3.0
 #       with:
 #         role_to_assume: arn:aws:iam::123456789012:role/github-actions-preview-deployer
 #         cluster_name: eks-prod
@@ -57,6 +57,14 @@ on:
         description: "Regex matching preview workspace names of the form pr<number>"
         type: string
         default: "^pr[0-9]+$"
+      iam_path:
+        description: "IAM path of the preview stack's roles and policies (aws/bootstrap's preview_iam_path). The sweep deletes those whose name belongs to no live preview; empty skips it"
+        type: string
+        default: /preview/
+      iam_min_age_hours:
+        description: "Leave younger roles and policies alone: a preview being created right now has no workspace yet"
+        type: number
+        default: 24
     secrets:
       neon_api_key:
         required: false
@@ -134,3 +142,61 @@ jobs:
               echo "Keeping $ws (PR #$num state='${state:-unknown}')"
             fi
           done
+
+      # A PR's workflow can create roles under the preview path that no
+      # preview's state records, and a failed destroy can leave some behind;
+      # either outlives the preview. Every name the preview stack gives
+      # carries its preview's name (pr<N>), so whatever names no workspace
+      # still standing goes.
+      - name: Retire orphaned preview IAM
+        if: ${{ inputs.iam_path != '' }}
+        working-directory: ${{ inputs.working_directory }}
+        env:
+          IAM_PATH: ${{ inputs.iam_path }}
+          MIN_AGE_HOURS: ${{ inputs.iam_min_age_hours }}
+          WORKSPACE_PATTERN: ${{ inputs.workspace_pattern }}
+        run: |
+          set -euo pipefail
+          live=$(tofu workspace list | sed 's/[* ]//g' | grep -E "$WORKSPACE_PATTERN" || true)
+          cutoff=$(date -u -d "-${MIN_AGE_HOURS} hours" +%s)
+          belongs_to_live() {
+            local ws
+            for ws in $live; do
+              [[ "$1" =~ (^|[-_.])${ws}([-_.]|$) ]] && return 0
+            done
+            return 1
+          }
+          retire() { # retire <kind> <name> <created>: whether to delete it
+            if belongs_to_live "$2"; then return 1; fi
+            if [ "$(date -u -d "$3" +%s)" -ge "$cutoff" ]; then
+              echo "Keeping $1 $2: younger than ${MIN_AGE_HOURS}h"
+              return 1
+            fi
+            echo "Retiring $1 $2"
+          }
+
+          aws iam list-roles --path-prefix "$IAM_PATH" --query 'Roles[].[RoleName,CreateDate]' --output text |
+            while read -r role created; do
+              [ -n "$role" ] && retire role "$role" "$created" || continue
+              for p in $(aws iam list-role-policies --role-name "$role" --query 'PolicyNames[]' --output text); do
+                aws iam delete-role-policy --role-name "$role" --policy-name "$p"
+              done
+              for a in $(aws iam list-attached-role-policies --role-name "$role" --query 'AttachedPolicies[].PolicyArn' --output text); do
+                aws iam detach-role-policy --role-name "$role" --policy-arn "$a"
+              done
+              aws iam delete-role --role-name "$role" || echo "::warning::could not delete role $role"
+            done
+
+          aws iam list-policies --scope Local --path-prefix "$IAM_PATH" \
+            --query 'Policies[].[PolicyName,Arn,CreateDate,AttachmentCount]' --output text |
+            while read -r policy arn created attached; do
+              [ -n "$policy" ] && retire policy "$policy" "$created" || continue
+              if [ "$attached" != 0 ]; then
+                echo "::warning::policy $policy is still attached to $attached entities; left in place"
+                continue
+              fi
+              for v in $(aws iam list-policy-versions --policy-arn "$arn" --query 'Versions[?!IsDefaultVersion].VersionId' --output text); do
+                aws iam delete-policy-version --policy-arn "$arn" --version-id "$v"
+              done
+              aws iam delete-policy --policy-arn "$arn" || echo "::warning::could not delete policy $policy"
+            done

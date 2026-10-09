@@ -38,6 +38,7 @@ on:
       - "modules/keycloak-realm/**"
       - "modules/tenancy/**"
       - "modules/postgres-group-roles/**"
+      - "modules/preview-access/**"
       - "examples/kind/**"
       - "examples/kind-aws-data/**"
       - "aws/data-adapter/**"

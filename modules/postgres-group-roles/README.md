@@ -17,7 +17,7 @@ security. The provider's role needs CREATEROLE (the database owner on Neon).
 
 ```hcl
 module "group_roles" {
-  source = "github.com/Rosebud-Biosciences/lab-platform//modules/postgres-group-roles?ref=v0.2.0"
+  source = "github.com/Rosebud-Biosciences/lab-platform//modules/postgres-group-roles?ref=v0.3.0"
 
   groups     = module.tenancy.shared.postgres_data_groups # ["/lab/authors", "/acme/research"]
   connection = { host = "ep-x.neon.tech", database = "app" }

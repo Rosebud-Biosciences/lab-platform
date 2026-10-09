@@ -15,7 +15,7 @@ resource "kubernetes_namespace_v1" "dagster" {
   count = local.enable_dagster ? 1 : 0
 
   metadata {
-    name = local.dagster_namespace
+    name = local.namespace_names.dagster
     # NetworkPolicies admit client services by this label (netpol.tf).
     labels = merge({ "lab-platform.io/service" = "dagster" }, local.tenant_labels)
   }
@@ -33,7 +33,7 @@ resource "kubernetes_service_account_v1" "dagster" {
 
   metadata {
     name        = local.dagster_service_account
-    namespace   = kubernetes_namespace_v1.dagster[0].metadata[0].name
+    namespace   = local.dagster_namespace
     annotations = local.identity.dagster.service_account_annotations
   }
 }
@@ -47,7 +47,7 @@ resource "kubernetes_role_v1" "dagster_ray_ops" {
 
   metadata {
     name      = "${local.prefix}dagster-ray-cluster-ops"
-    namespace = kubernetes_namespace_v1.ray[0].metadata[0].name
+    namespace = local.ray_namespace
   }
 
   rule {
@@ -71,7 +71,7 @@ resource "kubernetes_role_binding_v1" "dagster_ray_ops" {
 
   metadata {
     name      = "${local.prefix}dagster-ray-cluster-ops"
-    namespace = kubernetes_namespace_v1.ray[0].metadata[0].name
+    namespace = local.ray_namespace
   }
 
   role_ref {
@@ -83,7 +83,7 @@ resource "kubernetes_role_binding_v1" "dagster_ray_ops" {
   subject {
     kind      = "ServiceAccount"
     name      = kubernetes_service_account_v1.dagster[0].metadata[0].name
-    namespace = kubernetes_namespace_v1.dagster[0].metadata[0].name
+    namespace = local.dagster_namespace
   }
 }
 
@@ -92,7 +92,7 @@ resource "kubernetes_secret_v1" "dagster_db_password" {
 
   metadata {
     name      = local.dagster_db_password_secret
-    namespace = kubernetes_namespace_v1.dagster[0].metadata[0].name
+    namespace = local.dagster_namespace
   }
 
   data = {
@@ -108,7 +108,7 @@ resource "kubernetes_secret_v1" "dagster_identity_env" {
 
   metadata {
     name      = local.identity_secret_name.dagster
-    namespace = kubernetes_namespace_v1.dagster[0].metadata[0].name
+    namespace = local.dagster_namespace
   }
 
   data = local.identity_secret_env.dagster
@@ -132,7 +132,7 @@ resource "kubernetes_secret_v1" "dagster_user_code_env" {
 
   metadata {
     name      = local.dagster_user_code_env_secret
-    namespace = kubernetes_namespace_v1.dagster[0].metadata[0].name
+    namespace = local.dagster_namespace
   }
 
   data = local.dagster_user_code_secret_env
@@ -188,7 +188,7 @@ resource "kubernetes_config_map_v1" "dagster_hello_code" {
 
   metadata {
     name      = local.dagster_hello_cm
-    namespace = kubernetes_namespace_v1.dagster[0].metadata[0].name
+    namespace = local.dagster_namespace
   }
 
   data = {
@@ -199,7 +199,7 @@ resource "kubernetes_config_map_v1" "dagster_hello_code" {
 resource "helm_release" "dagster" {
   count = local.enable_dagster ? 1 : 0
 
-  namespace  = kubernetes_namespace_v1.dagster[0].metadata[0].name
+  namespace  = local.dagster_namespace
   name       = local.dagster_release
   repository = var.dagster_repository
   chart      = "dagster"

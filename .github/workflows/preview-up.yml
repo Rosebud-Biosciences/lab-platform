@@ -21,7 +21,7 @@ name: Preview Up
 #
 #   jobs:
 #     up:
-#       uses: Rosebud-Biosciences/lab-platform/.github/workflows/preview-up.yml@v0.2.0
+#       uses: Rosebud-Biosciences/lab-platform/.github/workflows/preview-up.yml@v0.3.0
 #       with:
 #         preview_name: pr${{ github.event.pull_request.number }}
 #         role_to_assume: arn:aws:iam::123456789012:role/github-actions-preview-deployer

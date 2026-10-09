@@ -152,59 +152,224 @@ resource "aws_iam_role_policy" "ci_deployer" {
 locals {
   preview_attachable_policy_arns = concat(local.preview_managed_policy_arns, var.preview_attachable_policy_arns)
 
-  # The most a preview workload may ever do, whatever its role is given: the
-  # union of what the preview stack's modules grant (aws/s3-bucket,
-  # aws/data-access, aws/iceberg-branches, aws/data-adapter). No IAM, no STS,
-  # no compute, no bucket or key configuration.
-  preview_boundary_actions = concat(
-    [
-      "s3:GetObject",
-      "s3:GetObjectVersion",
-      "s3:PutObject",
-      "s3:DeleteObject",
-      "s3:AbortMultipartUpload",
-      "s3:ListMultipartUploadParts",
-      "s3:ListBucket",
-      "s3:ListBucketVersions",
-      "s3:ListBucketMultipartUploads",
-      "s3:GetBucketLocation",
-      "s3tables:GetTableBucket",
-      "s3tables:GetNamespace",
-      "s3tables:ListNamespaces",
-      "s3tables:ListTables",
-      "s3tables:GetTable",
-      "s3tables:CreateTable",
-      "s3tables:DeleteTable",
-      "s3tables:RenameTable",
-      "s3tables:GetTableData",
-      "s3tables:PutTableData",
-      "s3tables:GetTableMetadataLocation",
-      "s3tables:UpdateTableMetadataLocation",
-      "s3tables:GetTableMaintenanceConfiguration",
-      "s3tables:PutTableMaintenanceConfiguration",
-      "kms:Decrypt",
-      "kms:Encrypt",
-      "kms:GenerateDataKey*",
-      "kms:DescribeKey",
-      "ecr:GetAuthorizationToken",
-      "ecr:BatchCheckLayerAvailability",
-      "ecr:BatchGetImage",
-      "ecr:GetDownloadUrlForLayer",
-    ],
-    var.preview_boundary_extra_actions,
+  # The most a preview workload may ever do, whatever policy its role is
+  # given: the union of what the preview stack's modules grant (aws/s3-bucket,
+  # aws/data-access, aws/iceberg-branches, aws/data-adapter), on what the
+  # preview owns -- its ephemeral bucket and key, its Iceberg namespace -- and
+  # on what preview_boundary_access adds. Reads reach every listed resource;
+  # writes and deletes only their own lists. No IAM, no STS, no compute, no
+  # bucket or key configuration.
+  preview_s3_read_actions = [
+    "s3:GetObject",
+    "s3:GetObjectVersion",
+    "s3:ListBucket",
+    "s3:ListBucketVersions",
+    "s3:ListBucketMultipartUploads",
+    "s3:ListMultipartUploadParts",
+    "s3:GetBucketLocation",
+  ]
+  preview_s3_write_actions  = ["s3:PutObject", "s3:AbortMultipartUpload"]
+  preview_s3_delete_actions = ["s3:DeleteObject"]
+  preview_table_read_actions = [
+    "s3tables:GetTableBucket",
+    "s3tables:GetNamespace",
+    "s3tables:ListNamespaces",
+    "s3tables:ListTables",
+    "s3tables:GetTable",
+    "s3tables:GetTableData",
+    "s3tables:GetTableMetadataLocation",
+    "s3tables:GetTableMaintenanceConfiguration",
+  ]
+  preview_table_write_actions = [
+    "s3tables:PutTableData",
+    "s3tables:UpdateTableMetadataLocation",
+  ]
+  preview_key_actions = ["kms:Decrypt", "kms:Encrypt", "kms:GenerateDataKey*", "kms:DescribeKey"]
+
+  # preview_boundary_access split by service. An S3 ARN names no account, so
+  # its statements pin aws:ResourceAccount; every other ARN carries one.
+  preview_access = {
+    for k in ["read", "write", "delete"] : k => {
+      s3    = [for a in var.preview_boundary_access[k] : a if can(regex("^arn:[^:]+:s3:::", a))]
+      other = [for a in var.preview_boundary_access[k] : a if !can(regex("^arn:[^:]+:s3:::", a))]
+    }
+  }
+  # What a preview may write or delete, it may also read.
+  preview_s3_readable = distinct(concat(
+    [local.preview_bucket_arn, "${local.preview_bucket_arn}/*"],
+    local.preview_access.read.s3, local.preview_access.write.s3, local.preview_access.delete.s3,
+  ))
+  preview_tables_readable = distinct(concat(
+    var.preview_table_bucket_arns,
+    [for arn in var.preview_table_bucket_arns : "${arn}/table/*"],
+    local.preview_access.read.other, local.preview_access.write.other, local.preview_access.delete.other,
+  ))
+  preview_image_repo_arns = (
+    length(local.preview_ecr_repo_arns) > 0 ? local.preview_ecr_repo_arns
+    : ["arn:aws:ecr:${local.region}:${local.account_id}:repository/*"]
   )
 }
 
 data "aws_iam_policy_document" "preview_boundary" {
-  #checkov:skip=CKV_AWS_356:a permissions boundary grants nothing; it caps the actions of the preview policies it bounds, which name their resources (preview_boundary_resources narrows it further)
+  #checkov:skip=CKV_AWS_356:a permissions boundary grants nothing; the "*" statements are ecr:GetAuthorizationToken (no resource) and tag-gated use of preview keys, and each preview policy names its resources
   #checkov:skip=CKV_AWS_108:same: object reads are granted, and scoped, by each preview policy; the boundary only caps them
   count = var.enable_preview_deployer_role ? 1 : 0
 
+  # Pinned to this account: preview_ephemeral_bucket_pattern also matches
+  # buckets anyone can create elsewhere.
   statement {
-    sid       = "PreviewWorkloads"
+    sid       = "S3Read"
     effect    = "Allow"
-    actions   = local.preview_boundary_actions
-    resources = var.preview_boundary_resources
+    actions   = local.preview_s3_read_actions
+    resources = local.preview_s3_readable
+
+    condition {
+      test     = "StringEquals"
+      variable = "aws:ResourceAccount"
+      values   = [local.account_id]
+    }
+  }
+  statement {
+    sid       = "S3Write"
+    effect    = "Allow"
+    actions   = local.preview_s3_write_actions
+    resources = concat(["${local.preview_bucket_arn}/*"], local.preview_access.write.s3)
+
+    condition {
+      test     = "StringEquals"
+      variable = "aws:ResourceAccount"
+      values   = [local.account_id]
+    }
+  }
+  statement {
+    sid       = "S3Delete"
+    effect    = "Allow"
+    actions   = local.preview_s3_delete_actions
+    resources = concat(["${local.preview_bucket_arn}/*"], local.preview_access.delete.s3)
+
+    condition {
+      test     = "StringEquals"
+      variable = "aws:ResourceAccount"
+      values   = [local.account_id]
+    }
+  }
+
+  # Iceberg: read the listed table buckets; create, write and drop tables only
+  # in a preview's own namespaces (aws/iceberg-branches), and commit to the
+  # tables preview_boundary_access.write lists (tether mode's prod tables).
+  dynamic "statement" {
+    for_each = length(local.preview_tables_readable) > 0 ? [1] : []
+    content {
+      sid       = "TablesRead"
+      effect    = "Allow"
+      actions   = local.preview_table_read_actions
+      resources = local.preview_tables_readable
+    }
+  }
+  dynamic "statement" {
+    for_each = length(var.preview_table_bucket_arns) > 0 ? [1] : []
+    content {
+      sid    = "TablesInPreviewNamespaces"
+      effect = "Allow"
+      actions = concat(local.preview_table_write_actions, [
+        "s3tables:CreateTable",
+        "s3tables:RenameTable",
+        "s3tables:DeleteTable",
+        "s3tables:PutTableMaintenanceConfiguration",
+      ])
+      resources = concat(var.preview_table_bucket_arns, [for arn in var.preview_table_bucket_arns : "${arn}/table/*"])
+
+      condition {
+        test     = "StringLike"
+        variable = "s3tables:namespace"
+        values   = [var.preview_iceberg_namespace_pattern]
+      }
+    }
+  }
+  dynamic "statement" {
+    for_each = length(local.preview_access.write.other) > 0 ? [1] : []
+    content {
+      sid       = "TablesWrite"
+      effect    = "Allow"
+      actions   = local.preview_table_write_actions
+      resources = local.preview_access.write.other
+    }
+  }
+  dynamic "statement" {
+    for_each = length(local.preview_access.delete.other) > 0 ? [1] : []
+    content {
+      sid       = "TablesDelete"
+      effect    = "Allow"
+      actions   = ["s3tables:DeleteTable"]
+      resources = local.preview_access.delete.other
+    }
+  }
+
+  # Keys: the preview's own (aws/s3-bucket's, carrying the preview tag) and
+  # the ones preview_boundary_access lists.
+  statement {
+    sid       = "PreviewKeys"
+    effect    = "Allow"
+    actions   = local.preview_key_actions
+    resources = ["arn:aws:kms:${local.region}:${local.account_id}:key/*"]
+
+    condition {
+      test     = "StringEquals"
+      variable = "aws:ResourceTag/${var.preview_resource_tag_key}"
+      values   = [var.preview_resource_tag_value]
+    }
+  }
+  dynamic "statement" {
+    for_each = length(var.preview_boundary_access.kms_key_arns) > 0 ? [1] : []
+    content {
+      sid       = "DataKeys"
+      effect    = "Allow"
+      actions   = local.preview_key_actions
+      resources = var.preview_boundary_access.kms_key_arns
+    }
+  }
+
+  statement {
+    sid       = "EcrAuth"
+    effect    = "Allow"
+    actions   = ["ecr:GetAuthorizationToken"]
+    resources = ["*"]
+  }
+  statement {
+    sid       = "ImagePulls"
+    effect    = "Allow"
+    actions   = ["ecr:BatchCheckLayerAvailability", "ecr:BatchGetImage", "ecr:GetDownloadUrlForLayer"]
+    resources = local.preview_image_repo_arns
+  }
+
+  dynamic "statement" {
+    for_each = length(var.preview_boundary_extra_actions) > 0 ? [1] : []
+    content {
+      sid       = "ExtraActions"
+      effect    = "Allow"
+      actions   = var.preview_boundary_extra_actions
+      resources = var.preview_boundary_access.extra_action_resources
+    }
+  }
+
+  # A preview role's trust policy is the PR's to write (IAM has no condition
+  # key on its contents): with this list set, a session that did not come
+  # through one of these OIDC providers -- a role made assumable from another
+  # account, say -- is denied everything.
+  dynamic "statement" {
+    for_each = length(var.preview_boundary_federated_providers) > 0 ? [1] : []
+    content {
+      sid       = "OnlyThroughTheClusterIssuers"
+      effect    = "Deny"
+      actions   = ["*"]
+      resources = ["*"]
+
+      condition {
+        test     = "StringNotLike"
+        variable = "aws:FederatedProvider"
+        values   = var.preview_boundary_federated_providers
+      }
+    }
   }
 
   # Whatever a PR grants its roles, no preview pod reads the state bucket.
@@ -296,7 +461,7 @@ resource "aws_iam_role" "teardown" {
   count = var.enable_teardown_role ? 1 : 0
 
   name               = var.teardown_role_name
-  description        = "Assumed only by GitHub Actions runs on ${var.teardown_ref} to retire preview data; the data stack attaches its permissions"
+  description        = "Assumed only by GitHub Actions runs on ${var.teardown_ref} to retire preview data and pin prod's (data-pull, tether-matrix); the data stack attaches its permissions"
   assume_role_policy = data.aws_iam_policy_document.teardown_assume[0].json
   tags               = var.tags
 

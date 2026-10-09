@@ -231,8 +231,117 @@ run "preview_iam_is_confined_and_bounded" {
     error_message = "only the preview stack's own policies may be attached"
   }
   assert {
-    condition     = !anytrue([for a in local.preview_boundary_actions : can(regex("^(iam|sts):", a))]) && output.preview_iam_path == "/preview/"
+    condition = !anytrue(flatten([
+      for s in data.aws_iam_policy_document.preview_boundary[0].statement : [for a in s.actions : can(regex("^(iam|sts):", a))] if s.effect == "Allow"
+    ])) && output.preview_iam_path == "/preview/"
     error_message = "the boundary grants no IAM or STS"
+  }
+}
+
+# A PR writes its preview roles' policies; the boundary is what caps them. By
+# default it reaches only what a preview owns, and S3 -- whose ARNs name no
+# account -- only in this one.
+run "preview_boundary_reaches_only_what_a_preview_owns" {
+  command = plan
+
+  assert {
+    condition = [
+      for s in data.aws_iam_policy_document.preview_boundary[0].statement : s.sid
+      if s.effect == "Allow" && contains(s.resources, "*")
+    ] == ["EcrAuth"]
+    error_message = "only ecr:GetAuthorizationToken, which has no resource, may name every resource"
+  }
+  assert {
+    condition = alltrue([
+      for s in data.aws_iam_policy_document.preview_boundary[0].statement :
+      anytrue([for c in s.condition : c.variable == "aws:ResourceAccount" && toset(c.values) == toset([data.aws_caller_identity.current.account_id])])
+      if anytrue([for a in s.actions : startswith(a, "s3:")]) && s.effect == "Allow"
+    ])
+    error_message = "every S3 grant is pinned to this account"
+  }
+  assert {
+    condition = toset([for s in data.aws_iam_policy_document.preview_boundary[0].statement : s.resources if s.sid == "S3Delete"
+    ][0]) == toset(["arn:aws:s3:::preview-processeddata-*/*"])
+    error_message = "by default a preview deletes only in its own ephemeral bucket"
+  }
+  assert {
+    condition = anytrue([
+      for s in data.aws_iam_policy_document.preview_boundary[0].statement :
+      s.sid == "PreviewKeys" && anytrue([for c in s.condition : c.variable == "aws:ResourceTag/Environment" && toset(c.values) == toset(["preview"])])
+    ])
+    error_message = "a preview uses only keys tagged as a preview's"
+  }
+  assert {
+    condition     = !anytrue([for s in data.aws_iam_policy_document.preview_boundary[0].statement : s.sid == "OnlyThroughTheClusterIssuers"])
+    error_message = "the federated-provider check is opt-in"
+  }
+}
+
+# tether mode's prod stores, as aws/data-access grants them: readable,
+# writable under the data prefixes, deletable only as Lance working branches.
+run "preview_boundary_access_lists_land_where_they_belong" {
+  command = plan
+
+  variables {
+    preview_table_bucket_arns = ["arn:aws:s3tables:us-west-2:123456789012:bucket/lake"]
+    preview_boundary_access = {
+      read  = ["arn:aws:s3:::data"]
+      write = ["arn:aws:s3:::data/tether/*", "arn:aws:s3tables:us-west-2:123456789012:bucket/lake/table/t1"]
+      delete = [
+        "arn:aws:s3:::data/tether/*/_refs/branches/tether.ws.*",
+        "arn:aws:s3:::data/tether/*/tree/tether.ws.*",
+      ]
+      kms_key_arns = ["arn:aws:kms:us-west-2:123456789012:key/data"]
+    }
+    preview_boundary_federated_providers = ["arn:aws:iam::123456789012:oidc-provider/oidc.eks.us-west-2.amazonaws.com/id/*"]
+  }
+
+  assert {
+    condition = toset([
+      for s in data.aws_iam_policy_document.preview_boundary[0].statement : s.resources if s.sid == "S3Read"
+      ][0]) == toset([
+      "arn:aws:s3:::preview-processeddata-*", "arn:aws:s3:::preview-processeddata-*/*", "arn:aws:s3:::data",
+      "arn:aws:s3:::data/tether/*", "arn:aws:s3:::data/tether/*/_refs/branches/tether.ws.*", "arn:aws:s3:::data/tether/*/tree/tether.ws.*",
+    ])
+    error_message = "reads reach the ephemeral bucket and every listed store"
+  }
+  assert {
+    condition = toset([for s in data.aws_iam_policy_document.preview_boundary[0].statement : s.resources if s.sid == "S3Write"
+    ][0]) == toset(["arn:aws:s3:::preview-processeddata-*/*", "arn:aws:s3:::data/tether/*"])
+    error_message = "writes reach the ephemeral bucket and the write list only"
+  }
+  assert {
+    condition = toset([for s in data.aws_iam_policy_document.preview_boundary[0].statement : s.resources if s.sid == "S3Delete"
+      ][0]) == toset([
+      "arn:aws:s3:::preview-processeddata-*/*",
+      "arn:aws:s3:::data/tether/*/_refs/branches/tether.ws.*",
+      "arn:aws:s3:::data/tether/*/tree/tether.ws.*",
+    ])
+    error_message = "a preview deletes its own bucket's objects and the listed working branches, never the data prefixes"
+  }
+  assert {
+    condition = toset([for s in data.aws_iam_policy_document.preview_boundary[0].statement : s.resources if s.sid == "TablesWrite"
+    ][0]) == toset(["arn:aws:s3tables:us-west-2:123456789012:bucket/lake/table/t1"])
+    error_message = "a preview commits only to the listed prod tables outside its own namespaces"
+  }
+  assert {
+    condition = anytrue([
+      for s in data.aws_iam_policy_document.preview_boundary[0].statement :
+      s.sid == "TablesInPreviewNamespaces" && anytrue([for c in s.condition : c.variable == "s3tables:namespace" && toset(c.values) == toset(["pr*"])])
+    ])
+    error_message = "table creation and drops stay in the preview namespaces"
+  }
+  assert {
+    condition = toset([for s in data.aws_iam_policy_document.preview_boundary[0].statement : s.resources if s.sid == "DataKeys"
+    ][0]) == toset(["arn:aws:kms:us-west-2:123456789012:key/data"])
+    error_message = "the listed store keys are usable"
+  }
+  assert {
+    condition = anytrue([
+      for s in data.aws_iam_policy_document.preview_boundary[0].statement :
+      s.sid == "OnlyThroughTheClusterIssuers" && s.effect == "Deny" && anytrue([for c in s.condition : c.test == "StringNotLike" && c.variable == "aws:FederatedProvider"])
+    ])
+    error_message = "with providers listed, any other session is denied"
   }
 }
 

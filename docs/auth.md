@@ -222,17 +222,18 @@ preview's CI could, by design, rewrite prod's `OAuth2Client` redirect URIs.
 `modules/dex`'s `client_admission` closes that with a ValidatingAdmissionPolicy:
 requests from the restricted principals (the preview role's Kubernetes
 username prefix or group) may only create, change or delete clients whose id
-matches `allowed_id_pattern` (`^pr[0-9]+-`), checked on both the new and the
+matches `allowed_id_pattern` (`^preview-`), checked on both the new and the
 old object. The kind smoke test impersonates such a principal and asserts
 both outcomes.
 
-That fences the auth objects; it does not make a cluster-admin preview role
-safe. A preview role that can do anything can also delete the policy.
-Scoping the preview role to its own namespaces is the real fix and needs the
-workloads module to stop creating cluster-scoped objects per environment
-(today only its namespaces: Dagster's and Argo's access is namespaced Roles)
-or a pre-created set of them; until then the policy is a guard against
-mistakes, not against a malicious PR. On the AWS side the preview role is
+That fences the auth objects, and on its own it does not make a
+cluster-admin preview role safe: a role that can do anything can also delete
+the policy. `modules/preview-access` scopes the role itself. It is an admin
+only in namespaces starting with its prefix (on EKS, an access entry whose
+policy is scoped to `preview-*`); outside them it may create only its
+namespaces, NodePools and EC2NodeClasses, which a second admission policy
+holds to the same prefix, plus the clients above in Dex's namespace. A
+preview identity scoped that way can touch neither policy. On the AWS side the preview role is
 already fenced: IAM under `/preview/` only, every role it makes capped by a
 permissions boundary ([preview-environments.md](preview-environments.md),
 "Trust").

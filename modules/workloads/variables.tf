@@ -35,6 +35,21 @@ variable "name_prefix" {
   }
 }
 
+variable "namespace_admin" {
+  description = <<-EOT
+    Bind cluster_role to group in every namespace this module creates, before
+    anything else goes into it: for a deploy identity that holds nothing in a
+    namespace until it binds itself there, as a preview's does with
+    modules/preview-access (cluster_role = its namespace_admin_cluster_role
+    output, group = its group). Null (default) binds nothing.
+  EOT
+  type = object({
+    cluster_role = string
+    group        = string
+  })
+  default = null
+}
+
 # ------------------------------------------------------------------------------
 # CONTRACT: IDENTITY
 #
