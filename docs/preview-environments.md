@@ -239,11 +239,18 @@ against the PR itself:
 - **IAM.** The preview role creates and changes roles and policies only under
   `preview_iam_path` (`/preview/`), which prod never uses, and only roles that
   carry the preview permissions boundary; it attaches only policies under
-  that path. The boundary (`aws/bootstrap`) caps every preview role at
-  object-level S3, the S3 Tables data plane, KMS data keys and ECR pulls --
-  whatever policy a PR writes, no preview workload gets IAM, STS, compute or
-  bucket configuration, or the Terraform state bucket (denied outright).
-  Narrow `preview_boundary_resources` to your buckets to cap it further.
+  that path. The boundary (`aws/bootstrap`) caps every preview role, whatever
+  policy a PR writes, at object-level S3, the S3 Tables data plane, KMS data
+  keys and ECR pulls -- no IAM, STS, compute or bucket configuration, and
+  never the Terraform state bucket -- and at what a preview owns: its
+  ephemeral bucket, its tagged key, its Iceberg namespace. Anything more is
+  listed in `preview_boundary_access`, separately for reads, writes and
+  deletes (tether mode: the data prefixes and prod tables are writable, only
+  Lance working branches deletable). S3 grants are pinned to the account
+  (`aws:ResourceAccount`), so a bucket of a matching name elsewhere is out of
+  reach. A PR still writes its roles' trust policies; with
+  `preview_boundary_federated_providers` set, a role session that did not
+  come through the cluster's OIDC issuer is denied everything.
 - **Terraform state.** The bucket also holds prod's state, which holds its
   secrets. The preview role reads only its workspaces' state
   (`preview_state_key_prefix`) and the objects named in

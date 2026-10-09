@@ -6,6 +6,39 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Security (**breaking**): the preview boundary caps resources, not only actions
+
+- `aws/bootstrap`: the permissions boundary on every `/preview/` role no
+  longer allows its actions on `preview_boundary_resources` (default `["*"]`,
+  removed): a PR could make a preview role that read, wrote or deleted any
+  bucket's objects in the account. It now reaches what a preview owns -- its
+  ephemeral bucket, the KMS keys tagged as a preview's, reads in
+  `preview_table_bucket_arns` and table writes in its own namespaces, image
+  pulls from `preview_ecr_repositories` -- plus what the new
+  `preview_boundary_access` lists, separately for `read`, `write` and
+  `delete`, with `kms_key_arns`. S3 grants are pinned to the account
+  (`aws:ResourceAccount`): the ephemeral bucket pattern also matches buckets
+  in other accounts. Opt-in `preview_boundary_federated_providers` denies a
+  preview role session that did not come through the listed OIDC providers
+  (a role a PR made assumable from elsewhere); wildcards match, so
+  `arn:aws:iam::<account>:oidc-provider/oidc.eks.<region>.amazonaws.com/id/*`
+  survives a cluster rebuild, which changes the cluster's own provider ARN.
+- Upgrading: drop `preview_boundary_resources`. tether mode lists the
+  preview stack's `aws/data-access` grants: `read` the data bucket ARN,
+  `write` each data prefix (`arn:aws:s3:::<bucket>/tether/*`) and the prod
+  table ARNs, `delete` the Lance working branches
+  (`arn:aws:s3:::<bucket>/tether/*/_refs/branches/tether.ws.*` and
+  `.../tree/tether.ws.*`), `kms_key_arns` the bucket's key. A deployment
+  whose previews read other stores (a shared read-only policy in
+  `preview_attachable_policy_arns`) lists them under `read`. Anything
+  unlisted is now refused.
+- `nightly-sweep` retires `/preview/` roles and policies (input `iam_path`,
+  default `/preview/`; empty skips it) whose name belongs to no preview
+  workspace still standing and that are older than `iam_min_age_hours`
+  (24): a role a PR's workflow made outside the stack, or one a failed
+  destroy left, no longer outlives its preview. A policy still attached is
+  left in place.
+
 ## [0.2.0] - 2026-10-08
 
 The first release, and the first public one. Pin to it: the template app's
