@@ -110,7 +110,10 @@ with no preview standing (every Kubernetes name a preview makes changes).
   destroy left, no longer outlives its preview. A policy still attached is
   left in place.
 
-## [0.2.0] - 2026-10-08
+## [0.2.0] - 2026-10-08 [YANKED]
+
+Withdrawn on 2026-10-09, its tag and release deleted: a new cluster's first
+apply deadlocks (0.3.0's first "Fixed" entry). Use 0.3.0.
 
 The first release, and the first public one. Pin to it: the template app's
 workflows call this repository's reusable workflows, which run with the
@@ -788,5 +791,5 @@ Migration for an existing deployment (`examples/*` show the wiring):
   cluster's lifecycle.
 
 [Unreleased]: https://github.com/Rosebud-Biosciences/lab-platform/compare/v0.3.0...HEAD
-[0.3.0]: https://github.com/Rosebud-Biosciences/lab-platform/compare/v0.2.0...v0.3.0
-[0.2.0]: https://github.com/Rosebud-Biosciences/lab-platform/releases/tag/v0.2.0
+[0.3.0]: https://github.com/Rosebud-Biosciences/lab-platform/compare/76a2d7b5793ae5447eacf8bcc28ea349da0377c4...v0.3.0
+[0.2.0]: https://github.com/Rosebud-Biosciences/lab-platform/tree/76a2d7b5793ae5447eacf8bcc28ea349da0377c4
