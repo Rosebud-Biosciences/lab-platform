@@ -73,6 +73,8 @@ jobs:
       - uses: actions/checkout@v7
       - uses: terraform-linters/setup-tflint@6ffdbaa3be476b3431f7275c26966ef32ff60337 # v6.3.2
       - run: tflint --init
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
       - name: tflint (recursive)
         run: tflint --recursive --config "$(pwd)/.tflint.hcl"
 
