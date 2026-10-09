@@ -172,7 +172,7 @@ The three modules above are one way to give a preview its data: Terraform
 stamps an isolated, mostly **empty** copy — a copy-on-write Neon branch, a fresh
 bucket, a fresh namespace — and tears it down with the stack. The other way is a
 dataset tool that **forks the production stores themselves**:
-[tether](https://github.com/elyall/tether) cuts a branch per preview in every
+[tether](https://github.com/Rosebud-Biosciences/tether) cuts a branch per preview in every
 registered system (Neon, Icechunk, Iceberg, Lance), pins the baseline it forked
 from, and can land the result back on prod. The two are alternatives selected
 per deployment, not layers; the `lab-platform-template-app` shows both behind a

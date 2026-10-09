@@ -668,7 +668,7 @@ Migration for an existing deployment (`examples/*` show the wiring):
 - A second provider of ephemeral preview data, documented in
   `docs/preview-environments.md` ("Ephemeral data: two providers"): alongside
   the Terraform modules that stamp isolated empty copies, a dataset tool
-  ([tether](https://github.com/elyall/tether)) may fork the production stores
+  ([tether](https://github.com/Rosebud-Biosciences/tether)) may fork the production stores
   per preview. Three pieces make that possible without touching the tofu path:
   `modules/data-access` (read/write-no-delete IAM on prod store prefixes and
   read/commit on listed S3 Tables tables), a `secrets.extra_tfvars_json` input

@@ -158,7 +158,7 @@ runnable from CI.
 
 The preview's *data* has two providers. Terraform (the modules above) stamps
 isolated copies: branches of prod's Postgres, empty object and table stores.
-[tether](https://github.com/elyall/tether) forks the production stores
+[tether](https://github.com/Rosebud-Biosciences/tether) forks the production stores
 themselves — a branch per preview in Neon, Icechunk, Iceberg and Lance off a
 pinned baseline, discarded when the PR closes, merged or not — with
 [`aws/data-access`](aws/data-access) as its IAM, which means the preview's
