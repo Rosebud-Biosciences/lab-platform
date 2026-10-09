@@ -138,7 +138,7 @@ variable "preview_repos" {
 }
 
 variable "enable_teardown_role" {
-  description = "Create a role only teardown_repos' runs on teardown_ref may assume (the nightly preview sweep), for deletes a pull_request run must not hold: e.g. the stores a PR created. It has no permissions of its own; the stack that owns the data attaches them."
+  description = "Create a role only teardown_repos' runs on teardown_ref may assume -- the nightly preview sweep, and the data jobs that write prod's trunk and pins (data-pull, tether-matrix) -- for what a pull_request run must not hold: e.g. deleting the stores a PR created, or pinning prod's data once data-access's protect_trunk fences the pull-request roles. It has no permissions of its own; the stack that owns the data attaches them."
   type        = bool
   default     = false
 }

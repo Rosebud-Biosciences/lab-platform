@@ -49,7 +49,7 @@ resource "kubernetes_service_account_v1" "dagster_location" {
 
   metadata {
     name        = "${local.prefix}dagster-${each.key}"
-    namespace   = kubernetes_namespace_v1.dagster[0].metadata[0].name
+    namespace   = local.dagster_namespace
     annotations = each.value.service_account_annotations
     labels      = { "lab-platform.io/code-location" = each.key }
   }
@@ -60,7 +60,7 @@ resource "kubernetes_secret_v1" "dagster_location" {
 
   metadata {
     name      = "dagster-location-${each.key}-env"
-    namespace = kubernetes_namespace_v1.dagster[0].metadata[0].name
+    namespace = local.dagster_namespace
   }
 
   data = each.value.secret_env

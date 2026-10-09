@@ -105,14 +105,14 @@ variable "client_admission" {
     requests from restricted principals (Kubernetes usernames starting with
     one of restricted_user_prefixes, or members of restricted_groups -- e.g.
     the preview CI role's username) may only create, change or delete
-    clients whose id matches allowed_id_pattern (a preview's own "pr<N>-"
-    prefix), so a PR's tofu cannot rewrite prod's redirect URIs. Everyone
+    clients whose id matches allowed_id_pattern (a preview's own
+    "preview-" prefix, modules/preview-access's namespace_prefix), so a PR's tofu cannot rewrite prod's redirect URIs. Everyone
     else is unaffected. Null disables it. Needs Kubernetes >= 1.30.
   EOT
   type = object({
     restricted_user_prefixes = optional(list(string), [])
     restricted_groups        = optional(list(string), [])
-    allowed_id_pattern       = optional(string, "^pr[0-9]+-")
+    allowed_id_pattern       = optional(string, "^preview-")
   })
   default = null
 

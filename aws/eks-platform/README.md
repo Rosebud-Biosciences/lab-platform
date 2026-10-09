@@ -120,6 +120,7 @@ operator-role half of this is written up in
 | <a name="module_eks"></a> [eks](#module\_eks) | terraform-aws-modules/eks/aws | ~> 21.0 |
 | <a name="module_eks_blueprints_addons"></a> [eks\_blueprints\_addons](#module\_eks\_blueprints\_addons) | aws-ia/eks-blueprints-addons/aws | ~> 1.24.3 |
 | <a name="module_eks_blueprints_addons_core"></a> [eks\_blueprints\_addons\_core](#module\_eks\_blueprints\_addons\_core) | aws-ia/eks-blueprints-addons/aws | ~> 1.24.3 |
+| <a name="module_preview_access"></a> [preview\_access](#module\_preview\_access) | ../../modules/preview-access | n/a |
 
 ## Resources
 
@@ -188,6 +189,7 @@ operator-role half of this is written up in
 | <a name="input_kube_prometheus_helm_values_override"></a> [kube\_prometheus\_helm\_values\_override](#input\_kube\_prometheus\_helm\_values\_override) | Extra YAML (raw string) deep-merged over the kube-prometheus-stack defaults by Helm (later wins) | `string` | `""` | no |
 | <a name="input_kuberay_operator_version"></a> [kuberay\_operator\_version](#input\_kuberay\_operator\_version) | KubeRay operator Helm chart version | `string` | `"1.6.1"` | no |
 | <a name="input_node_subnet_ids"></a> [node\_subnet\_ids](#input\_node\_subnet\_ids) | Explicit subnet IDs to place the data plane (nodes) in. Empty derives them<br/>from private\_subnets, excluding any subnet inside a secondary CIDR (pod IP<br/>space). Set this explicitly if your secondary CIDR is not 100.x. | `list(string)` | `[]` | no |
+| <a name="input_preview_access"></a> [preview\_access](#input\_preview\_access) | Scope the preview deploy identity to its own namespaces (modules/preview-access): a ClusterRole for its namespaces and, with Karpenter, its NodePools and EC2NodeClasses, and for binding the namespace-admin ClusterRole inside them, held to namespace\_prefix by a ValidatingAdmissionPolicy, plus OAuth2Client rights in dex\_namespace (empty: none). Pair it with that identity's entry in access\_entries, mapped to the group with no access policy (an EKS access policy is no substitute for RBAC: the API server lets nobody create a Role granting more than they hold through RBAC):<br/>  preview = {<br/>    principal\_arn     = <the preview role><br/>    kubernetes\_groups = [<group>]<br/>  }<br/>and give the preview's modules/workloads namespace\_admin = { cluster\_role = <preview\_namespace\_admin\_cluster\_role>, group = <group> }. Every namespace a preview creates must start with namespace\_prefix (modules/workloads' and aws/compute-adapter's name\_prefix), and no other may. Null (default) installs nothing. Needs Kubernetes >= 1.30. | <pre>object({<br/>    group            = optional(string, "lab-platform:preview")<br/>    namespace_prefix = optional(string, "preview-")<br/>    dex_namespace    = optional(string, "")<br/>  })</pre> | `null` | no |
 | <a name="input_secondary_vpc_cidr_octet_prefix"></a> [secondary\_vpc\_cidr\_octet\_prefix](#input\_secondary\_vpc\_cidr\_octet\_prefix) | First-octet prefix of the secondary (pod) CIDR used to exclude those subnets from the data plane when node\_subnet\_ids is empty | `string` | `"100."` | no |
 | <a name="input_tags"></a> [tags](#input\_tags) | Additional tags to apply to all resources | `map(string)` | `{}` | no |
 | <a name="input_tailscale_dns_zone"></a> [tailscale\_dns\_zone](#input\_tailscale\_dns\_zone) | Zone CoreDNS forwards to the tailnet nameserver | `string` | `"ts.net"` | no |
@@ -217,6 +219,8 @@ operator-role half of this is written up in
 | <a name="output_node_security_group_id"></a> [node\_security\_group\_id](#output\_node\_security\_group\_id) | ID of the node security group |
 | <a name="output_oidc_provider"></a> [oidc\_provider](#output\_oidc\_provider) | The OIDC provider URL (without protocol) |
 | <a name="output_oidc_provider_arn"></a> [oidc\_provider\_arn](#output\_oidc\_provider\_arn) | The ARN of the IRSA OIDC provider |
+| <a name="output_preview_access_group"></a> [preview\_access\_group](#output\_preview\_access\_group) | Kubernetes group for the preview deploy identity's access entry (null without preview\_access) |
+| <a name="output_preview_namespace_admin_cluster_role"></a> [preview\_namespace\_admin\_cluster\_role](#output\_preview\_namespace\_admin\_cluster\_role) | ClusterRole a preview binds to preview\_access\_group in each namespace it creates: its modules/workloads namespace\_admin.cluster\_role (null without preview\_access) |
 | <a name="output_region"></a> [region](#output\_region) | AWS region |
 | <a name="output_tailscale_operator_enabled"></a> [tailscale\_operator\_enabled](#output\_tailscale\_operator\_enabled) | Whether the Tailscale operator (and its 'tailscale' IngressClass) is installed |
 | <a name="output_vpc_name"></a> [vpc\_name](#output\_vpc\_name) | VPC name used for Karpenter subnet/SG discovery |

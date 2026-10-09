@@ -180,11 +180,11 @@ fi
 
 # ------------------------------------------------------------------------------
 # Client ownership (modules/dex client_admission): a preview's CI identity may
-# manage pr<N>- clients only. "preview-ci" is impersonated, with just enough
+# manage preview- clients only. "preview-ci" is impersonated, with just enough
 # RBAC on OAuth2Clients to show that the policy, not RBAC, is what refuses.
 # ------------------------------------------------------------------------------
 
-echo "-- admission: preview-ci may manage pr<N>- clients, not this environment's"
+echo "-- admission: preview-ci may manage preview- clients, not this environment's"
 kubectl apply -f - >/dev/null <<'YAML'
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
@@ -205,13 +205,13 @@ kubectl --as=preview-ci -n dex apply -f - >/dev/null <<'YAML'
 apiVersion: dex.coreos.com/v1
 kind: OAuth2Client
 metadata: { name: verify-preview-client, namespace: dex }
-id: pr9-verify
+id: preview-pr9-verify
 secret: not-a-real-secret
-name: pr9 verify probe
-redirectURIs: ["http://pr9.invalid/callback"]
+name: preview-pr9 verify probe
+redirectURIs: ["http://preview-pr9.invalid/callback"]
 YAML
 kubectl --as=preview-ci -n dex delete oauth2client verify-preview-client >/dev/null
-echo "   preview-ci created and deleted its pr9- client"
+echo "   preview-ci created and deleted its preview-pr9- client"
 prod_client=$(kubectl -n dex get oauth2clients -o jsonpath='{range .items[?(@.id=="oauth2-proxy")]}{.metadata.name}{end}')
 if out=$(kubectl --as=preview-ci -n dex patch oauth2client "$prod_client" --type=merge -p '{"redirectURIs":["https://evil.invalid/callback"]}' 2>&1); then
   echo "   preview-ci was allowed to rewrite the environment's client: $out" >&2
@@ -220,5 +220,63 @@ fi
 [[ "$out" == *"may only manage OAuth2Clients"* ]]
 echo "   preview-ci refused on the environment's own client: ${out##*: }"
 kubectl -n dex delete rolebinding,role preview-ci-clients >/dev/null
+
+# ------------------------------------------------------------------------------
+# Preview scope (modules/preview-access): the preview group creates its own
+# namespaces, binds itself admin inside them, and there does what a chart
+# does -- create a Role over pods and custom resources, which the API server
+# admits only from someone holding them through RBAC. Outside them it holds
+# nothing. The refusals run with --dry-run=server (RBAC and admission, nothing
+# persisted), so a hole in the fence harms nothing here.
+# ------------------------------------------------------------------------------
+
+echo "-- preview scope: the preview group owns the preview- namespaces it creates, nothing else"
+as_preview=(--as=preview-ci --as-group=lab-platform:preview)
+pns=preview-pr9-verify
+kubectl delete namespace "$pns" --ignore-not-found --wait=true >/dev/null
+kubectl "${as_preview[@]}" create namespace "$pns" >/dev/null
+kubectl "${as_preview[@]}" -n "$pns" create rolebinding namespace-admin \
+  --clusterrole=preview-deployer-namespace-admin --group=lab-platform:preview >/dev/null
+echo "   created $pns and bound itself admin there"
+kubectl "${as_preview[@]}" -n "$pns" apply -f - >/dev/null <<'YAML'
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: verify-chart-role
+rules:
+  - apiGroups: [""]
+    resources: [pods, pods/log, services, configmaps]
+    verbs: [get, list, watch, create, patch, delete]
+  - apiGroups: [ray.io]
+    resources: [rayclusters, rayjobs]
+    verbs: [get, list, watch, create, update, patch, delete]
+YAML
+kubectl "${as_preview[@]}" -n "$pns" get secrets --ignore-not-found >/dev/null
+echo "   created a chart's Role over pods and RayClusters in $pns, and reads its secrets"
+if out=$(kubectl "${as_preview[@]}" -n "${P}webapp" create rolebinding verify-admin \
+  --clusterrole=preview-deployer-namespace-admin --group=lab-platform:preview --dry-run=server 2>&1); then
+  echo "   the preview group bound itself admin in ${P}webapp" >&2
+  exit 1
+fi
+[[ "$out" == *"may only bind roles in namespaces named preview-"* ]]
+echo "   refused binding itself in ${P}webapp: ${out##*: }"
+if out=$(kubectl "${as_preview[@]}" create namespace verify-not-a-preview --dry-run=server 2>&1); then
+  echo "   the preview group created a namespace outside its prefix" >&2
+  exit 1
+fi
+[[ "$out" == *"may only create, change or delete namespaces named preview-"* ]]
+echo "   refused a namespace outside its prefix: ${out##*: }"
+if out=$(kubectl "${as_preview[@]}" delete namespace "${P}webapp" --dry-run=server 2>&1); then
+  echo "   the preview group could delete this environment's namespace" >&2
+  exit 1
+fi
+echo "   refused deleting ${P}webapp: ${out##*: }"
+if kubectl "${as_preview[@]}" -n "${P}webapp" get secrets >/dev/null 2>&1; then
+  echo "   the preview group read this environment's secrets" >&2
+  exit 1
+fi
+echo "   holds nothing inside ${P}webapp"
+kubectl "${as_preview[@]}" delete namespace "$pns" --wait=false >/dev/null
+echo "   deleted $pns"
 
 echo "== all workloads healthy, auth gates hold"

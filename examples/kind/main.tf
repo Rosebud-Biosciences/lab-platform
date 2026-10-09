@@ -71,8 +71,22 @@ module "dex" {
   connector_env = var.enable_keycloak ? module.realm[0].dex_connector_env : {}
 
   # A stand-in for a preview's CI identity: verify.sh acts as "preview-ci"
-  # (kubectl --as) and must be able to manage only pr<N>- clients.
+  # (kubectl --as) and must be able to manage only preview- clients.
   client_admission = { restricted_user_prefixes = ["preview-ci"] }
+}
+
+# The same stand-in as a member of the preview group (verify.sh impersonates
+# it): it creates preview- namespaces and binds itself admin inside them,
+# nothing else. kind has no Karpenter.
+module "preview_access" {
+  source = "../../modules/preview-access"
+
+  providers = {
+    kubernetes = kubernetes
+    kubectl    = kubectl
+  }
+
+  karpenter = false
 }
 
 module "workloads" {

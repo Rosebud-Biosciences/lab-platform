@@ -170,3 +170,63 @@ run "allow_delete_covers_the_prefixes" {
     error_message = "the teardown grant deletes anything under the prefixes"
   }
 }
+
+run "trunk_unprotected_by_default" {
+  command = plan
+
+  variables {
+    prefixes = ["tether/"]
+  }
+
+  assert {
+    condition     = length([for s in data.aws_iam_policy_document.this.statement : s if s.effect == "Deny"]) == 0
+    error_message = "protect_trunk is opt-in"
+  }
+}
+
+# The deny's patterns, matched the way IAM does (* spans slashes): the trunk
+# and its pins are caught, a working branch's keys are not.
+run "protect_trunk_fences_the_trunk_not_the_branches" {
+  command = plan
+
+  variables {
+    prefixes              = ["tether/"]
+    working_branch_prefix = "tether.ws."
+    protect_trunk         = true
+  }
+
+  assert {
+    condition = alltrue([
+      for key in [
+        "tether/greetings.lance/_versions/3.manifest",
+        "tether/greetings.lance/_latest.manifest",
+        "tether/greetings.lance/_refs/tags/tether.6e117556.abc.json",
+        "tether/greetings.icechunk/refs/branch.main/ref.json",
+        "tether/greetings.icechunk/refs/tag.tether.6e117556.abc/ref.json",
+        "tether/greetings_log.delta/_delta_log/00000000000000000004.json",
+        ] : anytrue([
+          for r in flatten([for s in data.aws_iam_policy_document.this.statement : s.resources if s.effect == "Deny"]) :
+          can(regex("^${replace(replace(r, ".", "\\."), "*", ".*")}$", "arn:aws:s3:::prod-data/${key}"))
+      ])
+    ])
+    error_message = "every trunk and pin key must fall under the deny"
+  }
+  assert {
+    condition = !anytrue(flatten([
+      for key in [
+        "tether/greetings.lance/_refs/branches/tether.ws.6e117556.pr3.json",
+        "tether/greetings.lance/tree/tether.ws.6e117556.pr3/_versions/4.manifest",
+        "tether/greetings.lance/data/0a1b2c.lance",
+        "tether/greetings.icechunk/refs/branch.tether.ws.6e117556.pr3/ref.json",
+        "tether/greetings.icechunk/repo",
+        "tether/greetings.icechunk/snapshots/ABCDEF",
+        "tether/greetings.icechunk/chunks/ABCDEF",
+        "tether/mlflow/pr3/1/artifacts/model.pkl",
+        ] : [
+        for r in flatten([for s in data.aws_iam_policy_document.this.statement : s.resources if s.effect == "Deny"]) :
+        can(regex("^${replace(replace(r, ".", "\\."), "*", ".*")}$", "arn:aws:s3:::prod-data/${key}"))
+      ]
+    ]))
+    error_message = "a fork's own keys (its branch, Icechunk 2's repo object, new data and chunks, MLflow artifacts) must stay writable"
+  }
+}

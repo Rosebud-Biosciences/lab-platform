@@ -28,7 +28,7 @@ resource "kubernetes_namespace_v1" "argo" {
   count = var.enable_argo_workflows ? 1 : 0
 
   metadata {
-    name = local.argo_namespace
+    name = local.namespace_names.argo
     # NetworkPolicies admit client services by this label (netpol.tf).
     labels = merge({ "lab-platform.io/service" = "argo" }, local.tenant_labels)
   }
@@ -39,7 +39,7 @@ resource "kubernetes_service_account_v1" "argo_workflow" {
 
   metadata {
     name        = local.argo_service_account_name
-    namespace   = kubernetes_namespace_v1.argo[0].metadata[0].name
+    namespace   = local.argo_namespace
     annotations = local.identity.argo.service_account_annotations
   }
 }
@@ -54,7 +54,7 @@ resource "kubernetes_role_v1" "argo_workflow" {
 
   metadata {
     name      = "${local.prefix}argo-workflow-role"
-    namespace = kubernetes_namespace_v1.argo[0].metadata[0].name
+    namespace = local.argo_namespace
   }
 
   rule {
@@ -75,7 +75,7 @@ resource "kubernetes_role_binding_v1" "argo_workflow" {
 
   metadata {
     name      = "${local.prefix}argo-workflow-binding"
-    namespace = kubernetes_namespace_v1.argo[0].metadata[0].name
+    namespace = local.argo_namespace
   }
 
   role_ref {
@@ -87,7 +87,7 @@ resource "kubernetes_role_binding_v1" "argo_workflow" {
   subject {
     kind      = "ServiceAccount"
     name      = kubernetes_service_account_v1.argo_workflow[0].metadata[0].name
-    namespace = kubernetes_namespace_v1.argo[0].metadata[0].name
+    namespace = local.argo_namespace
   }
 }
 
@@ -96,7 +96,7 @@ resource "kubernetes_role_v1" "argo_workflow_ray" {
 
   metadata {
     name      = "${local.prefix}argo-workflow-ray"
-    namespace = kubernetes_namespace_v1.ray[0].metadata[0].name
+    namespace = local.ray_namespace
   }
 
   rule {
@@ -120,7 +120,7 @@ resource "kubernetes_role_binding_v1" "argo_workflow_ray" {
 
   metadata {
     name      = "${local.prefix}argo-workflow-ray"
-    namespace = kubernetes_namespace_v1.ray[0].metadata[0].name
+    namespace = local.ray_namespace
   }
 
   role_ref {
@@ -132,7 +132,7 @@ resource "kubernetes_role_binding_v1" "argo_workflow_ray" {
   subject {
     kind      = "ServiceAccount"
     name      = kubernetes_service_account_v1.argo_workflow[0].metadata[0].name
-    namespace = kubernetes_namespace_v1.argo[0].metadata[0].name
+    namespace = local.argo_namespace
   }
 }
 
@@ -143,7 +143,7 @@ resource "kubernetes_secret_v1" "argo_identity_env" {
 
   metadata {
     name      = local.identity_secret_name.argo
-    namespace = kubernetes_namespace_v1.argo[0].metadata[0].name
+    namespace = local.argo_namespace
   }
 
   data = local.identity_secret_env.argo
@@ -156,7 +156,7 @@ resource "kubernetes_secret_v1" "argo_db" {
 
   metadata {
     name      = local.argo_db_secret
-    namespace = kubernetes_namespace_v1.argo[0].metadata[0].name
+    namespace = local.argo_namespace
   }
 
   data = {
@@ -168,7 +168,7 @@ resource "kubernetes_secret_v1" "argo_db" {
 resource "helm_release" "argo_workflows" {
   count = var.enable_argo_workflows ? 1 : 0
 
-  namespace  = kubernetes_namespace_v1.argo[0].metadata[0].name
+  namespace  = local.argo_namespace
   name       = local.argo_release
   repository = var.argo_workflows_repository
   chart      = "argo-workflows"

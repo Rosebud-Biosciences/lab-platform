@@ -14,7 +14,10 @@
 #     working_branch_prefix lets the holder delete Lance working branches
 #     named with that prefix, and nothing else (CI's preview teardown);
 #     allow_delete lets it delete anything under the prefixes (the stores a PR
-#     created), for a role only default-branch runs can assume.
+#     created), for a role only default-branch runs can assume. protect_trunk,
+#     for every holder a pull request controls, denies the trunk and its pins
+#     outright (Lance's root versions and tags, Icechunk's main ref and tags,
+#     Delta's log): a fork writes only its own branch.
 #   - S3 Tables: read and commit metadata on the listed tables. Iceberg branches
 #     are refs in one metadata file, so there is nothing narrower to grant; a
 #     preview that writes to `main` instead of its branch is a code bug the
@@ -88,6 +91,29 @@ data "aws_iam_policy_document" "this" {
       sid       = "DeletePrefixes"
       actions   = ["s3:DeleteObject"]
       resources = [for p in local.prefixes : "${var.bucket_arn}/${p}*"]
+    }
+  }
+
+  # A fork writes its own branch; the trunk and the pins on it are the
+  # default branch's to write. Lance's trunk is the dataset root (its
+  # branches live under tree/), Icechunk 1's is refs/branch.main, Delta has no
+  # branches at all. Iceberg and Icechunk 2 cannot be fenced this way: each
+  # keeps every ref in one object (a table's metadata file, the repository's
+  # `repo`) that creating a branch rewrites.
+  dynamic "statement" {
+    for_each = var.protect_trunk && length(local.prefixes) > 0 ? [1] : []
+    content {
+      sid     = "NeverTheTrunkOrItsPins"
+      effect  = "Deny"
+      actions = ["s3:PutObject", "s3:DeleteObject"]
+      resources = flatten([for p in local.prefixes : [
+        "${var.bucket_arn}/${p}*.lance/_versions/*",
+        "${var.bucket_arn}/${p}*.lance/_latest.manifest",
+        "${var.bucket_arn}/${p}*.lance/_refs/tags/*",
+        "${var.bucket_arn}/${p}*.icechunk/refs/branch.main/*",
+        "${var.bucket_arn}/${p}*.icechunk/refs/tag.*",
+        "${var.bucket_arn}/${p}*.delta/_delta_log/*",
+      ]])
     }
   }
 

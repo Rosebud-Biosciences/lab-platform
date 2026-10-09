@@ -265,16 +265,26 @@ against the PR itself:
   (`aws/eks-platform` `enable_network_policy`, on by default); without it, in
   auth mode `headers`, any pod could reach the webapp and assert an identity.
 - **Data.** `tofu` mode: the preview writes only its own copies. `tether`
-  mode: write into prod stores, no delete (above).
+  mode: write into prod stores, no delete (above); with `aws/data-access`'s
+  `protect_trunk` on every policy a PR controls (its pods', its workflow's),
+  never the trunk or its pins -- Lance's root versions and tags, Icechunk
+  1.x's `main` ref and tags, Delta's log -- which the default branch's role
+  alone writes (`data-pull`, `tether-matrix`). Iceberg and Icechunk 2.x stay
+  exposed: each keeps every ref in one object (a table's metadata file, the
+  repository's `repo`) that creating a branch rewrites. The bucket's
+  versioning is the backstop.
 - **`app` profile.** Its triggers run prod's Dagster on prod's data (above).
-- **Still open.** The preview role deploys into the cluster with a
-  cluster-admin access entry, so it can change anything in Kubernetes, prod's
-  namespaces included; Dex's `client_admission` fences only the OAuth
-  clients. Scoping it to its own namespaces needs the workloads module to stop
-  creating per-environment namespaces itself ([auth.md](auth.md), "Trust
-  between environments"). Until then, anyone who can push a branch to the
-  app repository can change the cluster through its preview workflow (the
-  label check is in a file the PR can edit): grant write access accordingly.
+- **Kubernetes RBAC for the preview role.** With `aws/eks-platform`'s
+  `preview_access` and the access entry it describes, the preview role is an
+  admin only in namespaces starting with `preview-` (`modules/preview-access`),
+  through a RoleBinding it creates in each (`modules/workloads`
+  `namespace_admin`); outside them it creates only its namespaces, NodePools
+  and EC2NodeClasses and those RoleBindings, which an admission policy holds
+  to the prefix, and its Dex clients, which `client_admission` fences.
+  Without them (up to v0.2.0) it deploys with a
+  cluster-admin access entry: anyone who can push a branch to the app
+  repository can change the cluster through its preview workflow (the label
+  check is in a file the PR can edit).
 
 ## GPU isolation
 

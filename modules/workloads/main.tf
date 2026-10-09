@@ -11,12 +11,23 @@ locals {
   # This module owns its own Helm value templates.
   helm_defaults = "${path.module}/helm-defaults"
 
-  webapp_namespace     = "${local.prefix}${var.webapp_app_name}"
-  dagster_namespace    = "${local.prefix}dagster"
-  mlflow_namespace     = "${local.prefix}mlflow"
-  ray_namespace        = "${local.prefix}ray"
-  argo_namespace       = "${local.prefix}argo"
-  jupyterhub_namespace = "${local.prefix}jupyterhub"
+  namespace_names = {
+    webapp     = "${local.prefix}${var.webapp_app_name}"
+    dagster    = "${local.prefix}dagster"
+    mlflow     = "${local.prefix}mlflow"
+    ray        = "${local.prefix}ray"
+    argo       = "${local.prefix}argo"
+    jupyterhub = "${local.prefix}jupyterhub"
+  }
+
+  # What everything namespaced reads its namespace from, so it waits for the
+  # namespace and its namespace_admin binding (namespace_admin.tf).
+  webapp_namespace     = local.namespace.webapp
+  dagster_namespace    = local.namespace.dagster
+  mlflow_namespace     = local.namespace.mlflow
+  ray_namespace        = local.namespace.ray
+  argo_namespace       = local.namespace.argo
+  jupyterhub_namespace = local.namespace.jupyterhub
 
   # ServiceAccount names: the identity contract. A backend adapter trusts
   # exactly <namespace>/<name> for each service, so these are fixed here and

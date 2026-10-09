@@ -265,15 +265,16 @@ pods/nodes they actually schedule on top of the shared cluster.
 
 ## Security
 
-Report vulnerabilities privately ([SECURITY.md](SECURITY.md)). Two defaults
-are weaker than they look, and matter to anyone running the preview
-workflows: a preview deploys as cluster-admin, so whoever can push a branch to
-the app repository can change the whole cluster, prod's namespaces included;
-and, up to v0.2.0, the preview permissions boundary caps actions, not
-resources, unless you set `aws/bootstrap`'s `preview_boundary_resources`
-(after it, the boundary reaches only what a preview owns plus
-`preview_boundary_access`). SECURITY.md and the design doc's "Trust" section
-say what each allows and what to do.
+Report vulnerabilities privately ([SECURITY.md](SECURITY.md)). Up to v0.2.0,
+two defaults are weaker than they look, and matter to anyone running the
+preview workflows: a preview deploys as cluster-admin, so whoever can push a
+branch to the app repository can change the whole cluster, prod's namespaces
+included; and the preview permissions boundary caps actions, not resources.
+After v0.2.0, `aws/eks-platform`'s `preview_access`, with the preview role's
+access entry mapped to its group alone, confines a preview to the `preview-*`
+namespaces it creates, and the boundary reaches only what a preview owns plus
+`preview_boundary_access`. SECURITY.md
+and the design doc's "Trust" section say what each allows and what to do.
 
 ## Development
 

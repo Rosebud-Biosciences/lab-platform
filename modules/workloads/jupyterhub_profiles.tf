@@ -55,7 +55,7 @@ resource "kubernetes_service_account_v1" "jupyterhub_profile" {
 
   metadata {
     name        = "${local.prefix}jh-${each.value.slug}"
-    namespace   = kubernetes_namespace_v1.jupyterhub[0].metadata[0].name
+    namespace   = local.jupyterhub_namespace
     annotations = each.value.service_account_annotations
     labels      = { "lab-platform.io/group" = each.value.slug }
   }
@@ -66,7 +66,7 @@ resource "kubernetes_secret_v1" "jupyterhub_profile" {
 
   metadata {
     name      = "jh-${each.value.slug}-env"
-    namespace = kubernetes_namespace_v1.jupyterhub[0].metadata[0].name
+    namespace = local.jupyterhub_namespace
   }
 
   data = each.value.secret_env

@@ -169,6 +169,12 @@ variable "karpenter_node_iam_role_name" {
   default     = ""
 }
 
+variable "node_pools_namespace" {
+  description = "Namespace holding the NodePool Helm releases (their records; the NodePools themselves are cluster-scoped). A preview passes one of its own (modules/workloads' webapp_namespace), so its deploy identity writes nothing in Karpenter's."
+  type        = string
+  default     = "karpenter"
+}
+
 variable "karpenter_node_pools" {
   description = "Map of Karpenter NodePool configurations (created only if karpenter_node_iam_role_name is set). Keys are referenced by node_pool_roles."
   type = map(object({

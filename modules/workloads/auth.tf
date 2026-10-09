@@ -382,6 +382,7 @@ resource "kubernetes_secret_v1" "oauth2_proxy" {
     kubernetes_namespace_v1.mlflow,
     kubernetes_namespace_v1.ray,
     kubernetes_namespace_v1.webapp,
+    kubernetes_role_binding_v1.namespace_admin,
   ]
 }
 
@@ -558,7 +559,7 @@ resource "kubernetes_secret_v1" "argo_sso" {
 
   metadata {
     name      = local.argo_sso_secret
-    namespace = kubernetes_namespace_v1.argo[0].metadata[0].name
+    namespace = local.argo_namespace
   }
 
   data = {
@@ -583,7 +584,7 @@ resource "kubernetes_service_account_v1" "argo_sso" {
 
   metadata {
     name      = "argo-ui-${each.key}"
-    namespace = kubernetes_namespace_v1.argo[0].metadata[0].name
+    namespace = local.argo_namespace
     annotations = {
       "workflows.argoproj.io/rbac-rule"            = each.value.rule
       "workflows.argoproj.io/rbac-rule-precedence" = tostring(each.value.precedence)
@@ -598,7 +599,7 @@ resource "kubernetes_secret_v1" "argo_sso_token" {
 
   metadata {
     name      = "argo-ui-${each.key}.service-account-token"
-    namespace = kubernetes_namespace_v1.argo[0].metadata[0].name
+    namespace = local.argo_namespace
     annotations = {
       "kubernetes.io/service-account.name" = kubernetes_service_account_v1.argo_sso[each.key].metadata[0].name
     }
@@ -616,7 +617,7 @@ resource "kubernetes_role_v1" "argo_sso" {
 
   metadata {
     name      = "argo-ui-${each.key}"
-    namespace = kubernetes_namespace_v1.argo[0].metadata[0].name
+    namespace = local.argo_namespace
   }
 
   rule {
@@ -637,7 +638,7 @@ resource "kubernetes_role_binding_v1" "argo_sso" {
 
   metadata {
     name      = "argo-ui-${each.key}"
-    namespace = kubernetes_namespace_v1.argo[0].metadata[0].name
+    namespace = local.argo_namespace
   }
 
   role_ref {
@@ -651,7 +652,7 @@ resource "kubernetes_role_binding_v1" "argo_sso" {
     content {
       kind      = "ServiceAccount"
       name      = kubernetes_service_account_v1.argo_sso[subject.key].metadata[0].name
-      namespace = kubernetes_namespace_v1.argo[0].metadata[0].name
+      namespace = local.argo_namespace
     }
   }
 }

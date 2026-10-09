@@ -168,7 +168,7 @@ run "client_admission_policy" {
     error_message = "restricted principals are matched by username prefix and group"
   }
   assert {
-    condition     = strcontains(kubectl_manifest.client_admission_policy[0].yaml_body, "oldObject == null") && strcontains(kubectl_manifest.client_admission_policy[0].yaml_body, "^pr[0-9]+-") && yamldecode(kubectl_manifest.client_admission_binding[0].yaml_body).spec.validationActions == ["Deny"] && yamldecode(kubectl_manifest.client_admission_binding[0].yaml_body).spec.matchResources.namespaceSelector.matchLabels["kubernetes.io/metadata.name"] == "dex"
+    condition     = strcontains(kubectl_manifest.client_admission_policy[0].yaml_body, "oldObject == null") && strcontains(kubectl_manifest.client_admission_policy[0].yaml_body, "^preview-") && yamldecode(kubectl_manifest.client_admission_binding[0].yaml_body).spec.validationActions == ["Deny"] && yamldecode(kubectl_manifest.client_admission_binding[0].yaml_body).spec.matchResources.namespaceSelector.matchLabels["kubernetes.io/metadata.name"] == "dex"
     error_message = "both the new and the old object must carry a preview id, and the binding denies"
   }
 }

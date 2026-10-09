@@ -47,6 +47,12 @@ run "all_disabled_creates_nothing" {
 run "webapp_webhook_identity" {
   command = plan
 
+  # No namespace_admin: nothing is bound.
+  assert {
+    condition     = length(kubernetes_role_binding_v1.namespace_admin) == 0
+    error_message = "without namespace_admin no namespace gets a binding"
+  }
+
   variables {
     enable_webapp = true
     webapp_image  = "public.ecr.aws/nginx/nginx:latest"
@@ -1403,5 +1409,44 @@ run "rollouts_need_not_be_waited_for" {
   assert {
     condition     = !kubernetes_deployment_v1.webapp_pinned[0].wait_for_rollout && !helm_release.dagster[0].wait && !helm_release.dagster[0].atomic
     error_message = "a stack whose CI pushes the images can submit the webapp and Dagster without waiting for images that do not exist yet (atomic would wait)"
+  }
+}
+
+# A preview's deployer (modules/preview-access) holds nothing in a namespace
+# until it binds itself there: every namespace created gets the binding, and
+# what lives in it reads its namespace through that binding.
+run "namespace_admin_binds_every_created_namespace" {
+  command = plan
+
+  variables {
+    name_prefix         = "preview-pr9-"
+    enable_webapp       = true
+    webapp_image        = "public.ecr.aws/nginx/nginx:latest"
+    enable_ray          = true
+    enable_dagster      = true
+    dagster_db_host     = "db.example.com"
+    dagster_db_name     = "dagster"
+    dagster_db_user     = "dagster"
+    dagster_db_password = "test"
+    namespace_admin = {
+      cluster_role = "preview-deployer-namespace-admin"
+      group        = "lab-platform:preview"
+    }
+  }
+
+  assert {
+    condition     = toset(keys(kubernetes_role_binding_v1.namespace_admin)) == toset(["webapp", "ray", "dagster"])
+    error_message = "every namespace this module creates, and only those, gets the binding"
+  }
+  assert {
+    condition = alltrue([
+      for k, b in kubernetes_role_binding_v1.namespace_admin :
+      b.metadata[0].namespace == "preview-pr9-${k}" && b.role_ref[0].name == "preview-deployer-namespace-admin" && b.subject[0].name == "lab-platform:preview"
+    ])
+    error_message = "each binding grants the group the namespace-admin ClusterRole in its own namespace"
+  }
+  assert {
+    condition     = output.ray_namespace == "preview-pr9-ray" && helm_release.dagster[0].namespace == "preview-pr9-dagster" && output.webapp_namespace == "preview-pr9-webapp"
+    error_message = "reading the namespace through its binding leaves every name as it was"
   }
 }

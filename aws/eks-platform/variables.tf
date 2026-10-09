@@ -145,6 +145,23 @@ variable "access_entries" {
   default = {}
 }
 
+variable "preview_access" {
+  description = <<-EOT
+    Scope the preview deploy identity to its own namespaces (modules/preview-access): a ClusterRole for its namespaces and, with Karpenter, its NodePools and EC2NodeClasses, and for binding the namespace-admin ClusterRole inside them, held to namespace_prefix by a ValidatingAdmissionPolicy, plus OAuth2Client rights in dex_namespace (empty: none). Pair it with that identity's entry in access_entries, mapped to the group with no access policy (an EKS access policy is no substitute for RBAC: the API server lets nobody create a Role granting more than they hold through RBAC):
+      preview = {
+        principal_arn     = <the preview role>
+        kubernetes_groups = [<group>]
+      }
+    and give the preview's modules/workloads namespace_admin = { cluster_role = <preview_namespace_admin_cluster_role>, group = <group> }. Every namespace a preview creates must start with namespace_prefix (modules/workloads' and aws/compute-adapter's name_prefix), and no other may. Null (default) installs nothing. Needs Kubernetes >= 1.30.
+  EOT
+  type = object({
+    group            = optional(string, "lab-platform:preview")
+    namespace_prefix = optional(string, "preview-")
+    dex_namespace    = optional(string, "")
+  })
+  default = null
+}
+
 # ------------------------------------------------------------------------------
 # CORE NODE GROUP
 # ------------------------------------------------------------------------------

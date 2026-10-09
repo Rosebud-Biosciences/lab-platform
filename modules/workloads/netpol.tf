@@ -172,6 +172,7 @@ resource "kubernetes_network_policy_v1" "upstream" {
     kubernetes_namespace_v1.mlflow,
     kubernetes_namespace_v1.ray,
     kubernetes_namespace_v1.argo,
+    kubernetes_role_binding_v1.namespace_admin,
   ]
 }
 

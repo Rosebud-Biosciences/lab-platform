@@ -23,14 +23,17 @@ install (report those upstream), and deployments that loosen the defaults.
 These are known and documented, not vulnerabilities to report. They matter
 most to anyone running the preview workflows, so read them before you adopt:
 
-1. **A preview deploys as cluster-admin.** The preview role reaches the
-   cluster through a cluster-admin access entry, because `modules/workloads`
-   creates each environment's namespaces itself. Anyone who can push a branch
-   to an app repository that runs the preview workflows can therefore change
-   anything in the cluster through them, prod's namespaces included, and act
-   as any prod ServiceAccount and the IAM role bound to it. The label check
-   that starts a preview is in a workflow file the PR can edit. Grant write
-   access to such a repository as you would grant cluster-admin.
+1. **Up to v0.2.0, a preview deploys as cluster-admin.** The preview role
+   reaches the cluster through a cluster-admin access entry. Anyone who can
+   push a branch to an app repository that runs the preview workflows can
+   therefore change anything in the cluster through them, prod's namespaces
+   included, and act as any prod ServiceAccount and the IAM role bound to it.
+   The label check that starts a preview is in a workflow file the PR can
+   edit. From the next release, `aws/eks-platform`'s `preview_access`, with
+   the role's access entry mapped to its group alone, confines it to the
+   `preview-*` namespaces it creates (`modules/preview-access`); until you
+   configure both, grant write access to such a repository as you would
+   grant cluster-admin.
 2. **Up to v0.2.0, the preview permissions boundary caps actions, not
    resources.** `preview_boundary_resources` defaults to `["*"]` there: a PR
    can create a `/preview/` role, with a trust policy of its choosing, that
@@ -44,6 +47,6 @@ By design, `tether` mode lets a preview's pods write into production stores
 (never delete): opt in only where the PR's code is trusted with that.
 
 [docs/preview-environments.md](docs/preview-environments.md), "Trust: what a
-preview can reach", has the full picture. Still planned: a preview role
-scoped to its own namespaces. From the next release, `nightly-sweep` also
-retires `/preview/` roles and policies that outlive their preview.
+preview can reach", has the full picture. From the next release,
+`nightly-sweep` also retires `/preview/` roles and policies that outlive
+their preview.

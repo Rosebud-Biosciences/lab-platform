@@ -257,7 +257,7 @@ locals {
 resource "helm_release" "karpenter_node_pools" {
   for_each = local.create_pools
 
-  namespace        = "karpenter"
+  namespace        = var.node_pools_namespace
   create_namespace = false
   name             = "karpenter-resources-${local.prefix}${each.key}"
   chart            = "${path.module}/charts/karpenter-resources"

@@ -38,6 +38,7 @@ jobs:
           - modules/keycloak-realm
           - modules/tenancy
           - modules/postgres-group-roles
+          - modules/preview-access
           - aws/bootstrap
           - aws/network
           - aws/eks-platform
@@ -103,7 +104,7 @@ jobs:
       - name: Verify generated module docs are up to date
         uses: terraform-docs/gh-actions@6de6da0cefcc6b4b7a5cbea4d79d97060733093c # v1.4.1
         with:
-          working-dir: modules/workloads,modules/neon-branches,modules/dex,modules/keycloak,modules/keycloak-realm,modules/tenancy,modules/postgres-group-roles,aws/bootstrap,aws/network,aws/eks-platform,aws/s3-bucket,aws/preview-storage,aws/iceberg-branches,aws/data-access,aws/tenant-data,aws/data-adapter,aws/compute-adapter,aws/oidc-provider
+          working-dir: modules/workloads,modules/neon-branches,modules/dex,modules/keycloak,modules/keycloak-realm,modules/tenancy,modules/postgres-group-roles,modules/preview-access,aws/bootstrap,aws/network,aws/eks-platform,aws/s3-bucket,aws/preview-storage,aws/iceberg-branches,aws/data-access,aws/tenant-data,aws/data-adapter,aws/compute-adapter,aws/oidc-provider
           config-file: .terraform-docs.yml
           output-format: markdown table
           fail-on-diff: true
@@ -122,6 +123,7 @@ jobs:
           - modules/keycloak-realm
           - modules/tenancy
           - modules/postgres-group-roles
+          - modules/preview-access
           - aws/bootstrap
           - aws/network
           - aws/iceberg-branches

@@ -6,6 +6,54 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Security (**breaking**): a preview deploys inside its own namespaces only
+
+- New `modules/preview-access`: what a preview's deploy identity may do
+  outside its namespaces -- create, change and delete its namespaces and,
+  with Karpenter, its NodePools and EC2NodeClasses, and read the
+  cluster-scoped kinds the providers look up -- with a
+  ValidatingAdmissionPolicy that admits only names starting with
+  `namespace_prefix` (`preview-`) from its group, on the new and the old
+  object; optionally OAuth2Clients in Dex's namespace. Inside each namespace
+  it creates, the preview binds the module's namespace-admin ClusterRole to
+  its group first, and owns the namespace through RBAC; the ClusterRole lets
+  it bind that role alone, and the policy keeps its RoleBindings to `preview-`
+  namespaces. On EKS the preview role's access entry maps it to the group
+  with no access policy, replacing cluster admin (`AmazonEKSAdminPolicy`
+  covers no custom resources, and the API server lets nobody create a Role
+  granting more than they hold through RBAC, as every chart a preview
+  installs does). `aws/eks-platform`'s new `preview_access` installs it and
+  documents the access entry; `preview_access_group` and
+  `preview_namespace_admin_cluster_role` are its outputs.
+- `modules/workloads`: `namespace_admin = { cluster_role, group }` binds the
+  role in every namespace the module creates, and everything namespaced
+  waits for the binding.
+- `aws/compute-adapter`: `node_pools_namespace` (default `karpenter`) holds
+  the NodePool Helm releases; a preview passes its own namespace, so it writes
+  nothing in Karpenter's.
+- `modules/dex` (**breaking**): `client_admission.allowed_id_pattern`
+  defaults to `^preview-`, matching the preview prefix; it was `^pr[0-9]+-`.
+- Upgrading a preview stack: its `name_prefix` (namespaces, NodePools, the
+  Dex clients and IRSA subjects that derive from it) must start with the
+  prefix -- the template uses `preview-pr<N>-` -- and its NodePools'
+  `node_pools_namespace` is one of its own namespaces. Hostnames can keep
+  their old prefix (`private_ingress_hostname_prefix`).
+
+### Security: a pull request cannot write prod's trunk or its pins
+
+- `aws/data-access`: `protect_trunk` denies writes and deletes to each
+  store's trunk and the pins on it -- Lance's root versions, manifest and tags
+  (`*.lance`), Icechunk 1.x's `main` ref and tags (`*.icechunk`), Delta's log
+  (`*.delta`) -- while a fork's own branch, new data and chunks stay
+  writable. Set it on every policy a pull request controls: the preview's
+  pods' (the template's `infra/preview`) and the role its workflow assumes
+  for `fork-data` and `data-down` (`DATA_ROLE_ARN`). The pins then come from
+  default-branch runs alone: `data-pull` and `tether-matrix` assume
+  `aws/bootstrap`'s teardown role, whose policy has no `protect_trunk`.
+  Iceberg and Icechunk 2.x are not covered (each keeps every ref in one
+  object a new branch rewrites: a table's metadata file, the repository's
+  `repo`); keep the data bucket versioned.
+
 ### Security (**breaking**): the preview boundary caps resources, not only actions
 
 - `aws/bootstrap`: the permissions boundary on every `/preview/` role no

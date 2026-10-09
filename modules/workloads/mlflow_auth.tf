@@ -183,7 +183,7 @@ resource "kubernetes_secret_v1" "mlflow_oidc" {
 
   metadata {
     name      = "${local.mlflow_release}-oidc"
-    namespace = kubernetes_namespace_v1.mlflow[0].metadata[0].name
+    namespace = local.mlflow_namespace
   }
 
   data = {
@@ -215,7 +215,7 @@ resource "kubernetes_secret_v1" "mlflow_auth_db" {
 
   metadata {
     name      = "${local.mlflow_release}-auth-db"
-    namespace = kubernetes_namespace_v1.mlflow[0].metadata[0].name
+    namespace = local.mlflow_namespace
   }
 
   data = {
@@ -246,7 +246,7 @@ resource "kubernetes_secret_v1" "mlflow_credentials" {
     ignore_changes = [data, metadata[0].annotations]
   }
 
-  depends_on = [kubernetes_namespace_v1.dagster, kubernetes_namespace_v1.ray, kubernetes_namespace_v1.webapp]
+  depends_on = [kubernetes_namespace_v1.dagster, kubernetes_namespace_v1.ray, kubernetes_namespace_v1.webapp, kubernetes_role_binding_v1.namespace_admin]
 }
 
 resource "kubernetes_role_v1" "mlflow_credentials" {
@@ -297,7 +297,7 @@ resource "kubernetes_service_account_v1" "mlflow_auth_sync" {
 
   metadata {
     name      = local.mlflow_sync_name
-    namespace = kubernetes_namespace_v1.mlflow[0].metadata[0].name
+    namespace = local.mlflow_namespace
   }
 }
 
@@ -306,7 +306,7 @@ resource "kubernetes_config_map_v1" "mlflow_auth_sync" {
 
   metadata {
     name      = local.mlflow_sync_name
-    namespace = kubernetes_namespace_v1.mlflow[0].metadata[0].name
+    namespace = local.mlflow_namespace
   }
 
   data = {
@@ -321,7 +321,7 @@ resource "kubernetes_cron_job_v1" "mlflow_auth_sync" {
 
   metadata {
     name      = local.mlflow_sync_name
-    namespace = kubernetes_namespace_v1.mlflow[0].metadata[0].name
+    namespace = local.mlflow_namespace
   }
 
   spec {

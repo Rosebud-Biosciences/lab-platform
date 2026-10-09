@@ -81,6 +81,14 @@ variable "allow_delete" {
   default     = false
 }
 
+variable "protect_trunk" {
+  description = <<-EOT
+    Deny writes and deletes to each store's trunk and the pins on it, for a holder a pull request controls (a preview's pods, the CI role its workflow assumes): Lance's root versions, manifest and tags (stores named *.lance), Icechunk 1.x's main ref and tags (*.icechunk), Delta's log (*.delta). Its own working branches stay writable. The pins come from default-branch runs (data-pull) under a role without it. Iceberg and Icechunk 2.x are not covered: each keeps every ref in one object (a table's metadata file, the repository's repo) that creating a branch rewrites.
+  EOT
+  type        = bool
+  default     = false
+}
+
 variable "tags" {
   description = "Tags applied to the IAM policy"
   type        = map(string)

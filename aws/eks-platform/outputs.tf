@@ -116,3 +116,13 @@ output "external_dns_enabled" {
   description = "Whether external-dns runs on this cluster (public Ingress hostnames then resolve without tofu-managed records)"
   value       = var.enable_external_dns
 }
+
+output "preview_access_group" {
+  description = "Kubernetes group for the preview deploy identity's access entry (null without preview_access)"
+  value       = one(module.preview_access[*].group)
+}
+
+output "preview_namespace_admin_cluster_role" {
+  description = "ClusterRole a preview binds to preview_access_group in each namespace it creates: its modules/workloads namespace_admin.cluster_role (null without preview_access)"
+  value       = one(module.preview_access[*].namespace_admin_cluster_role)
+}
