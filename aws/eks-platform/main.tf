@@ -47,6 +47,31 @@ module "eks" {
   enable_cluster_creator_admin_permissions = var.enable_cluster_creator_admin_permissions
   access_entries                           = var.access_entries
 
+  # The module creates clusters without EKS's own CNI and kube-proxy
+  # (bootstrap_self_managed_addons is hard-coded off), and a node never turns
+  # Ready without them. They must wait for the cluster alone: anything behind
+  # the kubernetes/helm providers waits for the node groups too
+  # (terraform_data.cluster_access), the blueprints module's add-ons included,
+  # so installed there they deadlock a new cluster's first apply. The other
+  # add-ons need nodes and stay there (addons.tf).
+  addons = {
+    vpc-cni = merge(
+      {
+        before_compute = true
+        addon_version  = "v1.23.0-eksbuild.1"
+        preserve       = true
+      },
+      # The CNI's network policy agent: without it every NetworkPolicy
+      # (modules/workloads network_policies) is accepted and ignored.
+      var.enable_network_policy ? { configuration_values = jsonencode({ enableNetworkPolicy = "true" }) } : {},
+    )
+    kube-proxy = {
+      before_compute = true
+      addon_version  = "v1.35.3-eksbuild.18"
+      preserve       = true
+    }
+  }
+
   security_group_additional_rules = {
     ingress_nodes_ephemeral_ports_tcp = {
       description                = "Nodes on ephemeral ports"
@@ -130,3 +155,15 @@ resource "terraform_data" "cluster_access" {
 # We intentionally do NOT authenticate with an aws_ecrpublic_authorization_token:
 # that token regenerates on every read, causing perpetual repository_password
 # drift on those Helm releases.
+
+# Clusters created before 0.3.0 hold these two at the blueprints module's
+# addresses: re-addressed, not reinstalled.
+moved {
+  from = module.eks_blueprints_addons_core.aws_eks_addon.this["vpc-cni"]
+  to   = module.eks.aws_eks_addon.before_compute["vpc-cni"]
+}
+
+moved {
+  from = module.eks_blueprints_addons_core.aws_eks_addon.this["kube-proxy"]
+  to   = module.eks.aws_eks_addon.before_compute["kube-proxy"]
+}

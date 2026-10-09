@@ -6,6 +6,20 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed: a new cluster's first apply deadlocked (since 0.2.0)
+
+- `aws/eks-platform`: the EKS module (21.x) creates clusters without EKS's
+  own VPC CNI and kube-proxy (`bootstrap_self_managed_addons` is hard-coded
+  off), and the platform installed them through the blueprints module, whose
+  add-ons wait for the Helm provider. Since 0.2.0 the `cluster_endpoint` the
+  providers are configured from waits for the node group (so a destroy
+  removes in-cluster resources first), and the node group waits for the CNI:
+  a new cluster's apply hung until the node group failed with
+  `NodeCreationFailure: Unhealthy nodes in the kubernetes cluster`. Both now
+  come from the EKS module's `addons` with `before_compute = true`, which
+  wait for the cluster alone; `moved` blocks carry an existing cluster's
+  add-ons over without reinstalling them. Existing clusters were unaffected.
+
 ### Security (**breaking**): a preview deploys inside its own namespaces only
 
 - New `modules/preview-access`: what a preview's deploy identity may do

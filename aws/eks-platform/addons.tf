@@ -56,19 +56,6 @@ module "eks_blueprints_addons_core" {
       # Tailnet names (a tailnet-only issuer) resolve for pods too (tailscale.tf).
       local.tailscale_dnsconfig ? { configuration_values = jsonencode({ corefile = local.coredns_corefile }) } : {},
     )
-    vpc-cni = merge(
-      {
-        addon_version = "v1.23.0-eksbuild.1"
-        preserve      = true
-      },
-      # The CNI's network policy agent: without it every NetworkPolicy
-      # (modules/workloads network_policies) is accepted and ignored.
-      var.enable_network_policy ? { configuration_values = jsonencode({ enableNetworkPolicy = "true" }) } : {},
-    )
-    kube-proxy = {
-      addon_version = "v1.35.3-eksbuild.18"
-      preserve      = true
-    }
   }
 
   enable_aws_load_balancer_controller = var.enable_aws_load_balancer_controller
