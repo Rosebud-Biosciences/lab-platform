@@ -128,6 +128,10 @@ got=$(sa_call verify GET /api/2.0/mlflow/users/current); echo "   a ServiceAccou
 got=$(sa_call "${P}mlflow" POST /api/2.0/mlflow/users); echo "   another ServiceAccount in MLflow's namespace creates an admin: $got (want 403)"; [ "$got" = "403" ]
 kubectl -n "${P}mlflow" delete job verify-auth-sync --ignore-not-found >/dev/null
 kubectl -n "${P}mlflow" create job verify-auth-sync --from=cronjob/mlflow-auth-sync >/dev/null
+# Disowned: the CronJob keeps one successful Job, so a scheduled run finishing
+# first would delete this one before its logs are read.
+kubectl -n "${P}mlflow" patch job verify-auth-sync --type=json \
+  -p '[{"op":"remove","path":"/metadata/ownerReferences"}]' >/dev/null
 kubectl -n "${P}mlflow" wait job/verify-auth-sync --for=condition=complete --timeout=3m
 kubectl -n "${P}mlflow" logs job/verify-auth-sync | sed 's/^/   sync: /'
 out=$(api /tmp/mlflow-ann.jar POST "$ML/api/2.0/mlflow/experiments/create" '{"name":"lab/x"}'); echo "   ann creates lab/x: ${out%% *} (want 200, or already there from an earlier run)"
