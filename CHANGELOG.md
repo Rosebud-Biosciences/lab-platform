@@ -6,6 +6,17 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed (**breaking**): RayJobs on EKS could not report their status
+
+- `aws/eks-platform`: the KubeRay operator now runs in `kuberay-system`, the
+  namespace `modules/workloads`' Ray NetworkPolicy admits it from (and the one
+  `examples/kind` uses). It ran in `kuberay-operator`, so with
+  `enable_network_policy` (the default) it could not reach a head's dashboard
+  to poll a RayJob's status, and RayJobs ended `Failed`
+  (`JobStatusCheckTimeoutExceeded`) however their Ray job went. Upgrading:
+  the release is reinstalled in the new namespace (the CRDs and running
+  RayClusters stay); delete the then-empty `kuberay-operator` namespace.
+
 ## [0.3.0] - 2026-10-09
 
 Previews confined: a preview's deploy identity owns only the `preview-*`
