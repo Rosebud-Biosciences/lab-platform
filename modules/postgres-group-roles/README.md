@@ -15,6 +15,16 @@ Created by SQL through the `cyrilgdn/postgresql` provider -- never Neon's role
 API, whose roles may `SET ROLE neon_superuser` and so bypass row-level
 security. The provider's role needs CREATEROLE (the database owner on Neon).
 
+On Neon, a role made with a password is created by Neon's control plane, even
+through SQL, so no database role holds the ADMIN option on it that PostgreSQL
+16+ requires to alter it. Neon applies password changes and `DROP ROLE`
+itself: rotating the passwords and destroying the roles work. Any other change
+to an existing role, `connection_limit` included, fails with "permission
+denied to alter role": set it before the first apply, or replace the roles.
+Neon also copies the roles, passwords included, to every branch made from an
+unprotected parent; protect the branch the roles live on if previews branch
+it.
+
 ```hcl
 module "group_roles" {
   source = "github.com/Rosebud-Biosciences/lab-platform//modules/postgres-group-roles?ref=v0.3.0"

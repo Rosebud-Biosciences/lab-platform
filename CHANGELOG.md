@@ -6,6 +6,14 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed: `modules/postgres-group-roles` says what Neon lets its roles change
+
+- On Neon, the module's roles are created by Neon's control plane, so no
+  database role may alter them: rotating their passwords and destroying them
+  work, but changing `connection_limit` on existing roles fails. The README
+  also says to protect the branch they live on, since Neon copies roles with
+  their passwords to branches of an unprotected parent.
+
 ## [0.3.0] - 2026-10-09
 
 Previews confined: a preview's deploy identity owns only the `preview-*`
