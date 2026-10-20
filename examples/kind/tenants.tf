@@ -149,14 +149,20 @@ module "tenant_stamp" {
   mlflow_client_credentials  = each.value.mlflow.client_credentials
   mlflow_auth_sync_namespace = each.value.mlflow.sync_namespace
 
-  enable_ray               = each.value.enable.ray
-  enable_ray_cluster       = each.value.enable.ray
-  ray_head_num_cpus        = 0
-  ray_head_start_params    = { "object-store-memory" = "100000000" } # 100 MB: a small head on a laptop
-  ray_head_resources       = { requests = { cpu = "50m", memory = "512Mi" }, limits = { cpu = "1", memory = "1536Mi" } }
-  ray_worker_resources     = { requests = { cpu = "50m", memory = "512Mi" }, limits = { cpu = "1", memory = "1Gi" } }
-  ray_autoscaler_resources = { requests = { cpu = "50m", memory = "256Mi" }, limits = { cpu = "500m", memory = "512Mi" } }
-  ray_worker_max_replicas  = 1
+  enable_ray = each.value.enable.ray
+  ray_clusters = each.value.enable.ray ? {
+    ray-cluster = {
+      head = {
+        num_cpus     = 0
+        start_params = { "object-store-memory" = "100000000" } # 100 MB: a small head on a laptop
+        resources    = { requests = { cpu = "50m", memory = "512Mi" }, limits = { cpu = "1", memory = "1536Mi" } }
+      }
+      autoscaler_resources = { requests = { cpu = "50m", memory = "256Mi" }, limits = { cpu = "500m", memory = "512Mi" } }
+      worker_groups = {
+        cpu-workers = { resources = { requests = { cpu = "50m", memory = "512Mi" }, limits = { cpu = "1", memory = "1Gi" } }, max_replicas = 1 }
+      }
+    }
+  } : {}
 
   enable_argo_workflows = each.value.enable.argo
 

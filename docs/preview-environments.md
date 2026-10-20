@@ -289,9 +289,10 @@ against the PR itself:
 ## GPU isolation
 
 Ray GPU workers select their nodes by NodePool. The preview stamps a
-`pr123-ray-gpu-worker` NodePool and the Ray Helm values select it by the
-prefixed name, so each preview gets **its own** GPU capacity instead of sharing
-prod's pool (the one caveat that existed in the source setup).
+`pr123-ray-gpu-worker` NodePool, and its Ray cluster's `gpu-workers` group
+lands there through the `ray_gpu_worker` scheduling role (compute-adapter
+`node_pool_roles`), so each preview gets **its own** GPU capacity instead of
+sharing prod's pool (the one caveat that existed in the source setup).
 
 ## The CI loop
 

@@ -13,10 +13,11 @@ Runnable artifacts for everything below live in
 
 The module supports both shapes; they are not mutually exclusive.
 
-- **Persistent cluster** (`enable_ray_cluster = true` in `workloads`): a
-  standing `RayCluster` with an autoscaling worker group, ideal for interactive
-  use — notebooks attach to it, workers scale to zero when idle but the head
-  node stays up. Good for humans exploring.
+- **Persistent clusters** (`ray_clusters` in `workloads`): standing
+  `RayCluster`s, each tailored to the jobs it runs (Ray version and image,
+  worker groups such as GPU workers), ideal for interactive use — notebooks
+  attach to them, workers scale to zero when idle but the head node stays up.
+  Good for humans exploring.
 - **Ephemeral cluster** (this document): no standing cluster. Each batch job
   brings up its own throwaway cluster. Good for scheduled/triggered pipelines
   where you know the workload up front and want the floor cost to be zero.

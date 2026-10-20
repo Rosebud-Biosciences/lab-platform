@@ -131,7 +131,8 @@ variable "scheduling" {
   description = <<-EOT
     Node placement per pod role: webapp, dagster (webserver, daemon, user code,
     run pods), mlflow, argo (controller + server), jupyterhub (hub + proxy),
-    jupyterhub_singleuser, ray_head, ray_worker. Each gives a nodeSelector and tolerations. Empty
+    jupyterhub_singleuser, ray_head, ray_worker, and any role a ray_clusters
+    head or worker group names (e.g. ray_gpu_worker). Each gives a nodeSelector and tolerations. Empty
     (the default) schedules anywhere, which is what a laptop kind cluster
     wants; aws/compute-adapter emits `karpenter.sh/nodepool` selectors and the
     matching tolerations for the NodePools it creates. Unknown keys are ignored.
@@ -184,12 +185,6 @@ variable "enable_argo_workflows" {
 
 variable "enable_mlflow" {
   description = "Deploy the MLflow tracking server"
-  type        = bool
-  default     = false
-}
-
-variable "enable_ray_cluster" {
-  description = "Deploy a persistent Ray cluster (previews often want their own dedicated cluster)"
   type        = bool
   default     = false
 }
@@ -1235,8 +1230,8 @@ variable "argo_db_ssl_mode" {
 
 variable "ray_version" {
   description = <<-EOT
-    Ray version used for the cluster image tags and the RayCluster spec.
-    Anything connecting via Ray client (`ray://`, e.g. Dagster user code) must
+    Default Ray version of the ray_clusters: their image tags and RayCluster
+    spec. Anything connecting via Ray client (`ray://`, e.g. Dagster user code) must
     match the cluster on BOTH the Ray version and the Python minor version;
     the robust pattern is building those images FROM the same base
     (`rayproject/ray:<ray_version>-pyXXX`) so they match by construction.
@@ -1246,100 +1241,105 @@ variable "ray_version" {
 }
 
 variable "ray_image_repository" {
-  description = "Container image repository for Ray head/worker (CPU). Empty uses the public rayproject/ray image."
+  description = "Default container image repository for Ray clusters (heads and CPU workers). Empty uses the public rayproject/ray image."
   type        = string
   default     = "rayproject/ray"
 }
 
 variable "ray_image_tag" {
-  description = "Image tag for Ray head/worker (CPU). Empty derives '<ray_version>'."
+  description = "Default image tag for Ray clusters on ray_version. Empty derives '<ray_version>'."
   type        = string
   default     = ""
 }
 
 variable "ray_gpu_image_repository" {
-  description = "Container image repository for Ray GPU workers. Empty uses the public rayproject/ray image."
+  description = "Default container image repository for Ray worker groups that request nvidia.com/gpu. Empty uses the public rayproject/ray image."
   type        = string
   default     = "rayproject/ray"
 }
 
 variable "ray_gpu_image_tag" {
-  description = "Image tag for Ray GPU workers. Empty derives '<ray_version>-gpu'."
+  description = "Default GPU image tag for Ray clusters on ray_version. Empty derives '<ray_version>-gpu'."
   type        = string
   default     = ""
 }
 
-variable "ray_cluster_chart_version" {
-  description = "Version of the kuberay ray-cluster Helm chart"
-  type        = string
-  default     = "1.6.0"
-}
+variable "ray_clusters" {
+  description = <<-EOT
+    The environment's Ray clusters, keyed by name. Each is the RayCluster
+    <name_prefix><key> in the Ray namespace (output ray_clusters has its head
+    Service and Ray client / dashboard addresses), runs as the Ray identity
+    (ray-s3-sa) and envFroms analytics-config, ray-identity-env and
+    database-url. Tailor one to a job or a family of jobs -- Ray version and
+    image, head size, worker groups -- and point those jobs at it.
 
-variable "ray_cluster_repository" {
-  description = "Helm repository for the kuberay ray-cluster chart"
-  type        = string
-  default     = "https://ray-project.github.io/kuberay-helm/"
-}
+    ray_version, image and gpu_image default to ray_version and the
+    ray_image_* / ray_gpu_image_* images; a cluster on another ray_version gets
+    that version's rayproject/ray tags unless it sets its own images. A worker
+    group that requests nvidia.com/gpu runs gpu_image, any other the cluster's
+    image, unless the group sets one. Workers autoscale between min_replicas
+    and max_replicas (the Ray autoscaler runs in every head). The head and each
+    group are placed by a `scheduling` role: ray_head / ray_worker by default,
+    or a role of their own, e.g. ray_gpu_worker for a GPU NodePool
+    (aws/compute-adapter node_pool_roles). head.num_cpus = 0 keeps tasks off the
+    head; start_params are more `ray start` parameters (rayStartParams), e.g.
+    { "object-store-memory" = "100000000" }, Ray otherwise sizing its object
+    store at 30% of the pod's memory. autoscaler_resources sizes the autoscaler
+    container; null keeps KubeRay's 500m CPU / 512Mi for requests and limits
+    alike, which on a small node reserves more than a small head itself.
 
-variable "ray_cluster_release_name" {
-  description = "Helm release name for the persistent Ray cluster (auto-prefixed)"
-  type        = string
-  default     = "ray-cluster"
-}
-
-variable "ray_head_resources" {
-  description = "Resource requests/limits for the persistent Ray head container"
-  type = object({
-    requests = optional(map(string), { cpu = "1", memory = "2Gi" })
-    limits   = optional(map(string), { cpu = "2", memory = "4Gi" })
-  })
+    Empty (the default): the Ray namespace, identity and RBAC, and no cluster.
+  EOT
+  type = map(object({
+    ray_version = optional(string)
+    image       = optional(string)
+    gpu_image   = optional(string)
+    head = optional(object({
+      resources = optional(object({
+        requests = optional(map(string), { cpu = "1", memory = "2Gi" })
+        limits   = optional(map(string), { cpu = "2", memory = "4Gi" })
+      }), {})
+      num_cpus     = optional(number)
+      start_params = optional(map(string), {})
+      scheduling   = optional(string, "ray_head")
+    }), {})
+    autoscaler_resources = optional(object({
+      requests = optional(map(string))
+      limits   = optional(map(string))
+    }))
+    worker_groups = optional(map(object({
+      image = optional(string)
+      resources = optional(object({
+        requests = optional(map(string), { cpu = "1", memory = "2Gi" })
+        limits   = optional(map(string), { cpu = "2", memory = "4Gi" })
+      }), {})
+      min_replicas = optional(number, 0)
+      max_replicas = optional(number, 10)
+      start_params = optional(map(string), {})
+      scheduling   = optional(string, "ray_worker")
+    })), { cpu-workers = {} })
+  }))
   default = {}
-}
 
-variable "ray_worker_resources" {
-  description = "Resource requests/limits for the persistent Ray CPU worker containers"
-  type = object({
-    requests = optional(map(string), { cpu = "1", memory = "2Gi" })
-    limits   = optional(map(string), { cpu = "2", memory = "4Gi" })
-  })
-  default = {}
-}
+  validation {
+    # 32 + name_prefix's 21 is KubeRay's 53-character RayCluster name limit,
+    # which keeps <name>-head-svc a valid Service name.
+    condition     = alltrue([for k in keys(var.ray_clusters) : can(regex("^[a-z]([-a-z0-9]*[a-z0-9])?$", k)) && length(k) <= 32])
+    error_message = "ray_clusters keys name RayClusters: lowercase letters, digits and '-', starting with a letter, at most 32 characters."
+  }
 
-variable "ray_enable_autoscaler" {
-  description = "Run the Ray autoscaler in the head pod, so workers scale from 0 to ray_worker_max_replicas with demand (and back)"
-  type        = bool
-  default     = true
-}
-
-variable "ray_autoscaler_resources" {
-  description = "Resources of the autoscaler container in the Ray head pod (ray_enable_autoscaler). null keeps KubeRay's default of 500m CPU / 512Mi for requests and limits alike, which on a small node reserves more than a small head itself"
-  type = object({
-    requests = optional(map(string))
-    limits   = optional(map(string))
-  })
-  default = null
-}
-
-variable "ray_head_num_cpus" {
-  description = "CPUs the head advertises to Ray (rayStartParams num-cpus); null keeps Ray's default (all of the pod's). 0 keeps tasks off the head: a small head, work on autoscaled workers."
-  type        = number
-  default     = null
-}
-
-variable "ray_head_start_params" {
-  description = "More `ray start` parameters for the head (rayStartParams), e.g. { \"object-store-memory\" = \"100000000\" } -- Ray otherwise sizes its object store at 30% of the pod's memory"
-  type        = map(string)
-  default     = {}
-}
-
-variable "ray_worker_max_replicas" {
-  description = "Autoscaling ceiling for the persistent Ray CPU worker group (min is 0)"
-  type        = number
-  default     = 10
+  validation {
+    condition = alltrue(flatten([
+      for c in values(var.ray_clusters) : [
+        for g, wg in c.worker_groups : can(regex("^[a-z]([-a-z0-9]*[a-z0-9])?$", g)) && wg.min_replicas >= 0 && wg.min_replicas <= wg.max_replicas
+      ]
+    ]))
+    error_message = "ray_clusters worker_groups keys must be lowercase DNS labels, with 0 <= min_replicas <= max_replicas."
+  }
 }
 
 variable "ray_dashboard_cluster_name" {
-  description = "RayCluster whose head Pod backs the private ray Ingress. Empty follows the persistent cluster ('<name_prefix><ray_cluster_release_name>')."
+  description = "RayCluster whose head Pod backs the private ray Ingress. Empty follows the first of ray_clusters by key."
   type        = string
   default     = ""
 }

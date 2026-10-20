@@ -141,9 +141,10 @@ module "compute" {
   webapp_acm_certificate_arn   = var.webapp_acm_certificate_arn
   enable_webapp_waf            = var.webapp_public_host != ""
 
-  # GPU NodePool for Ray GPU workers. Nothing in the persistent cluster selects
-  # it; RayJobs that need GPUs set nodeSelector karpenter.sh/nodepool = "gpu"
-  # (module.compute.node_pool_names.gpu) and tolerate nvidia.com/gpu.
+  # GPU NodePool for Ray GPU workers: the Ray cluster's gpu-workers group lands
+  # on it through the ray_gpu_worker role (karpenter.sh/nodepool plus the
+  # nvidia.com/gpu toleration), from zero nodes.
+  node_pool_roles = { gpu = ["ray_gpu_worker"] }
   karpenter_node_pools = {
     gpu = {
       instance_families      = ["g5", "g6"]
@@ -217,8 +218,20 @@ module "workloads" {
   jupyterhub_user_password = var.jupyterhub_user_password
 
   # --- Ray + Dagster ---
-  enable_ray          = true
-  enable_ray_cluster  = true
+  enable_ray = true
+  ray_clusters = {
+    ray-cluster = {
+      worker_groups = {
+        cpu-workers = {}
+        # One GPU per worker on a g5/g6 xlarge or 2xlarge (the gpu NodePool).
+        gpu-workers = {
+          resources    = { requests = { cpu = "3", memory = "12Gi" }, limits = { memory = "14Gi", "nvidia.com/gpu" = "1" } }
+          max_replicas = 2
+          scheduling   = "ray_gpu_worker"
+        }
+      }
+    }
+  }
   enable_dagster      = true
   dagster_db_host     = var.dagster_db.host
   dagster_db_name     = var.dagster_db.name

@@ -34,8 +34,8 @@ Per-service `enable_*` toggles:
   (`enable_argo_workflow_archive` + `argo_db_*`); the CRDs are a cluster
   prerequisite. Workflows run as `argo-workflow` and may drive RayJobs in the
   Ray namespace;
-- **Ray** -- the Ray namespace/ServiceAccount and an optional persistent Ray
-  cluster.
+- **Ray** -- the Ray namespace/ServiceAccount and the environment's Ray
+  clusters (`ray_clusters`, see "Ray clusters").
 
 ## Stamp or share
 
@@ -107,7 +107,7 @@ subjects (`output.service_accounts` publishes them, `name_prefix` included):
 | --- | --- | --- | --- |
 | webapp | `<prefix><webapp_app_name>` | `<webapp_app_name>` | the webapp Deployment |
 | dagster | `<prefix>dagster` | `dagster` | webserver, daemon, user code, launched runs |
-| ray | `<prefix>ray` | `ray-s3-sa` | persistent Ray head/workers; RayJobs that user code launches with this SA |
+| ray | `<prefix>ray` | `ray-s3-sa` | every `ray_clusters` head and worker; RayJobs that user code launches with this SA |
 | argo | `<prefix>argo` | `argo-workflow` | workflow pods (the controller/server run as chart-owned SAs) |
 | mlflow | `<prefix>mlflow` | `mlflow` | the tracking server |
 | jupyterhub | `<prefix>jupyterhub` | `jupyterhub-single-user` | every notebook server |
@@ -137,6 +137,37 @@ add the projected token volume if you use federation.
 namespace, an AWS IAM role, an ALB) so adapters deriving names from it cannot
 overflow. Providers point at the target cluster and are configured by the
 caller.
+
+## Ray clusters
+
+`ray_clusters` declares the environment's Ray clusters, keyed by name. Each is
+the RayCluster `<name_prefix><key>` in the Ray namespace, running as the Ray
+identity with the env above; `output.ray_clusters` publishes its head Service
+and in-cluster Ray client and dashboard addresses. Tailor a cluster to a job or
+a family of jobs, and point those jobs at it:
+
+```hcl
+ray_clusters = {
+  ray-cluster = {} # rayproject/ray:<ray_version>, CPU workers 0..10
+  training = {
+    ray_version = "2.58.0"         # its own Ray, and that version's images
+    head        = { num_cpus = 0 } # keep tasks off the head
+    worker_groups = {
+      gpu = {
+        resources    = { limits = { "nvidia.com/gpu" = "1" } } # runs the GPU image
+        max_replicas = 4
+        scheduling   = "ray_gpu_worker" # placed like scheduling.ray_gpu_worker, e.g. a GPU NodePool
+      }
+    }
+  }
+}
+```
+
+Workers autoscale between `min_replicas` and `max_replicas`. The autoscaler owns
+each group's replica count, so the module never renders it. The private Ray
+dashboard follows `ray_dashboard_cluster_name`, or the first cluster by key.
+Anything connecting through the Ray client (`ray://`) must match its cluster's
+Ray and Python versions.
 
 ## Auth: who may open which UI
 
@@ -229,8 +260,8 @@ stored hashed with the environment's own secret, so forked copies are inert).
 | [helm_release.jupyterhub](https://registry.terraform.io/providers/hashicorp/helm/latest/docs/resources/release) | resource |
 | [helm_release.jupyterhub_shared_volume](https://registry.terraform.io/providers/hashicorp/helm/latest/docs/resources/release) | resource |
 | [helm_release.mlflow](https://registry.terraform.io/providers/hashicorp/helm/latest/docs/resources/release) | resource |
-| [helm_release.ray_cluster](https://registry.terraform.io/providers/hashicorp/helm/latest/docs/resources/release) | resource |
 | [kubectl_manifest.dex_client](https://registry.terraform.io/providers/gavinbunney/kubectl/latest/docs/resources/manifest) | resource |
+| [kubectl_manifest.ray_cluster](https://registry.terraform.io/providers/gavinbunney/kubectl/latest/docs/resources/manifest) | resource |
 | [kubernetes_config_map_v1.analytics_config](https://registry.terraform.io/providers/hashicorp/kubernetes/latest/docs/resources/config_map_v1) | resource |
 | [kubernetes_config_map_v1.dagster_hello_code](https://registry.terraform.io/providers/hashicorp/kubernetes/latest/docs/resources/config_map_v1) | resource |
 | [kubernetes_config_map_v1.mlflow_auth_sync](https://registry.terraform.io/providers/hashicorp/kubernetes/latest/docs/resources/config_map_v1) | resource |
@@ -335,7 +366,6 @@ stored hashed with the environment's own secret, so forked copies are inert).
 | <a name="input_enable_mlflow"></a> [enable\_mlflow](#input\_enable\_mlflow) | Deploy the MLflow tracking server | `bool` | `false` | no |
 | <a name="input_enable_private_ingress"></a> [enable\_private\_ingress](#input\_enable\_private\_ingress) | Create private Ingresses for the workload UIs (e.g. via the Tailscale operator's IngressClass) | `bool` | `false` | no |
 | <a name="input_enable_ray"></a> [enable\_ray](#input\_enable\_ray) | Deploy the Ray namespace + ServiceAccount (the KubeRay operator is a cluster prerequisite, see README) | `bool` | `false` | no |
-| <a name="input_enable_ray_cluster"></a> [enable\_ray\_cluster](#input\_enable\_ray\_cluster) | Deploy a persistent Ray cluster (previews often want their own dedicated cluster) | `bool` | `false` | no |
 | <a name="input_enable_webapp"></a> [enable\_webapp](#input\_enable\_webapp) | Deploy the generic web application (Deployment + Service + ServiceAccount) | `bool` | `false` | no |
 | <a name="input_enable_webapp_public_ingress"></a> [enable\_webapp\_public\_ingress](#input\_enable\_webapp\_public\_ingress) | Create an internet-facing Ingress for the webapp (plus HPA and PodDisruptionBudget). Requires webapp\_public\_ingress\_class\_name. | `bool` | `false` | no |
 | <a name="input_environment"></a> [environment](#input\_environment) | Environment name (prod / dev / preview), published to pipelines as PIPELINE\_ENV | `string` | `"dev"` | no |
@@ -393,23 +423,14 @@ stored hashed with the environment's own secret, so forked copies are inert).
 | <a name="input_private_ingress_dns_suffix"></a> [private\_ingress\_dns\_suffix](#input\_private\_ingress\_dns\_suffix) | DNS suffix for the private hostnames (e.g. your MagicDNS tailnet suffix <tailnet>.ts.net). Used to build output URLs and, in auth mode "oidc", the OAuth redirect URLs. | `string` | `""` | no |
 | <a name="input_private_ingress_hostname_prefix"></a> [private\_ingress\_hostname\_prefix](#input\_private\_ingress\_hostname\_prefix) | Prefix for the private hostnames (keeps names unique per env). Usually equal to name\_prefix. | `string` | `""` | no |
 | <a name="input_python_image"></a> [python\_image](#input\_python\_image) | Image with a Python 3 standard library, for small platform jobs (mlflow-auth-sync) | `string` | `"python:3.14-alpine"` | no |
-| <a name="input_ray_autoscaler_resources"></a> [ray\_autoscaler\_resources](#input\_ray\_autoscaler\_resources) | Resources of the autoscaler container in the Ray head pod (ray\_enable\_autoscaler). null keeps KubeRay's default of 500m CPU / 512Mi for requests and limits alike, which on a small node reserves more than a small head itself | <pre>object({<br/>    requests = optional(map(string))<br/>    limits   = optional(map(string))<br/>  })</pre> | `null` | no |
-| <a name="input_ray_cluster_chart_version"></a> [ray\_cluster\_chart\_version](#input\_ray\_cluster\_chart\_version) | Version of the kuberay ray-cluster Helm chart | `string` | `"1.6.0"` | no |
-| <a name="input_ray_cluster_release_name"></a> [ray\_cluster\_release\_name](#input\_ray\_cluster\_release\_name) | Helm release name for the persistent Ray cluster (auto-prefixed) | `string` | `"ray-cluster"` | no |
-| <a name="input_ray_cluster_repository"></a> [ray\_cluster\_repository](#input\_ray\_cluster\_repository) | Helm repository for the kuberay ray-cluster chart | `string` | `"https://ray-project.github.io/kuberay-helm/"` | no |
-| <a name="input_ray_dashboard_cluster_name"></a> [ray\_dashboard\_cluster\_name](#input\_ray\_dashboard\_cluster\_name) | RayCluster whose head Pod backs the private ray Ingress. Empty follows the persistent cluster ('<name\_prefix><ray\_cluster\_release\_name>'). | `string` | `""` | no |
-| <a name="input_ray_enable_autoscaler"></a> [ray\_enable\_autoscaler](#input\_ray\_enable\_autoscaler) | Run the Ray autoscaler in the head pod, so workers scale from 0 to ray\_worker\_max\_replicas with demand (and back) | `bool` | `true` | no |
-| <a name="input_ray_gpu_image_repository"></a> [ray\_gpu\_image\_repository](#input\_ray\_gpu\_image\_repository) | Container image repository for Ray GPU workers. Empty uses the public rayproject/ray image. | `string` | `"rayproject/ray"` | no |
-| <a name="input_ray_gpu_image_tag"></a> [ray\_gpu\_image\_tag](#input\_ray\_gpu\_image\_tag) | Image tag for Ray GPU workers. Empty derives '<ray\_version>-gpu'. | `string` | `""` | no |
-| <a name="input_ray_head_num_cpus"></a> [ray\_head\_num\_cpus](#input\_ray\_head\_num\_cpus) | CPUs the head advertises to Ray (rayStartParams num-cpus); null keeps Ray's default (all of the pod's). 0 keeps tasks off the head: a small head, work on autoscaled workers. | `number` | `null` | no |
-| <a name="input_ray_head_resources"></a> [ray\_head\_resources](#input\_ray\_head\_resources) | Resource requests/limits for the persistent Ray head container | <pre>object({<br/>    requests = optional(map(string), { cpu = "1", memory = "2Gi" })<br/>    limits   = optional(map(string), { cpu = "2", memory = "4Gi" })<br/>  })</pre> | `{}` | no |
-| <a name="input_ray_head_start_params"></a> [ray\_head\_start\_params](#input\_ray\_head\_start\_params) | More `ray start` parameters for the head (rayStartParams), e.g. { "object-store-memory" = "100000000" } -- Ray otherwise sizes its object store at 30% of the pod's memory | `map(string)` | `{}` | no |
-| <a name="input_ray_image_repository"></a> [ray\_image\_repository](#input\_ray\_image\_repository) | Container image repository for Ray head/worker (CPU). Empty uses the public rayproject/ray image. | `string` | `"rayproject/ray"` | no |
-| <a name="input_ray_image_tag"></a> [ray\_image\_tag](#input\_ray\_image\_tag) | Image tag for Ray head/worker (CPU). Empty derives '<ray\_version>'. | `string` | `""` | no |
-| <a name="input_ray_version"></a> [ray\_version](#input\_ray\_version) | Ray version used for the cluster image tags and the RayCluster spec.<br/>Anything connecting via Ray client (`ray://`, e.g. Dagster user code) must<br/>match the cluster on BOTH the Ray version and the Python minor version;<br/>the robust pattern is building those images FROM the same base<br/>(`rayproject/ray:<ray_version>-pyXXX`) so they match by construction. | `string` | `"2.55.1"` | no |
-| <a name="input_ray_worker_max_replicas"></a> [ray\_worker\_max\_replicas](#input\_ray\_worker\_max\_replicas) | Autoscaling ceiling for the persistent Ray CPU worker group (min is 0) | `number` | `10` | no |
-| <a name="input_ray_worker_resources"></a> [ray\_worker\_resources](#input\_ray\_worker\_resources) | Resource requests/limits for the persistent Ray CPU worker containers | <pre>object({<br/>    requests = optional(map(string), { cpu = "1", memory = "2Gi" })<br/>    limits   = optional(map(string), { cpu = "2", memory = "4Gi" })<br/>  })</pre> | `{}` | no |
-| <a name="input_scheduling"></a> [scheduling](#input\_scheduling) | Node placement per pod role: webapp, dagster (webserver, daemon, user code,<br/>run pods), mlflow, argo (controller + server), jupyterhub (hub + proxy),<br/>jupyterhub\_singleuser, ray\_head, ray\_worker. Each gives a nodeSelector and tolerations. Empty<br/>(the default) schedules anywhere, which is what a laptop kind cluster<br/>wants; aws/compute-adapter emits `karpenter.sh/nodepool` selectors and the<br/>matching tolerations for the NodePools it creates. Unknown keys are ignored. | <pre>map(object({<br/>    node_selector = optional(map(string), {})<br/>    tolerations = optional(list(object({<br/>      key      = optional(string)<br/>      operator = optional(string, "Equal")<br/>      value    = optional(string)<br/>      effect   = optional(string)<br/>    })), [])<br/>  }))</pre> | `{}` | no |
+| <a name="input_ray_clusters"></a> [ray\_clusters](#input\_ray\_clusters) | The environment's Ray clusters, keyed by name. Each is the RayCluster<br/><name\_prefix><key> in the Ray namespace (output ray\_clusters has its head<br/>Service and Ray client / dashboard addresses), runs as the Ray identity<br/>(ray-s3-sa) and envFroms analytics-config, ray-identity-env and<br/>database-url. Tailor one to a job or a family of jobs -- Ray version and<br/>image, head size, worker groups -- and point those jobs at it.<br/><br/>ray\_version, image and gpu\_image default to ray\_version and the<br/>ray\_image\_* / ray\_gpu\_image\_* images; a cluster on another ray\_version gets<br/>that version's rayproject/ray tags unless it sets its own images. A worker<br/>group that requests nvidia.com/gpu runs gpu\_image, any other the cluster's<br/>image, unless the group sets one. Workers autoscale between min\_replicas<br/>and max\_replicas (the Ray autoscaler runs in every head). The head and each<br/>group are placed by a `scheduling` role: ray\_head / ray\_worker by default,<br/>or a role of their own, e.g. ray\_gpu\_worker for a GPU NodePool<br/>(aws/compute-adapter node\_pool\_roles). head.num\_cpus = 0 keeps tasks off the<br/>head; start\_params are more `ray start` parameters (rayStartParams), e.g.<br/>{ "object-store-memory" = "100000000" }, Ray otherwise sizing its object<br/>store at 30% of the pod's memory. autoscaler\_resources sizes the autoscaler<br/>container; null keeps KubeRay's 500m CPU / 512Mi for requests and limits<br/>alike, which on a small node reserves more than a small head itself.<br/><br/>Empty (the default): the Ray namespace, identity and RBAC, and no cluster. | <pre>map(object({<br/>    ray_version = optional(string)<br/>    image       = optional(string)<br/>    gpu_image   = optional(string)<br/>    head = optional(object({<br/>      resources = optional(object({<br/>        requests = optional(map(string), { cpu = "1", memory = "2Gi" })<br/>        limits   = optional(map(string), { cpu = "2", memory = "4Gi" })<br/>      }), {})<br/>      num_cpus     = optional(number)<br/>      start_params = optional(map(string), {})<br/>      scheduling   = optional(string, "ray_head")<br/>    }), {})<br/>    autoscaler_resources = optional(object({<br/>      requests = optional(map(string))<br/>      limits   = optional(map(string))<br/>    }))<br/>    worker_groups = optional(map(object({<br/>      image = optional(string)<br/>      resources = optional(object({<br/>        requests = optional(map(string), { cpu = "1", memory = "2Gi" })<br/>        limits   = optional(map(string), { cpu = "2", memory = "4Gi" })<br/>      }), {})<br/>      min_replicas = optional(number, 0)<br/>      max_replicas = optional(number, 10)<br/>      start_params = optional(map(string), {})<br/>      scheduling   = optional(string, "ray_worker")<br/>    })), { cpu-workers = {} })<br/>  }))</pre> | `{}` | no |
+| <a name="input_ray_dashboard_cluster_name"></a> [ray\_dashboard\_cluster\_name](#input\_ray\_dashboard\_cluster\_name) | RayCluster whose head Pod backs the private ray Ingress. Empty follows the first of ray\_clusters by key. | `string` | `""` | no |
+| <a name="input_ray_gpu_image_repository"></a> [ray\_gpu\_image\_repository](#input\_ray\_gpu\_image\_repository) | Default container image repository for Ray worker groups that request nvidia.com/gpu. Empty uses the public rayproject/ray image. | `string` | `"rayproject/ray"` | no |
+| <a name="input_ray_gpu_image_tag"></a> [ray\_gpu\_image\_tag](#input\_ray\_gpu\_image\_tag) | Default GPU image tag for Ray clusters on ray\_version. Empty derives '<ray\_version>-gpu'. | `string` | `""` | no |
+| <a name="input_ray_image_repository"></a> [ray\_image\_repository](#input\_ray\_image\_repository) | Default container image repository for Ray clusters (heads and CPU workers). Empty uses the public rayproject/ray image. | `string` | `"rayproject/ray"` | no |
+| <a name="input_ray_image_tag"></a> [ray\_image\_tag](#input\_ray\_image\_tag) | Default image tag for Ray clusters on ray\_version. Empty derives '<ray\_version>'. | `string` | `""` | no |
+| <a name="input_ray_version"></a> [ray\_version](#input\_ray\_version) | Default Ray version of the ray\_clusters: their image tags and RayCluster<br/>spec. Anything connecting via Ray client (`ray://`, e.g. Dagster user code) must<br/>match the cluster on BOTH the Ray version and the Python minor version;<br/>the robust pattern is building those images FROM the same base<br/>(`rayproject/ray:<ray_version>-pyXXX`) so they match by construction. | `string` | `"2.55.1"` | no |
+| <a name="input_scheduling"></a> [scheduling](#input\_scheduling) | Node placement per pod role: webapp, dagster (webserver, daemon, user code,<br/>run pods), mlflow, argo (controller + server), jupyterhub (hub + proxy),<br/>jupyterhub\_singleuser, ray\_head, ray\_worker, and any role a ray\_clusters<br/>head or worker group names (e.g. ray\_gpu\_worker). Each gives a nodeSelector and tolerations. Empty<br/>(the default) schedules anywhere, which is what a laptop kind cluster<br/>wants; aws/compute-adapter emits `karpenter.sh/nodepool` selectors and the<br/>matching tolerations for the NodePools it creates. Unknown keys are ignored. | <pre>map(object({<br/>    node_selector = optional(map(string), {})<br/>    tolerations = optional(list(object({<br/>      key      = optional(string)<br/>      operator = optional(string, "Equal")<br/>      value    = optional(string)<br/>      effect   = optional(string)<br/>    })), [])<br/>  }))</pre> | `{}` | no |
 | <a name="input_wait_for_rollouts"></a> [wait\_for\_rollouts](#input\_wait\_for\_rollouts) | Wait for the webapp's rollout and Dagster's release to become ready before an apply succeeds. Turn it off where an external deploy owns those images and they may not exist yet (the first apply of a stack whose CI pushes them): the apply then only submits them. | `bool` | `true` | no |
 | <a name="input_webapp_app_name"></a> [webapp\_app\_name](#input\_webapp\_app\_name) | Name used for the webapp namespace/Service/Deployment (auto-prefixed) | `string` | `"webapp"` | no |
 | <a name="input_webapp_container_port"></a> [webapp\_container\_port](#input\_webapp\_container\_port) | Container port the webapp listens on | `number` | `8080` | no |
@@ -448,6 +469,7 @@ stored hashed with the environment's own secret, so forked copies are inert).
 | <a name="output_jupyterhub_namespace"></a> [jupyterhub\_namespace](#output\_jupyterhub\_namespace) | JupyterHub namespace (if enabled) |
 | <a name="output_mlflow_namespace"></a> [mlflow\_namespace](#output\_mlflow\_namespace) | MLflow namespace (if enabled) |
 | <a name="output_mlflow_private_url"></a> [mlflow\_private\_url](#output\_mlflow\_private\_url) | Private URL for the MLflow UI |
+| <a name="output_ray_clusters"></a> [ray\_clusters](#output\_ray\_clusters) | Per ray\_clusters key: the RayCluster's name, its head Service, and the in-cluster Ray client (ray://, port 10001) and dashboard / Jobs API (port 8265) addresses |
 | <a name="output_ray_dashboard_private_url"></a> [ray\_dashboard\_private\_url](#output\_ray\_dashboard\_private\_url) | Private URL for the Ray dashboard (502s while no Ray cluster is running) |
 | <a name="output_ray_namespace"></a> [ray\_namespace](#output\_ray\_namespace) | Ray namespace (if enabled) |
 | <a name="output_service_accounts"></a> [service\_accounts](#output\_service\_accounts) | Per-service {namespace, name} of the ServiceAccounts pods run as (null when the service is off). Backend adapters trust exactly these subjects. |

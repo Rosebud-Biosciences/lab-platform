@@ -22,6 +22,18 @@ output "ray_namespace" {
   value       = var.enable_ray ? local.ray_namespace : null
 }
 
+output "ray_clusters" {
+  description = "Per ray_clusters key: the RayCluster's name, its head Service, and the in-cluster Ray client (ray://, port 10001) and dashboard / Jobs API (port 8265) addresses"
+  value = {
+    for key, c in local.ray_clusters : key => {
+      name              = c.name
+      head_service      = "${c.name}-head-svc"
+      client_address    = "ray://${c.name}-head-svc.${local.ray_namespace}.svc.cluster.local:10001"
+      dashboard_address = "http://${c.name}-head-svc.${local.ray_namespace}.svc.cluster.local:8265"
+    }
+  }
+}
+
 output "argo_namespace" {
   description = "Argo Workflows namespace (if enabled)"
   value       = var.enable_argo_workflows ? local.argo_namespace : null

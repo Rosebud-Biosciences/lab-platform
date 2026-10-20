@@ -205,10 +205,11 @@ variable "karpenter_node_pools" {
 variable "node_pool_roles" {
   description = <<-EOT
     Which workloads pod roles land on which NodePool, e.g.
-    { default = ["webapp", "dagster", "mlflow"], gpu = ["ray_worker"] }.
+    { default = ["webapp", "dagster", "mlflow"], gpu = ["ray_gpu_worker"] }.
     Keys are karpenter_node_pools keys; values are workloads' scheduling
     roles (webapp, dagster, mlflow, jupyterhub, jupyterhub_singleuser,
-    ray_head, ray_worker). Each listed role gets a
+    ray_head, ray_worker, or any role a workloads ray_clusters head or worker
+    group names). Each listed role gets a
     karpenter.sh/nodepool nodeSelector and tolerations for the pool's
     taints. Roles not listed schedule anywhere.
   EOT

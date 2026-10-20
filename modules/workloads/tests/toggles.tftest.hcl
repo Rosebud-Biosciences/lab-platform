@@ -346,8 +346,8 @@ run "ray_cluster_keeps_log_volume_and_places_head" {
   command = plan
 
   variables {
-    enable_ray         = true
-    enable_ray_cluster = true
+    enable_ray   = true
+    ray_clusters = { ray-cluster = {} }
     scheduling = {
       ray_head   = { node_selector = { "karpenter.sh/nodepool" = "ray-head" } }
       ray_worker = { node_selector = { "karpenter.sh/nodepool" = "ray-worker" } }
@@ -358,20 +358,28 @@ run "ray_cluster_keeps_log_volume_and_places_head" {
   }
 
   assert {
-    condition     = strcontains(helm_release.ray_cluster[0].values[0], "log-volume") && strcontains(helm_release.ray_cluster[0].values[0], "workload-identity-token")
-    error_message = "the chart's log volume must survive alongside the projected token volume"
+    condition     = [for v in yamldecode(kubectl_manifest.ray_cluster["ray-cluster"].yaml_body).spec.headGroupSpec.template.spec.volumes : v.name] == ["log-volume", "workload-identity-token"]
+    error_message = "Ray's log volume must sit alongside the projected token volume"
   }
   assert {
-    condition     = strcontains(helm_release.ray_cluster[0].values[0], "\"karpenter.sh/nodepool\":\"ray-worker\"")
-    error_message = "scheduling.ray_worker must render into the worker group"
+    condition     = yamldecode(kubectl_manifest.ray_cluster["ray-cluster"].yaml_body).spec.headGroupSpec.template.spec.nodeSelector["karpenter.sh/nodepool"] == "ray-head" && yamldecode(kubectl_manifest.ray_cluster["ray-cluster"].yaml_body).spec.workerGroupSpecs[0].template.spec.nodeSelector["karpenter.sh/nodepool"] == "ray-worker"
+    error_message = "scheduling.ray_head / ray_worker must place the head and the default worker group"
   }
   assert {
-    condition     = strcontains(helm_release.ray_cluster[0].values[0], "fullnameOverride: ray-cluster")
-    error_message = "the RayCluster must be named after the release so the dashboard Service selector matches its head"
+    condition     = yamldecode(kubectl_manifest.ray_cluster["ray-cluster"].yaml_body).metadata.name == "ray-cluster" && local.ray_head_selector["ray.io/cluster"] == "ray-cluster"
+    error_message = "the dashboard Service must select the head of the only cluster"
   }
   assert {
-    condition     = !strcontains(helm_release.ray_cluster[0].values[0], "autoscalerOptions")
-    error_message = "without ray_autoscaler_resources the autoscaler must keep KubeRay's defaults"
+    condition     = !contains(keys(yamldecode(kubectl_manifest.ray_cluster["ray-cluster"].yaml_body).spec), "autoscalerOptions")
+    error_message = "without autoscaler_resources the autoscaler must keep KubeRay's defaults"
+  }
+  assert {
+    condition     = !contains(keys(yamldecode(kubectl_manifest.ray_cluster["ray-cluster"].yaml_body).spec.workerGroupSpecs[0]), "replicas")
+    error_message = "the autoscaler owns replicas: rendering them would scale the group down on every apply"
+  }
+  assert {
+    condition     = [for e in yamldecode(kubectl_manifest.ray_cluster["ray-cluster"].yaml_body).spec.workerGroupSpecs[0].template.spec.containers[0].envFrom : try(e.configMapRef.name, e.secretRef.name)] == ["analytics-config", "ray-identity-env"]
+    error_message = "Ray pods get the env RayJobs get: analytics-config and the identity Secret"
   }
 }
 
@@ -379,15 +387,114 @@ run "ray_autoscaler_resources_render" {
   command = plan
 
   variables {
-    enable_ray               = true
-    enable_ray_cluster       = true
-    ray_autoscaler_resources = { requests = { cpu = "50m" } }
+    enable_ray   = true
+    ray_clusters = { ray-cluster = { autoscaler_resources = { requests = { cpu = "50m" } } } }
   }
 
   assert {
-    condition     = strcontains(helm_release.ray_cluster[0].values[0], "autoscalerOptions:\n    resources: {\"requests\":{\"cpu\":\"50m\"}}")
-    error_message = "ray_autoscaler_resources must render into head.autoscalerOptions.resources, dropping the unset limits"
+    condition     = yamldecode(kubectl_manifest.ray_cluster["ray-cluster"].yaml_body).spec.autoscalerOptions == { resources = { requests = { cpu = "50m" } } }
+    error_message = "autoscaler_resources must render into autoscalerOptions.resources, dropping the unset limits"
   }
+}
+
+# One cluster per job family: its own Ray version, images and worker groups,
+# each group placed by a role of its own.
+run "ray_clusters_are_tailored" {
+  command = plan
+
+  variables {
+    name_prefix  = "pr7-"
+    enable_ray   = true
+    database_url = "postgresql://app@db.example.com/app"
+    scheduling = {
+      ray_gpu_worker = {
+        node_selector = { "karpenter.sh/nodepool" = "pr7-ray-gpu-worker" }
+        tolerations   = [{ key = "nvidia.com/gpu", value = "true", effect = "NoSchedule" }]
+      }
+    }
+    ray_clusters = {
+      ray-cluster = {}
+      training = {
+        ray_version = "2.58.0"
+        head        = { num_cpus = 0 }
+        worker_groups = {
+          cpu = { image = "registry.example.com/app:abc", max_replicas = 4 }
+          gpu = {
+            resources    = { requests = { cpu = "3", memory = "12Gi" }, limits = { memory = "14Gi", "nvidia.com/gpu" = "1" } }
+            max_replicas = 2
+            scheduling   = "ray_gpu_worker"
+          }
+        }
+      }
+    }
+  }
+
+  assert {
+    condition     = output.ray_clusters.training.name == "pr7-training" && output.ray_clusters.training.client_address == "ray://pr7-training-head-svc.pr7-ray.svc.cluster.local:10001"
+    error_message = "a cluster is <name_prefix><key>, reached through its head Service"
+  }
+  assert {
+    condition     = yamldecode(kubectl_manifest.ray_cluster["training"].yaml_body).spec.rayVersion == "2.58.0" && yamldecode(kubectl_manifest.ray_cluster["training"].yaml_body).spec.headGroupSpec.template.spec.containers[0].image == "rayproject/ray:2.58.0"
+    error_message = "a cluster on its own Ray version gets that version's image"
+  }
+  assert {
+    condition     = [for g in yamldecode(kubectl_manifest.ray_cluster["training"].yaml_body).spec.workerGroupSpecs : g.template.spec.containers[0].image] == ["registry.example.com/app:abc", "rayproject/ray:2.58.0-gpu"]
+    error_message = "a group's own image wins; a group that requests GPUs runs the GPU image"
+  }
+  assert {
+    condition     = yamldecode(kubectl_manifest.ray_cluster["training"].yaml_body).spec.workerGroupSpecs[1].template.spec.nodeSelector["karpenter.sh/nodepool"] == "pr7-ray-gpu-worker" && yamldecode(kubectl_manifest.ray_cluster["training"].yaml_body).spec.workerGroupSpecs[1].template.spec.tolerations[0].key == "nvidia.com/gpu"
+    error_message = "a worker group is placed by the scheduling role it names"
+  }
+  assert {
+    condition     = !contains(keys(yamldecode(kubectl_manifest.ray_cluster["training"].yaml_body).spec.workerGroupSpecs[0].template.spec), "nodeSelector")
+    error_message = "a role scheduling has nothing for schedules anywhere"
+  }
+  assert {
+    condition     = yamldecode(kubectl_manifest.ray_cluster["ray-cluster"].yaml_body).spec.headGroupSpec.template.spec.containers[0].image == "rayproject/ray:${var.ray_version}"
+    error_message = "a cluster without overrides runs the environment's default image"
+  }
+  assert {
+    condition     = contains([for e in yamldecode(kubectl_manifest.ray_cluster["ray-cluster"].yaml_body).spec.headGroupSpec.template.spec.containers[0].envFrom : try(e.secretRef.name, "")], "database-url")
+    error_message = "Ray pods read DATABASE_URL like the webapp and Dagster do"
+  }
+  assert {
+    condition     = local.ray_head_selector["ray.io/cluster"] == "pr7-ray-cluster"
+    error_message = "the dashboard follows the first cluster by key"
+  }
+}
+
+run "ray_cluster_keys_are_dns_labels" {
+  command = plan
+
+  variables {
+    enable_ray   = true
+    ray_clusters = { GPU_cluster = {} }
+  }
+
+  expect_failures = [var.ray_clusters]
+}
+
+run "ray_worker_group_bounds" {
+  command = plan
+
+  variables {
+    enable_ray   = true
+    ray_clusters = { ray-cluster = { worker_groups = { cpu-workers = { min_replicas = 3, max_replicas = 2 } } } }
+  }
+
+  expect_failures = [var.ray_clusters]
+}
+
+run "ray_cluster_names_start_with_a_letter" {
+  command = plan
+
+  variables {
+    name_prefix  = "7-"
+    enable_ray   = true
+    ray_clusters = { ray-cluster = {} }
+  }
+
+  expect_failures = [kubectl_manifest.ray_cluster]
 }
 
 # Public ingress is generic: class + annotations from the caller, external-dns
@@ -1177,7 +1284,7 @@ run "mlflow_on_its_own_oidc" {
     enable_webapp       = true
     webapp_image        = "nginx"
     enable_ray          = true
-    enable_ray_cluster  = true
+    ray_clusters        = { ray-cluster = {} }
     enable_dagster      = true
     dagster_db_host     = "db.example.com"
     dagster_db_name     = "dagster"
@@ -1261,7 +1368,7 @@ run "mlflow_on_its_own_oidc" {
     error_message = "the sync job reads no MLflow credential from a Secret"
   }
   assert {
-    condition     = strcontains(helm_release.ray_cluster[0].values[0], "name: mlflow-credentials") && local.dagster_extra_locations[0].envSecrets[1].name == "mlflow-credentials-acme" && contains([for s in local.dagster_default_location.envSecrets : s.name], "mlflow-credentials")
+    condition     = contains([for e in yamldecode(kubectl_manifest.ray_cluster["ray-cluster"].yaml_body).spec.headGroupSpec.template.spec.containers[0].envFrom : try(e.secretRef.name, "")], "mlflow-credentials") && local.dagster_extra_locations[0].envSecrets[1].name == "mlflow-credentials-acme" && contains([for s in local.dagster_default_location.envSecrets : s.name], "mlflow-credentials")
     error_message = "clients read their token through envFrom"
   }
 }
@@ -1303,13 +1410,12 @@ run "ray_autoscales_workers" {
   command = plan
 
   variables {
-    enable_ray         = true
-    enable_ray_cluster = true
-    ray_head_num_cpus  = 0
+    enable_ray   = true
+    ray_clusters = { ray-cluster = { head = { num_cpus = 0 } } }
   }
 
   assert {
-    condition     = strcontains(helm_release.ray_cluster[0].values[0], "enableInTreeAutoscaling: true") && strcontains(helm_release.ray_cluster[0].values[0], "{\"num-cpus\":\"0\"}")
+    condition     = yamldecode(kubectl_manifest.ray_cluster["ray-cluster"].yaml_body).spec.enableInTreeAutoscaling && yamldecode(kubectl_manifest.ray_cluster["ray-cluster"].yaml_body).spec.headGroupSpec.rayStartParams == { "num-cpus" = "0" }
     error_message = "the autoscaler runs (workers scale from 0) and the head keeps tasks off itself"
   }
 }

@@ -47,7 +47,6 @@ repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
 pins="
 aws/eks-platform/variables.tf|tailscale_operator_chart_version|https://pkgs.tailscale.com/helmcharts|tailscale-operator|$tailscale_warn_behind
 aws/eks-platform/variables.tf|kuberay_operator_version|https://ray-project.github.io/kuberay-helm/|kuberay-operator|$chart_warn_behind
-modules/workloads/variables.tf|ray_cluster_chart_version|https://ray-project.github.io/kuberay-helm/|ray-cluster|$chart_warn_behind
 modules/workloads/variables.tf|jupyterhub_chart_version|https://hub.jupyter.org/helm-chart/|jupyterhub|$chart_warn_behind
 modules/workloads/variables.tf|dagster_chart_version|https://dagster-io.github.io/helm|dagster|$chart_warn_behind
 modules/workloads/variables.tf|mlflow_chart_version|https://community-charts.github.io/helm-charts|mlflow|$chart_warn_behind

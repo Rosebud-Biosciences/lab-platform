@@ -30,6 +30,36 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `examples/kind`'s `prereqs.sh` installs KubeRay the same way, at the same
   version.
 
+### Changed (**breaking**): Ray clusters are declared per job family
+
+- `modules/workloads`: `ray_clusters` declares the environment's Ray
+  clusters, keyed by name, each the RayCluster `<name_prefix><key>` tailored
+  to the jobs it runs: its own Ray version and images, head size and `ray
+  start` parameters, autoscaler resources, and worker groups (replica bounds,
+  an image, and a `scheduling` role each, e.g. `ray_gpu_worker` for a GPU
+  NodePool through `aws/compute-adapter` `node_pool_roles`). A group that
+  requests `nvidia.com/gpu` runs the GPU image. `output.ray_clusters`
+  publishes each cluster's head Service and Ray client and dashboard
+  addresses; the private dashboard follows the first cluster by key unless
+  `ray_dashboard_cluster_name` says otherwise.
+- The module renders the RayClusters itself (`kubectl_manifest`) instead of
+  through KubeRay's `ray-cluster` chart, so a new KubeRay field no longer
+  waits on the chart, and it never renders a group's `replicas`, which the
+  autoscaler owns. Every cluster's pods now `envFrom` `analytics-config`
+  (MLflow tracking URI, `PIPELINE_ENV`, the identity env) and `database-url`,
+  which only RayJobs built by user code read before.
+- `examples/complete` and `examples/preview` add a GPU worker group that
+  scales from zero on their GPU NodePool, which nothing selected before.
+- Upgrading: replace `enable_ray_cluster`, `ray_cluster_chart_version`,
+  `ray_cluster_repository`, `ray_cluster_release_name`, `ray_head_resources`,
+  `ray_head_num_cpus`, `ray_head_start_params`, `ray_worker_resources`,
+  `ray_worker_max_replicas`, `ray_autoscaler_resources` and
+  `ray_enable_autoscaler` (the autoscaler always runs) with a `ray_clusters`
+  entry; key it `ray-cluster` to keep the cluster's name. The cluster is
+  recreated: the apply uninstalls the Helm release while it applies the
+  manifest, and if the uninstall deletes the RayCluster last, the next apply
+  creates it again.
+
 ## [0.3.0] - 2026-10-09
 
 Previews confined: a preview's deploy identity owns only the `preview-*`
