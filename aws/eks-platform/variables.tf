@@ -345,9 +345,9 @@ variable "karpenter_version" {
 }
 
 variable "kuberay_operator_version" {
-  description = "KubeRay operator Helm chart version"
+  description = "KubeRay release: the kuberay-operator chart version, and the tag (v<version>) the CRDs are applied from. Keep examples/kind/scripts/prereqs.sh's KUBERAY_VERSION equal."
   type        = string
-  default     = "1.6.1"
+  default     = "1.7.1"
 }
 
 # ------------------------------------------------------------------------------
