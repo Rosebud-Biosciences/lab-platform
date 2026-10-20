@@ -88,7 +88,7 @@ What the cluster must already provide, whoever built it:
 
 | Need | Why | On EKS (`aws/eks-platform`) | Elsewhere |
 | --- | --- | --- | --- |
-| KubeRay operator | `enable_ray`, `enable_dagster` create RayCluster/RayJob objects | `enable_ray` | `helm install kuberay-operator kuberay/kuberay-operator` |
+| KubeRay operator | `enable_ray`, `enable_dagster` create RayCluster/RayJob objects | `enable_ray` | `helm install kuberay-operator kuberay/kuberay-operator --namespace kuberay-system` (the Ray NetworkPolicy admits the operator from there, `network_policies.extra_namespaces`) |
 | Argo Workflows CRDs | `enable_argo_workflows` installs a namespace-scoped controller, never the cluster-scoped CRDs | `enable_argo_workflows` (installs the CRDs only) | `kubectl apply` the `manifests/base/crds/minimal` files of the matching Argo release (see `examples/kind/scripts/prereqs.sh`) |
 | metrics-server | the public webapp HPA | on by default | most distros ship it; `kind` needs it installed |
 | a private IngressClass | `enable_private_ingress` (default class `tailscale`) | Tailscale operator | Tailscale operator works anywhere; or any controller via `private_ingress_class_name` |
