@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Install what modules/workloads expects a cluster to provide (README "Cluster
 # prerequisites") plus a local data backend, on the CURRENT kubectl context:
-#   - KubeRay operator          (enable_ray / enable_dagster)
+#   - KubeRay CRDs + operator   (enable_ray / enable_dagster)
 #   - Argo Workflows CRDs       (enable_argo_workflows; the controller is per env)
 #   - metrics-server            (HPA; kind needs --kubelet-insecure-tls)
 #   - SeaweedFS + buckets       (S3-compatible object store; local data axis)
@@ -17,7 +17,8 @@ set -euo pipefail
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 prereqs="$here/../prereqs"
 
-KUBERAY_VERSION="${KUBERAY_VERSION:-1.6.0}"
+# Must match aws/eks-platform's kuberay_operator_version.
+KUBERAY_VERSION="${KUBERAY_VERSION:-1.7.1}"
 # Must match the appVersion of modules/workloads' argo_workflows_chart_version.
 ARGO_WORKFLOWS_VERSION="${ARGO_WORKFLOWS_VERSION:-v4.1.3}"
 WITH_S3="${WITH_S3:-1}"
@@ -29,10 +30,15 @@ ACME_S3_SECRET_KEY="${ACME_S3_SECRET_KEY:-acme12345678}"
 POSTGRES_USER="${POSTGRES_USER:-postgres}"
 POSTGRES_PASSWORD="${POSTGRES_PASSWORD:-postgres}"
 
-echo "== KubeRay operator ${KUBERAY_VERSION}"
+echo "== KubeRay ${KUBERAY_VERSION}: CRDs from the release, then the operator (what aws/eks-platform enable_ray installs)"
+# Helm never upgrades a chart's CRDs, so they come from the release tag.
+for crd in rayclusters raycronjobs rayjobs rayservices; do
+  kubectl apply --server-side --force-conflicts -f "https://raw.githubusercontent.com/kuberay-project/kuberay/v${KUBERAY_VERSION}/ray-operator/config/crd/bases/ray.io_${crd}.yaml" >/dev/null
+done
+kubectl wait --for=condition=Established crd/rayclusters.ray.io crd/raycronjobs.ray.io crd/rayjobs.ray.io crd/rayservices.ray.io --timeout=60s >/dev/null
 helm repo add kuberay https://ray-project.github.io/kuberay-helm/ >/dev/null
 helm repo update kuberay >/dev/null
-helm upgrade --install kuberay-operator kuberay/kuberay-operator \
+helm upgrade --install kuberay-operator kuberay/kuberay-operator --skip-crds \
   --version "$KUBERAY_VERSION" --namespace kuberay-system --create-namespace --wait --timeout 5m
 
 echo "== Argo Workflows CRDs ${ARGO_WORKFLOWS_VERSION} (what aws/eks-platform enable_argo_workflows installs)"

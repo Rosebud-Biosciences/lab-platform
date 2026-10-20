@@ -339,21 +339,3 @@ resource "helm_release" "kubecost" {
 
   depends_on = [module.eks_blueprints_addons_core]
 }
-
-resource "helm_release" "kuberay_operator" {
-  count = var.enable_ray ? 1 : 0
-
-  name       = "kuberay-operator"
-  repository = "https://ray-project.github.io/kuberay-helm/"
-  chart      = "kuberay-operator"
-  atomic     = true
-  version    = var.kuberay_operator_version
-  # modules/workloads' Ray NetworkPolicy admits the operator, which polls each
-  # head's dashboard for RayJob status, from this namespace only
-  # (network_policies.extra_namespaces).
-  namespace        = "kuberay-system"
-  create_namespace = true
-  timeout          = 300
-
-  depends_on = [module.eks_blueprints_addons_core]
-}

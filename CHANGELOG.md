@@ -17,6 +17,19 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   the release is reinstalled in the new namespace (the CRDs and running
   RayClusters stay); delete the then-empty `kuberay-operator` namespace.
 
+### Changed: KubeRay 1.7.1, its CRDs upgraded with it
+
+- `aws/eks-platform`: the KubeRay CRDs are applied, server-side, from the
+  release tag matching `kuberay_operator_version` (now 1.7.1), and the chart
+  installs the operator alone (`skip_crds`). Helm installs a chart's CRDs
+  once and never upgrades them, so a chart bump left the old schemas in place
+  and the API server silently dropped every field they lacked. Like Helm, the
+  module never deletes the CRDs: that would delete every environment's
+  RayClusters and RayJobs. The four CRDs are large (about 4 MB), and the
+  platform stack's state holds several copies of each (roughly 20 MB in all).
+  `examples/kind`'s `prereqs.sh` installs KubeRay the same way, at the same
+  version.
+
 ## [0.3.0] - 2026-10-09
 
 Previews confined: a preview's deploy identity owns only the `preview-*`
