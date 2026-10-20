@@ -157,15 +157,19 @@ module "workloads" {
   webapp_memory_limit   = "256Mi"
   database_url          = local.database_url
 
-  enable_ray         = true
-  enable_ray_cluster = true
+  enable_ray = true
   # Small requests so everything schedules on a 2-vCPU runner (README
   # "Sizing"); the limits let a busy head or worker burst. The autoscaler
   # sidecar would otherwise reserve 500m in every head pod.
-  ray_head_resources       = { requests = { cpu = "50m", memory = "512Mi" }, limits = { cpu = "1", memory = "2Gi" } }
-  ray_worker_resources     = { requests = { cpu = "50m", memory = "512Mi" }, limits = { cpu = "1", memory = "1Gi" } }
-  ray_autoscaler_resources = { requests = { cpu = "50m", memory = "256Mi" }, limits = { cpu = "500m", memory = "512Mi" } }
-  ray_worker_max_replicas  = 1
+  ray_clusters = {
+    ray-cluster = {
+      head                 = { resources = { requests = { cpu = "50m", memory = "512Mi" }, limits = { cpu = "1", memory = "2Gi" } } }
+      autoscaler_resources = { requests = { cpu = "50m", memory = "256Mi" }, limits = { cpu = "500m", memory = "512Mi" } }
+      worker_groups = {
+        cpu-workers = { resources = { requests = { cpu = "50m", memory = "512Mi" }, limits = { cpu = "1", memory = "1Gi" } }, max_replicas = 1 }
+      }
+    }
+  }
 
   enable_dagster      = true
   dagster_db_host     = var.postgres_host

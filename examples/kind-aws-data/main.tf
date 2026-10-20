@@ -164,11 +164,15 @@ module "workloads" {
   webapp_memory_limit   = "256Mi"
   database_url          = local.postgres_url
 
-  enable_ray              = true
-  enable_ray_cluster      = true
-  ray_head_resources      = { requests = { cpu = "500m", memory = "1Gi" }, limits = { cpu = "1", memory = "2Gi" } }
-  ray_worker_resources    = { requests = { cpu = "250m", memory = "512Mi" }, limits = { cpu = "1", memory = "1Gi" } }
-  ray_worker_max_replicas = 1
+  enable_ray = true
+  ray_clusters = {
+    ray-cluster = {
+      head = { resources = { requests = { cpu = "500m", memory = "1Gi" }, limits = { cpu = "1", memory = "2Gi" } } }
+      worker_groups = {
+        cpu-workers = { resources = { requests = { cpu = "250m", memory = "512Mi" }, limits = { cpu = "1", memory = "1Gi" } }, max_replicas = 1 }
+      }
+    }
+  }
 
   enable_dagster      = true
   dagster_db_host     = var.postgres_host

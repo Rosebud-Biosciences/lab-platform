@@ -34,9 +34,9 @@ locals {
   # reclaim of the Ray head ends the Ray cluster and its jobs, and one of
   # Dagster's kills its in-flight runs. Ray workers are the one thing spot
   # suits (Ray reschedules their tasks); the taint keeps everything else off
-  # those nodes. The GPU pool is prefixed too, so RayJobs that select
-  # module.compute.node_pool_names["ray-gpu-worker"] get isolated GPU capacity
-  # instead of sharing prod's.
+  # those nodes. The GPU pool is prefixed too, so the Ray cluster's gpu-workers
+  # group (the ray_gpu_worker role) gets isolated GPU capacity instead of
+  # sharing prod's.
   preview_pools = {
     services = {
       instance_families = ["m7i"]
@@ -199,8 +199,9 @@ module "compute" {
   # objects differ in shape, which a conditional cannot unify.)
   karpenter_node_pools = { for k, v in local.preview_pools : k => v if local.pipelines }
   node_pool_roles = { for k, v in {
-    services = ["dagster", "argo", "mlflow", "ray_head"]
-    workers  = ["ray_worker"]
+    services       = ["dagster", "argo", "mlflow", "ray_head"]
+    workers        = ["ray_worker"]
+    ray-gpu-worker = ["ray_gpu_worker"]
   } : k => v if local.pipelines }
 
   tags = local.preview_tags
@@ -234,12 +235,24 @@ module "workloads" {
   # cluster. "app": the webapp alone, pointed at prod's Dagster and MLflow --
   # the same env var names, different targets (workloads README "Stamp or
   # share").
-  enable_webapp      = true
-  webapp_image       = var.webapp_image
-  enable_dagster     = local.pipelines
-  enable_ray         = local.pipelines
-  enable_ray_cluster = local.pipelines
-  enable_mlflow      = local.pipelines
+  enable_webapp  = true
+  webapp_image   = var.webapp_image
+  enable_dagster = local.pipelines
+  enable_ray     = local.pipelines
+  ray_clusters = local.pipelines ? {
+    ray-cluster = {
+      worker_groups = {
+        cpu-workers = {}
+        # One GPU per worker on a g6 xlarge or 2xlarge (the ray-gpu-worker pool).
+        gpu-workers = {
+          resources    = { requests = { cpu = "3", memory = "12Gi" }, limits = { memory = "14Gi", "nvidia.com/gpu" = "1" } }
+          max_replicas = 4
+          scheduling   = "ray_gpu_worker"
+        }
+      }
+    }
+  } : {}
+  enable_mlflow = local.pipelines
 
   dagster_webserver_url = local.pipelines ? "" : var.shared_service_urls.dagster_webserver_url
   mlflow_tracking_uri   = local.pipelines ? "" : var.shared_service_urls.mlflow_tracking_uri

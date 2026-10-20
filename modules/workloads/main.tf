@@ -142,8 +142,8 @@ locals {
     }]
   }
 
-  # Kubernetes EnvVar list form for charts that take lists (ray-cluster,
-  # dagster webserver/daemon).
+  # Kubernetes EnvVar list form for charts that take lists (dagster
+  # webserver/daemon).
   identity_env_list = {
     for svc, id in local.identity :
     svc => [for k, v in id.env : { name = k, value = v }]
@@ -155,7 +155,11 @@ locals {
 # ------------------------------------------------------------------------------
 
 locals {
-  scheduling_roles = ["webapp", "dagster", "mlflow", "argo", "jupyterhub", "jupyterhub_singleuser", "ray_head", "ray_worker"]
+  # Ray heads and worker groups may name roles of their own (ray_clusters).
+  scheduling_roles = distinct(concat(
+    ["webapp", "dagster", "mlflow", "argo", "jupyterhub", "jupyterhub_singleuser", "ray_head", "ray_worker"],
+    local.ray_scheduling_roles,
+  ))
 
   empty_scheduling = { node_selector = {}, tolerations = [] }
 
