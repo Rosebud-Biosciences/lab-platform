@@ -785,9 +785,9 @@ variable "webapp_hpa_cpu_target" {
 # ------------------------------------------------------------------------------
 
 variable "jupyterhub_chart_version" {
-  description = "JupyterHub Helm chart version"
+  description = "Version of the jupyterhub/jupyterhub (Zero to JupyterHub) Helm chart. Must be >= 4.0: the values name home directories with KubeSpawner 7's {escaped_username} and find groups with OAuthenticator 17's auth_state_groups_key."
   type        = string
-  default     = "3.3.8"
+  default     = "4.4.4"
 }
 
 variable "jupyterhub_auth_mechanism" {
@@ -844,7 +844,7 @@ variable "jupyterhub_oidc_callback_url" {
 }
 
 variable "jupyterhub_oidc_username_claim" {
-  description = "Claim used as the JupyterHub username (also the {username} home sub-path on the shared volume, and what jupyterhub_admin_users/jupyterhub_allowed_users match against)"
+  description = "Claim used as the JupyterHub username (also what jupyterhub_admin_users/jupyterhub_allowed_users match against, and, escaped, the home sub-path on the shared volume: ada@example.com -> home/ada-40example-2ecom)"
   type        = string
   default     = "email"
 }

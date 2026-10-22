@@ -46,10 +46,13 @@ singleuser:
   cmd: start-singleuser.sh
   storage:
     # Per-user home: one sub-directory per username on the shared RWX volume.
+    # {escaped_username}, not {username}: homes are named by KubeSpawner's
+    # original escaping (ada@example.com -> ada-40example-2ecom), and
+    # {username} follows slug_scheme, whose "safe" default differs for such names.
     type: static
     static:
       pvcName: ${home_claim}
-      subPath: "home/{username}"
+      subPath: "home/{escaped_username}"
     # The shared directory (read-write for every user) plus, when the identity
     # contract asks for one, the projected token volume.
     extraVolumes: ${extra_volumes}

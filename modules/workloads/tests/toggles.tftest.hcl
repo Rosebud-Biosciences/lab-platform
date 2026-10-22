@@ -214,6 +214,10 @@ run "jupyterhub_nfs_storage_dummy_auth" {
     condition     = output.service_accounts.jupyterhub.name == "jupyterhub-single-user"
     error_message = "the single-user ServiceAccount name is part of the identity contract"
   }
+  assert {
+    condition     = strcontains(helm_release.jupyterhub[0].values[0], "subPath: \"home/{escaped_username}\"")
+    error_message = "homes keep KubeSpawner's original escaping: {username} would give every email-named user an empty home"
+  }
 }
 
 # Dynamic RWX mode with OIDC auth and a projected token for the notebooks.
@@ -251,6 +255,10 @@ run "jupyterhub_storage_class_oidc_auth" {
     condition     = strcontains(helm_release.jupyterhub_shared_volume["jupyterhub-home"].values[0], "\"storageClassName\": \"standard\"") && strcontains(helm_release.jupyterhub_shared_volume["jupyterhub-home"].values[0], "\"size\": \"20Gi\"")
     error_message = "storage_class_name and size must reach the shared-volume chart"
   }
+  assert {
+    condition     = strcontains(helm_release.jupyterhub[0].values[0], "subPath: \"home/{escaped_username}\"")
+    error_message = "the oidc template keeps homes at the escaped username"
+  }
 }
 
 run "jupyterhub_requires_exactly_one_storage_mode" {
@@ -280,6 +288,10 @@ run "jupyterhub_firstuse_auth_with_overrides" {
   assert {
     condition     = strcontains(helm_release.jupyterhub_shared_volume["jupyterhub-shared"].values[0], "\"path\": \"/export/jhub\"")
     error_message = "nfs_path must reach the shared-volume chart"
+  }
+  assert {
+    condition     = strcontains(helm_release.jupyterhub[0].values[0], "subPath: \"home/{escaped_username}\"")
+    error_message = "the firstuse template keeps homes at the escaped username"
   }
 }
 
@@ -1339,6 +1351,10 @@ run "jupyterhub_group_profiles" {
   assert {
     condition     = strcontains(helm_release.jupyterhub[0].values[1], "10-group-profiles") && strcontains(helm_release.jupyterhub[0].values[1], "groups/acme/research") && strcontains(helm_release.jupyterhub[0].values[1], "\"mount_shared\":false") && strcontains(helm_release.jupyterhub[0].values[1], "is not a member of")
     error_message = "the hub offers the profile to the group, on the home volume's group sub-path, without the shared dir"
+  }
+  assert {
+    condition     = strcontains(helm_release.jupyterhub[0].values[0], "auth_state_groups_key: \"oauth_user.groups\"") && strcontains(helm_release.jupyterhub[0].values[1], "oauth_user.groups")
+    error_message = "the gate and the profiles read groups from the issuer's claim in the userinfo auth_state keeps (oauth_user)"
   }
 }
 

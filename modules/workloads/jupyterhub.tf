@@ -24,6 +24,9 @@ locals {
   jupyterhub_allow_all = length(var.jupyterhub_allowed_users) == 0 && (
     local.jupyterhub_mechanism != "oidc" || var.jupyterhub_allow_all
   )
+  # OAuthenticator looks a user's groups up in auth_state, which keeps the
+  # issuer's userinfo response under "oauth_user".
+  jupyterhub_groups_key = "oauth_user.${var.auth.groups_claim}"
 
   jupyterhub_ingress_enabled = var.enable_jupyterhub && var.jupyterhub_public_host != ""
 
@@ -164,7 +167,7 @@ resource "helm_release" "jupyterhub" {
       auth_refresh_age    = var.jupyterhub_auth_refresh_seconds
       cookie_max_age_days = var.jupyterhub_cookie_max_age_days
       oidc_admin_groups   = jsonencode(compact([var.auth.superadmin_group]))
-      oidc_groups_claim   = jsonencode(var.auth.groups_claim)
+      oidc_groups_key     = jsonencode(local.jupyterhub_groups_key)
       # Storage + identity + scheduling contracts (shared by all three templates).
       home_claim               = local.jupyterhub_home_claim
       extra_volumes            = jsonencode(local.jupyterhub_extra_volumes)
