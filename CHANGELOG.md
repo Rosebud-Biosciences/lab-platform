@@ -6,6 +6,15 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Security: the cluster's Tailscale containers run 1.104.2
+
+- `aws/eks-platform`: `tailscale_operator_chart_version` defaults to 1.104.2
+  (was 1.102.3), the version of the operator and of every Ingress proxy it
+  runs. 1.104.2 is built with Go 1.27.3, which distrusts the compromised TLS
+  intermediate certificates of Tailscale's security bulletin TS-2026-013.
+  Applying rolls each proxy to the new image: a pod restart per private UI,
+  with its tailnet name and tags kept (docs/upgrades.md).
+
 ### Changed: `modules/postgres-group-roles` says what Neon lets its roles change
 
 - On Neon, the module's roles are created by Neon's control plane, so no
