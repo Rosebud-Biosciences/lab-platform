@@ -43,6 +43,15 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   say, `hub.config.loadRoles`), and a `{username}` template of your own
   changes for those users: write `{escaped_username}` to keep its old value.
 
+### Fixed: a JupyterHub group profile without `/home/shared` could not start
+
+- `modules/workloads`: a `jupyterhub_group_profiles` entry with
+  `mount_shared = false` (what docs/tenancy.md gives external tenants)
+  unmounted `/home/shared` but left it in the server's `CHOWN_EXTRA`, and the
+  docker-stacks start script, which chowns each listed path and exits on the
+  first failure, stopped there: the server never came up. A profile now
+  lists only the directories it mounts.
+
 ### Changed: `modules/postgres-group-roles` says what Neon lets its roles change
 
 - On Neon, the module's roles are created by Neon's control plane, so no

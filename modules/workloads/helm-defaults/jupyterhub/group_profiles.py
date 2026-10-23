@@ -39,14 +39,19 @@ def group_profile_pod(spawner, pod):
     env_from = [] if profile["replace_identity"] else list(container.env_from or [])
     container.env_from = env_from + [V1EnvFromSource(secret_ref=V1SecretEnvSource(name=profile["secret"]))]
     mounts = list(container.volume_mounts or [])
+    unmounted = set()
     if not profile["mount_shared"]:
+        unmounted = {m.mount_path for m in mounts if m.name == "jupyterhub-shared"}
         mounts = [m for m in mounts if m.name != "jupyterhub-shared"]
+    group_dir = []
     if profile["group_directory"]:
         mounts.append(V1VolumeMount(name="home", mount_path="/home/jovyan/group", sub_path=profile["subpath"]))
-        for env in container.env or []:
-            # The docker-stacks start script (running as root) chowns these.
-            if env.name == "CHOWN_EXTRA":
-                env.value = ",".join(v for v in [env.value, "/home/jovyan/group"] if v)
+        group_dir = ["/home/jovyan/group"]
+    for env in container.env or []:
+        # The docker-stacks start script (running as root, under set -e) chowns
+        # each of these: a path that is not mounted stops the server starting.
+        if env.name == "CHOWN_EXTRA":
+            env.value = ",".join(d for d in [*(env.value or "").split(","), *group_dir] if d and d not in unmounted)
     container.volume_mounts = mounts
     return pod
 
