@@ -371,7 +371,7 @@ variable "tailscale_operator_chart_version" {
     expect a pod-restart blip per UI). See docs/upgrades.md.
   EOT
   type        = string
-  default     = "1.104.2"
+  default     = "1.104.4"
 }
 
 variable "tailscale_oauth_client_id" {
