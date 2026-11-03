@@ -6,6 +6,52 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Security: the cluster's Tailscale containers run 1.104.2
+
+- `aws/eks-platform`: `tailscale_operator_chart_version` defaults to 1.104.2
+  (was 1.102.3), the version of the operator and of every Ingress proxy it
+  runs. 1.104.2 is built with Go 1.27.3, which distrusts the compromised TLS
+  intermediate certificates of Tailscale's security bulletin TS-2026-013.
+  Applying rolls each proxy to the new image: a pod restart per private UI,
+  with its tailnet name and tags kept (docs/upgrades.md).
+
+### Security (**breaking**): JupyterHub 5 (the 4.4.4 chart)
+
+- `modules/workloads`: `jupyterhub_chart_version` defaults to 4.4.4 (was
+  3.3.8), which runs JupyterHub 5.5.4. The 3.x chart's JupyterHub 4.1.6 gets
+  no more releases, and published advisories affect it: an XSRF bypass
+  (CVE-2026-40864), an open redirect (CVE-2026-33709) and an unauthenticated
+  denial of service (CVE-2026-54338).
+- Home directories stay where they are. KubeSpawner 7 escapes usernames
+  differently (`ada@example.com` was `ada-40example-2ecom`; its new default
+  makes it `ada-example-com---b5fc85e5`), so the home sub-path now asks for
+  the old escaping explicitly (`home/{escaped_username}`): with `{username}`,
+  every user whose name is not lowercase letters and digits starting with a
+  letter -- every email address, for one -- would have opened an empty home.
+  Pod names do take the new form.
+- On OIDC the hub now refreshes a user's groups before a spawn, as its
+  configuration always asked (`refresh_pre_spawn`, `auth_refresh_age`): the
+  3.x chart's OAuthenticator 16 had no `refresh_user`, so groups were read at
+  login only. They are found through `auth_state_groups_key`, which replaces
+  the deprecated `claim_groups_key`.
+- Upgrading: the hub upgrades its SQLite database when it starts (keeping a
+  backup on its volume); the hub and proxy restart, a short outage in which
+  running servers keep running. `jupyterhub_chart_version` must be 4.0 or
+  later. Single-user images should carry JupyterHub 5 to match the hub
+  (current docker-stacks images do). In `jupyterhub_extra_values`, every
+  `hub.config` key must now be a class name (the chart refuses to start on,
+  say, `hub.config.loadRoles`), and a `{username}` template of your own
+  changes for those users: write `{escaped_username}` to keep its old value.
+
+### Fixed: a JupyterHub group profile without `/home/shared` could not start
+
+- `modules/workloads`: a `jupyterhub_group_profiles` entry with
+  `mount_shared = false` (what docs/tenancy.md gives external tenants)
+  unmounted `/home/shared` but left it in the server's `CHOWN_EXTRA`, and the
+  docker-stacks start script, which chowns each listed path and exits on the
+  first failure, stopped there: the server never came up. A profile now
+  lists only the directories it mounts.
+
 ### Changed: `modules/postgres-group-roles` says what Neon lets its roles change
 
 - On Neon, the module's roles are created by Neon's control plane, so no

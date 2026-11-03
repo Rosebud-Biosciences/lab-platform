@@ -155,7 +155,7 @@ unless you say so:
 | --- | --- | --- |
 | a proxied UI | `protect = { dagster = { allowed_groups = ["pipelines"] } }` | only members of `pipelines` open Dagster. A gate with neither groups nor emails needs `allowed_email_domains` (empty by default, so an ungated service fails the plan); `["*"]` is the explicit "everyone the issuer admits", right only when its connectors are restricted (a GitHub connector without `orgs` admits all of GitHub) |
 | Argo | `argo_rbac_rules = { admins = { rule = "'platform' in groups", access = "write", precedence = 10 }, lab = { rule = "'lab' in groups", access = "read" } }` | one ServiceAccount per rule, annotated `workflows.argoproj.io/rbac-rule` and `-precedence`, bound to the `read` or `write` Role. Argo tries the numerically highest precedence first, so broad rules get low numbers. No implicit catch-all: a user matching no rule gets no Argo, and SSO requires at least one rule |
-| JupyterHub | `jupyterhub_allowed_groups = ["lab"]` (or `jupyterhub_allowed_users`) | `allowed_groups` + `claim_groups_key` on the authenticator; `jupyterhub_allow_all = true` is the explicit open door |
+| JupyterHub | `jupyterhub_allowed_groups = ["lab"]` (or `jupyterhub_allowed_users`) | `allowed_groups` + `auth_state_groups_key` on the authenticator; `jupyterhub_allow_all = true` is the explicit open door |
 | the webapp | its own tables | `require_group(...)` dependencies, group-filtered queries -- see the template app |
 
 Groups arrive as a claim (`groups_claim`, default `groups`) that Dex forwards

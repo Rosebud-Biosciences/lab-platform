@@ -40,7 +40,7 @@ locals {
 
   jupyterhub_profiles_values = length(local.jupyterhub_profiles) > 0 ? yamlencode({
     hub = {
-      config = { GenericOAuthenticator = { manage_groups = true, claim_groups_key = var.auth.groups_claim } }
+      config = { GenericOAuthenticator = { manage_groups = true, auth_state_groups_key = local.jupyterhub_groups_key } }
       extraConfig = {
         "10-group-profiles" = templatefile("${local.helm_defaults}/jupyterhub/group_profiles.py", {
           profiles_json = jsonencode(local.jupyterhub_profiles_config)

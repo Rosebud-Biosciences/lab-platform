@@ -1,7 +1,7 @@
 # JupyterHub with a generic OIDC authenticator: any provider (Google, Cognito,
 # Okta, Keycloak) via the jupyterhub_oidc_* variables. The username (and so the
-# {username} home sub-path and admin/allowed matching) comes from
-# oidc_username_claim — "email" by default.
+# home sub-path and admin/allowed matching) comes from oidc_username_claim —
+# "email" by default.
 #
 # allowed_users/allow_all still gate who may log in AFTER the IdP
 # authenticates; with allow_all any account the IdP admits gets a pod, so
@@ -32,7 +32,7 @@ hub:
       login_service: ${oidc_login_service}
 %{ if oidc_allowed_groups != "[]" || oidc_admin_groups != "[]" ~}
       # Groups come from the issuer's groups claim.
-      claim_groups_key: ${oidc_groups_claim}
+      auth_state_groups_key: ${oidc_groups_key}
       manage_groups: true
 %{ endif ~}
 %{ if oidc_allowed_groups != "[]" ~}
@@ -81,10 +81,13 @@ singleuser:
   cmd: start-singleuser.sh
   storage:
     # Per-user home: one sub-directory per username on the shared RWX volume.
+    # {escaped_username}, not {username}: homes are named by KubeSpawner's
+    # original escaping (ada@example.com -> ada-40example-2ecom), and
+    # {username} follows slug_scheme, whose "safe" default differs for such names.
     type: static
     static:
       pvcName: ${home_claim}
-      subPath: "home/{username}"
+      subPath: "home/{escaped_username}"
     # The shared directory (read-write for every user) plus, when the identity
     # contract asks for one, the projected token volume.
     extraVolumes: ${extra_volumes}
