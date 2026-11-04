@@ -1016,7 +1016,7 @@ variable "jupyterhub_public_tls_secret_name" {
 variable "dagster_chart_version" {
   description = "Version of the official dagster/dagster Helm chart. Must be >= 1.13.23: earlier images are amd64-only, and an arm64 cluster (kind on Apple Silicon, Graviton nodes) cannot pull them."
   type        = string
-  default     = "1.13.23"
+  default     = "1.13.28"
 }
 
 variable "dagster_repository" {
@@ -1272,7 +1272,7 @@ variable "ray_gpu_image_tag" {
 variable "ray_cluster_chart_version" {
   description = "Version of the kuberay ray-cluster Helm chart"
   type        = string
-  default     = "1.6.0"
+  default     = "1.7.1"
 }
 
 variable "ray_cluster_repository" {

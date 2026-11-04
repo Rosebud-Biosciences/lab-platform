@@ -6,14 +6,16 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-### Security: the cluster's Tailscale containers run 1.104.2
+### Security: the cluster's Tailscale containers run 1.104.4
 
-- `aws/eks-platform`: `tailscale_operator_chart_version` defaults to 1.104.2
+- `aws/eks-platform`: `tailscale_operator_chart_version` defaults to 1.104.4
   (was 1.102.3), the version of the operator and of every Ingress proxy it
-  runs. 1.104.2 is built with Go 1.27.3, which distrusts the compromised TLS
-  intermediate certificates of Tailscale's security bulletin TS-2026-013.
-  Applying rolls each proxy to the new image: a pod restart per private UI,
-  with its tailnet name and tags kept (docs/upgrades.md).
+  runs. It is built with Go 1.27.3, which distrusts the compromised TLS
+  intermediate certificates of Tailscale's security bulletin TS-2026-013, and
+  carries the fixes for TS-2026-014 to TS-2026-017, two of them in Tailscale
+  Serve, which the Ingress proxies run. Applying rolls each proxy to the new
+  image: a pod restart per private UI, with its tailnet name and tags kept
+  (docs/upgrades.md).
 
 ### Security (**breaking**): JupyterHub 5 (the 4.4.4 chart)
 
@@ -51,6 +53,22 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   docker-stacks start script, which chowns each listed path and exits on the
   first failure, stopped there: the server never came up. A profile now
   lists only the directories it mounts.
+
+### Changed: Dagster 1.13.28
+
+- `modules/workloads`: `dagster_chart_version` defaults to 1.13.28 (was
+  1.13.23): the version of the webserver and daemon, and the tag of the
+  `dagster/dagster-k8s` image the built-in hello-world code location runs.
+  The chart changed nothing but its version, and 1.13.28's images are
+  published for amd64 and arm64.
+
+### Changed: KubeRay's ray-cluster chart 1.7.1
+
+- `modules/workloads`: `ray_cluster_chart_version` defaults to 1.7.1 (was
+  1.6.0). The chart's one change is optional head Ingress fields the module
+  does not set, so the RayCluster it renders differs only in its
+  `helm.sh/chart` label: it runs on the KubeRay 1.6 operator and CRDs
+  `aws/eks-platform` installs, and applying restarts no Ray pods.
 
 ### Changed: `modules/postgres-group-roles` says what Neon lets its roles change
 
