@@ -1272,7 +1272,7 @@ variable "ray_gpu_image_tag" {
 variable "ray_cluster_chart_version" {
   description = "Version of the kuberay ray-cluster Helm chart"
   type        = string
-  default     = "1.6.0"
+  default     = "1.7.1"
 }
 
 variable "ray_cluster_repository" {

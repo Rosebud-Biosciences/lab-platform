@@ -62,6 +62,14 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   The chart changed nothing but its version, and 1.13.28's images are
   published for amd64 and arm64.
 
+### Changed: KubeRay's ray-cluster chart 1.7.1
+
+- `modules/workloads`: `ray_cluster_chart_version` defaults to 1.7.1 (was
+  1.6.0). The chart's one change is optional head Ingress fields the module
+  does not set, so the RayCluster it renders differs only in its
+  `helm.sh/chart` label: it runs on the KubeRay 1.6 operator and CRDs
+  `aws/eks-platform` installs, and applying restarts no Ray pods.
+
 ### Changed: `modules/postgres-group-roles` says what Neon lets its roles change
 
 - On Neon, the module's roles are created by Neon's control plane, so no
