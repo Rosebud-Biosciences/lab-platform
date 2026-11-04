@@ -6,7 +6,7 @@
 # chart gets the strictest threshold: that pin is the Tailscale version of
 # every container on the tailnet, containers cannot self-update, and Tailscale
 # ships CVE fixes as releases. The logic is .github/scripts/chart-drift.sh,
-# runnable locally with helm + jq and no credentials.
+# runnable locally with helm, jq and yq and no credentials.
 #
 # Findings land in one long-lived issue rather than a failing job: a pin that
 # trails by a few releases stays that way until someone bumps it, and a job
@@ -33,7 +33,7 @@ permissions:
 
 jobs:
   report:
-    runs-on: ubuntu-latest # ships helm + jq
+    runs-on: ubuntu-latest # ships helm, jq and yq
     steps:
       - uses: actions/checkout@v7
 
@@ -91,7 +91,8 @@ jobs:
               `Refreshed in place by [Chart drift](${run}) monthly, and closed`,
               'automatically once the thresholds are clear. Each finding names its',
               'variable and file; `CHART_WARN_BEHIND` and `TAILSCALE_WARN_BEHIND`',
-              'in the workflow tune the thresholds. See docs/upgrades.md.',
+              'in the workflow tune the thresholds, `CHART_COOLDOWN_DAYS` how old a',
+              'release must be to be named as the bump. See docs/upgrades.md.',
             ].join('\n');
 
             if (existing) {

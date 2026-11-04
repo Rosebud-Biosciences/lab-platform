@@ -70,6 +70,14 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `helm.sh/chart` label: it runs on the KubeRay 1.6 operator and CRDs
   `aws/eks-platform` installs, and applying restarts no Ray pods.
 
+### Changed: `chart-drift` names a release out 7 days as the bump
+
+- The report shows every chart version's release date, and each finding names
+  the newest release out at least 7 days (`CHART_COOLDOWN_DAYS`) as the
+  version to bump to, so a release pushed from a hijacked chart repository has
+  had time to be noticed and pulled. Fresher releases still count toward the
+  thresholds. The script now needs `yq` (v4), which `ubuntu-latest` ships.
+
 ### Changed: `modules/postgres-group-roles` says what Neon lets its roles change
 
 - On Neon, the module's roles are created by Neon's control plane, so no

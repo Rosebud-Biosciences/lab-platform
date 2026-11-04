@@ -16,6 +16,15 @@
 # charts pulled from OCI registries (no index.yaml to consult) are out of scope;
 # bump those with the chart's own release notes to hand.
 #
+# Every version is shown with its release date, and the bump each finding asks
+# for is to the newest stable release out at least CHART_COOLDOWN_DAYS: a
+# release pushed from a hijacked chart repository is usually noticed and
+# pulled within days, so nobody should adopt one that young. Thresholds still
+# count every newer release, so a fresh one is reported rather than hidden.
+# The dates are the index's `created` stamps, written by whoever publishes the
+# repository -- a hijacker could backdate them -- so the delay catches the
+# common case, not a careful attacker.
+#
 # Exit codes follow `tofu plan -detailed-exitcode`:
 #   0  nothing needs attention
 #   2  something does -- see the report's "Needs attention" section
@@ -29,8 +38,11 @@
 #                          Tailscale version of every container on the tailnet,
 #                          containers cannot self-update, and Tailscale ships
 #                          CVE fixes as releases)
+#   CHART_COOLDOWN_DAYS    how long a release must have been out before a
+#                          finding names it as the version to bump to
+#                          (default 7)
 #
-# Needs helm and jq, and HTTPS access to the chart repositories. No cloud
+# Needs helm, jq and yq, and HTTPS access to the chart repositories. No cloud
 # credentials: nothing here reads a live cluster. Uses a throwaway helm config
 # directory, so it neither reads nor touches ~/.config/helm.
 
@@ -38,6 +50,7 @@ set -euo pipefail
 
 chart_warn_behind="${CHART_WARN_BEHIND:-3}"
 tailscale_warn_behind="${TAILSCALE_WARN_BEHIND:-0}"
+cooldown_days="${CHART_COOLDOWN_DAYS:-7}"
 
 repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
 
@@ -53,12 +66,17 @@ modules/workloads/variables.tf|dagster_chart_version|https://dagster-io.github.i
 modules/workloads/variables.tf|mlflow_chart_version|https://community-charts.github.io/helm-charts|mlflow|$chart_warn_behind
 "
 
-for tool in helm jq; do
+for tool in helm jq yq; do
   command -v "$tool" >/dev/null 2>&1 || {
     echo "chart-drift: $tool is required but not on PATH" >&2
     exit 1
   }
 done
+# pip's `yq` (a jq wrapper) takes the same name and different expressions.
+yq --version 2>&1 | grep -q mikefarah || {
+  echo "chart-drift: yq must be mikefarah/yq v4 (brew install yq), not pip's yq" >&2
+  exit 1
+}
 
 # Isolated helm state: the repo aliases below must not leak into, or collide
 # with, whatever the operator has configured locally.
@@ -85,26 +103,71 @@ repo_alias() {
   printf '%s' "$1" | sed 's#^https\?://##; s#[^A-Za-z0-9]\{1,\}#-#g; s#-$##'
 }
 
+# One line per release of a chart, "version<TAB>epoch<TAB>YYYY-MM-DD", from
+# the `created` stamps in the repository index helm downloaded. Publishers
+# write the stamp with fractional seconds or a UTC offset, or not at all; a
+# version without a parseable one is left out, i.e. its release date is
+# unknown.
+release_dates() {
+  local repo_name="$1" chart="$2"
+  CHART="$chart" yq -o=json '.entries[strenv(CHART)] // []' "$repo_cache/$repo_name-index.yaml" |
+    jq -r '
+      .[] | select(.created != null)
+      | .version as $version
+      | .created | tostring
+      | capture("^(?<dt>[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2})([.][0-9]+)?(?<tz>Z|[+-][0-9]{2}:[0-9]{2})$")
+      | ((.dt + "Z" | fromdateiso8601)
+         - (if .tz == "Z" then 0
+            else (if .tz[0:1] == "+" then 1 else -1 end)
+                 * ((.tz[1:3] | tonumber) * 3600 + (.tz[4:6] | tonumber) * 60)
+            end)) as $epoch
+      | "\($version | tostring)\t\($epoch)\t\($epoch | strftime("%Y-%m-%d"))"'
+}
+
+# Whole days since a version's release, given release_dates output; empty when
+# the date is unknown.
+age_days() {
+  local epoch
+  epoch=$(awk -F'\t' -v v="$1" '$1 == v {print $2; exit}' <<<"$2")
+  [ -z "$epoch" ] || echo $(((now - epoch) / 86400))
+}
+
+# "1.2.3, released 2026-10-01 (34 days ago)" for the report table.
+describe() {
+  local day
+  day=$(awk -F'\t' -v v="$1" '$1 == v {print $3; exit}' <<<"$2")
+  if [ -z "$day" ]; then
+    printf '%s, release date unknown' "$1"
+  else
+    printf '%s, released %s (%s days ago)' "$1" "$day" "$(age_days "$1" "$2")"
+  fi
+}
+
 while IFS='|' read -r _ _ repo _ _; do
   [ -n "$repo" ] || continue
   helm repo add --force-update "$(repo_alias "$repo")" "$repo" >/dev/null
 done <<<"$pins"
 helm repo update >/dev/null
+repo_cache=$(helm env HELM_REPOSITORY_CACHE)
+now=$(date +%s)
 
 attention=()
 
 echo "## Helm chart pin drift"
 echo
 echo "Module-input chart pins against their repositories' stable releases (pre-releases ignored)."
+echo "Release dates are the repositories' own index stamps; a finding's bump target is the newest release out at least $cooldown_days days."
 echo
-echo "| Chart | Pinned (variable) | Newest stable | Newer available |"
-echo "| --- | --- | --- | --- |"
+echo "| Chart | Pinned | Newest stable | Newer available | Newest out $cooldown_days+ days |"
+echo "| --- | --- | --- | --- | --- |"
 
 while IFS='|' read -r file variable repo chart warn_behind; do
   [ -n "$chart" ] || continue
 
   pin=$(hcl_default "$repo_root/$file" "$variable")
-  name="$(repo_alias "$repo")/$chart"
+  repo_name=$(repo_alias "$repo")
+  name="$repo_name/$chart"
+  dates=$(release_dates "$repo_name" "$chart")
 
   # `helm search repo --versions` lists stable versions newest-first (semver
   # order, pre-releases excluded without --devel); the exact-name select drops
@@ -120,18 +183,44 @@ while IFS='|' read -r file variable repo chart warn_behind; do
   # Position in the newest-first list == how many newer stable releases exist.
   position=$(grep -nxF "$pin" <<<"$versions" | head -n1 | cut -d: -f1 || true)
 
+  # The newest stable release out at least $cooldown_days days, and its
+  # position in the same list.
+  settled="" settled_position=""
+  i=0
+  while read -r version; do
+    i=$((i + 1))
+    age=$(age_days "$version" "$dates")
+    if [ -n "$age" ] && [ "$age" -ge "$cooldown_days" ]; then
+      settled=$version settled_position=$i
+      break
+    fi
+  done <<<"$versions"
+
+  # A pin that is not a stable release can move to any of them.
+  limit=${position:-$(($(wc -l <<<"$versions") + 1))}
+  if [ -n "$settled" ] && [ "$settled_position" -lt "$limit" ]; then
+    bump="Set $variable in $file to $settled (the newest release out $cooldown_days+ days), reading the chart's release notes for breaking values changes."
+  else
+    bump="No release to move to has been out $cooldown_days days yet; set $variable in $file once one has, or sooner only for a security fix you have checked."
+  fi
+
   if [ -z "$position" ]; then
     note="**not a stable release**"
-    attention+=("\`$chart\` pin $pin is not among the repository's stable releases (newest $newest). Set $variable in $file to a published version.")
+    attention+=("\`$chart\` pin $pin is not among the repository's stable releases; newest $(describe "$newest" "$dates"). $bump")
   else
     behind=$((position - 1))
     note="$behind"
     if [ "$behind" -gt "$warn_behind" ]; then
-      attention+=("\`$chart\` is $behind stable release(s) behind ($pin, newest $newest). Bump $variable in $file, reading the chart's release notes for breaking values changes.")
+      attention+=("\`$chart\` is $behind stable release(s) behind: pinned $pin, newest $(describe "$newest" "$dates"). $bump")
     fi
   fi
 
-  echo "| \`$chart\` | $pin (\`$variable\`) | $newest | $note |"
+  settled_note=${settled:-none yet}
+  if [ -n "$settled" ] && [ -n "$position" ] && [ "$settled_position" -gt "$position" ]; then
+    settled_note="$settled (older than the pin)"
+  fi
+
+  echo "| \`$chart\` | \`$variable\` = $(describe "$pin" "$dates") | $(describe "$newest" "$dates") | $note | $settled_note |"
 done <<<"$pins"
 
 echo

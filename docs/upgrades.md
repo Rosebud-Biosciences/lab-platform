@@ -35,8 +35,17 @@ literally inside a `helm_release` and charts pulled from OCI registries
 (Karpenter, Kubecost, the Neuron plugin) are out of scope — bump those with the
 chart's release notes to hand.
 
-Run it locally before a deliberate upgrade; it needs `helm` and `jq` and no
-credentials:
+Every version in the report carries its release date, and each finding names
+the newest release out at least seven days (`CHART_COOLDOWN_DAYS`) as the one
+to bump to — the same delay Dependabot applies, because a release pushed from
+a hijacked chart repository is usually caught and pulled within days. The
+thresholds still count fresher releases, so they are reported, not hidden; for
+a Tailscale security fix, the bulletin is the reason to move sooner. The dates
+are the repository's own index stamps, which a hijacker could backdate, so the
+delay is a filter for the common case rather than a guarantee.
+
+Run it locally before a deliberate upgrade; it needs `helm`, `jq` and
+[`yq`](https://github.com/mikefarah/yq) (v4) and no credentials:
 
 ```bash
 .github/scripts/chart-drift.sh
