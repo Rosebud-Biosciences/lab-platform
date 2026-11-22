@@ -90,7 +90,7 @@ jobs:
       - uses: actions/checkout@v7
       # Repo-wide exceptions live in .checkov.yml with their reasons; per-resource
       # ones are inline next to the resource. The gate stays hard.
-      - uses: bridgecrewio/checkov-action@c10e2438743528f9e4549758fad8b7a62052541d # v12.3136.0
+      - uses: bridgecrewio/checkov-action@45edc9d8856b664db2ec251f5f8632361f0a67aa # v12.3139.0
         with:
           directory: ${{ matrix.dir }}
           framework: terraform
